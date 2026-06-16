@@ -4,6 +4,7 @@
     "slug": "rally-app",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "rallypadel",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
@@ -26,6 +27,11 @@
         "projectId": "2f8419ff-168d-4655-915e-2ae7108bc907"
       }
     },
-    "owner": "rallypadelmx"
+    "owner": "rallypadelmx",
+    "plugins": [
+      "expo-font",
+      "expo-router",
+      "expo-status-bar"
+    ]
   }
 }

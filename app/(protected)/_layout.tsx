@@ -1,0 +1,135 @@
+/**
+ * RALLY · Layout del grupo de rutas protegidas (jugador)
+ * Guard: requiere sesión activa.
+ * Si no hay sesión → redirige a login.
+ * Aquí vive el tab bar del jugador (Doc D §8.6).
+ */
+
+import { useEffect, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import { Tabs, useRouter } from 'expo-router';
+import type { Session } from '@supabase/supabase-js';
+
+import { supabase } from '@/lib/supabase/client';
+import { color } from '@/lib/design-tokens';
+
+// Importar íconos de Tabler (outline) — Doc D §7
+// TODO: Instalar @tabler/icons-react-native cuando se configure
+// Por ahora usamos Text como placeholder de ícono
+
+function TabIcon({ label, active }: { label: string; active: boolean }) {
+  const { Text } = require('react-native');
+  return (
+    <Text style={{ fontSize: 10, color: active ? color.gold : color.muted }}>
+      {label}
+    </Text>
+  );
+}
+
+export default function ProtectedLayout() {
+  const router = useRouter();
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+
+  useEffect(() => {
+    // Verificar sesión al montar
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      if (!data.session) {
+        router.replace('/(auth)/login');
+      }
+    });
+
+    // Escuchar cambios (logout, expiración)
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) {
+        router.replace('/(auth)/login');
+      }
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Cargando mientras se verifica la sesión
+  if (session === undefined) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: color.bg,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator color={color.gold} size="large" />
+      </View>
+    );
+  }
+
+  if (!session) return null; // ya redirigió a login
+
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          // Doc D §8.6 — Tab bar
+          height: 86,
+          backgroundColor: 'rgba(10,10,12,0.92)',
+          borderTopWidth: 1,
+          borderTopColor: color.line,
+        },
+        tabBarActiveTintColor:   color.gold,
+        tabBarInactiveTintColor: color.muted,
+        tabBarLabelStyle: {
+          fontSize: 9.5,
+          fontFamily: 'Inter-Medium',
+          marginBottom: 6,
+        },
+      }}
+    >
+      {/* Tab 1 — Home (Dashboard) */}
+      <Tabs.Screen
+        name="dashboard"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ focused }) => <TabIcon label="🏠" active={focused} />,
+        }}
+      />
+      {/* Tab 2 — Mis Torneos */}
+      <Tabs.Screen
+        name="torneos/index"
+        options={{
+          title: 'Torneos',
+          tabBarIcon: ({ focused }) => <TabIcon label="🏆" active={focused} />,
+        }}
+      />
+      {/* Tab 3 — Mi Ranking */}
+      <Tabs.Screen
+        name="ranking"
+        options={{
+          title: 'Ranking',
+          tabBarIcon: ({ focused }) => <TabIcon label="📊" active={focused} />,
+        }}
+      />
+      {/* Tab 4 — Tienda (Leads de patrocinadores) */}
+      <Tabs.Screen
+        name="planes"
+        options={{
+          title: 'Tienda',
+          tabBarIcon: ({ focused }) => <TabIcon label="🛍️" active={focused} />,
+        }}
+      />
+      {/* Tab 5 — Perfil */}
+      <Tabs.Screen
+        name="perfil"
+        options={{
+          title: 'Perfil',
+          tabBarIcon: ({ focused }) => <TabIcon label="👤" active={focused} />,
+        }}
+      />
+    </Tabs>
+  );
+}
