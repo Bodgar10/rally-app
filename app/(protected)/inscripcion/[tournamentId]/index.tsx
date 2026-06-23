@@ -124,11 +124,11 @@ export default function InscripcionScreen() {
     }
 
     setSearching(true);
+    // RLS de users es "solo tu fila": buscamos vía RPC find_user_by_email
+    // (SECURITY DEFINER, migración 012). Devuelve id/email/full_name/photo_url.
     const { data } = await supabase
-      .from('users')
-      .select('id, full_name, email, photo_url')
-      .eq('email', partnerEmail.trim().toLowerCase())
-      .single();
+      .rpc('find_user_by_email', { p_email: partnerEmail.trim().toLowerCase() })
+      .maybeSingle();
 
     setSearching(false);
 

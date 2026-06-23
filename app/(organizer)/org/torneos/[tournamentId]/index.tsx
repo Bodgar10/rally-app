@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
-import { color, font, fontSize, space }         from '@/lib/design-tokens';
+import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 
 interface Tournament {
   id: string; name: string; start_date: string; end_date: string;
@@ -128,13 +128,30 @@ export default function OrgTournamentScreen() {
         <SectionLabel title="Próximamente" />
         <Card variant="standard">
           {[
-            'Registro manual de parejas (paid_offline)',
-            'Cerrar inscripciones + sugerencia IA de cuadro',
             'Ajuste de calendario',
           ].map((item, i) => (
             <Text key={i} style={s.futureItem}>· {item}</Text>
           ))}
         </Card>
+
+        {/* Acciones del torneo — Sprint 2 */}
+        <SectionLabel title="Acciones" />
+        <TournamentActionButton
+          label="Cerrar inscripciones"
+          subtitle="Genera el cuadro automáticamente por categoría"
+          onPress={() =>
+            router.push(`/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`)
+          }
+          variant="primary"
+        />
+        <TournamentActionButton
+          label="Agregar pareja manual"
+          subtitle="Inscripción paid_offline (pago recibido fuera de la plataforma)"
+          onPress={() =>
+            router.push(`/(organizer)/org/torneos/${tournamentId}/agregar-pareja`)
+          }
+          variant="secondary"
+        />
 
       </ScrollView>
     </SafeAreaView>
@@ -155,3 +172,52 @@ const s = StyleSheet.create({
   catName:          { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text, flex: 1 },
   futureItem:       { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, paddingVertical: space[1] },
 });
+
+// ─── Subcomponente: botón de acción del panel ───────────────────────────────
+function TournamentActionButton({
+  label,
+  subtitle,
+  onPress,
+  variant = "secondary",
+}: {
+  label: string;
+  subtitle?: string;
+  onPress: () => void;
+  variant?: "primary" | "secondary";
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        backgroundColor: variant === "primary" ? color.gold : color.surface,
+        borderRadius: radius.xl,
+        padding: space[4],
+        borderWidth: 1,
+        borderColor: variant === "primary" ? "transparent" : color.line,
+        gap: 4,
+      }}
+    >
+      <Text
+        style={{
+          fontFamily: "Oswald",
+          fontSize: 15,
+          fontWeight: "600",
+          color: variant === "primary" ? color.onGold : color.text,
+        }}
+      >
+        {label}
+      </Text>
+      {subtitle ? (
+        <Text
+          style={{
+            fontFamily: "Inter",
+            fontSize: 11,
+            color: variant === "primary" ? color.onGold : color.muted,
+          }}
+        >
+          {subtitle}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
