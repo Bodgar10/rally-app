@@ -165,7 +165,12 @@ export default function InscripcionScreen() {
       return;
     }
 
-    // Crear la pareja
+    // Precio efectivo de la categoría (mismo criterio que el servidor y la pantalla de pago).
+    const effectiveFee = selectedCategory.fee_override ?? tournament?.registration_fee ?? 0;
+    const isOnlinePay = effectiveFee > 0;
+
+    // Crear la pareja. Con pago online nace 'pending' (la liquida el webhook de Connect tras el
+    // checkout). Torneo gratis (fee 0) se queda 'paid_offline' — no hay cobro que hacer.
     const { error: pairError } = await supabase
       .from('pairs')
       .insert({
@@ -174,7 +179,7 @@ export default function InscripcionScreen() {
         player1_id:          user.id,
         player2_id:          partnerFound.id,
         schedule_preference: schedulePref,
-        payment_status:      'paid_offline', // Sprint 4: cambiar a paid_online con Connect
+        payment_status:      isOnlinePay ? 'pending' : 'paid_offline',
       });
 
     setSubmitting(false);
@@ -188,9 +193,13 @@ export default function InscripcionScreen() {
       return;
     }
 
-    // Éxito — volver al detalle del torneo
-    // TODO Sprint 4: ir a patrocinadores antes de volver
-    router.replace(`/(protected)/torneos/${tournamentId}`);
+    // Éxito. Con pago online → pantalla de pago (checkout Stripe Connect).
+    // Gratis → directo al detalle del torneo.
+    if (isOnlinePay) {
+      router.push(`/(protected)/inscripcion/${tournamentId}/pago`);
+    } else {
+      router.replace(`/(protected)/torneos/${tournamentId}`);
+    }
   }
 
   // ─── Render ──────────────────────────────────────────────────────────

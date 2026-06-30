@@ -1,0 +1,761 @@
+// @ts-self-types="./engine.bundle.d.ts"
+
+// src/lib/engine/format/rules.ts
+var plan = (formatType, groupSizes, advancePerGroup, bestExtraQualifiers, knockoutStart, ambiguous = false, alternatives) => ({
+  formatType,
+  groupSizes,
+  advancePerGroup,
+  bestExtraQualifiers,
+  knockoutStart,
+  ambiguous,
+  alternatives
+});
+var RULES = {
+  2: plan("round_robin", [2], 2, 0, "final"),
+  3: plan("round_robin", [3], 0, 0, "final"),
+  4: plan("round_robin", [4], 2, 0, "final", true, [
+    plan("groups_then_knockout", [4], 2, 0, "semi")
+    // semis 1v4, 2v3
+  ]),
+  5: plan("round_robin", [5], 2, 0, "final"),
+  6: plan("groups_then_knockout", [3, 3], 2, 0, "semi"),
+  7: plan("groups_then_knockout", [4, 3], 2, 0, "semi"),
+  8: plan("groups_then_knockout", [4, 4], 2, 0, "semi"),
+  9: plan("groups_then_knockout", [3, 3, 3], 1, 1, "semi"),
+  10: plan("groups_then_knockout", [5, 5], 2, 0, "semi", true, [
+    plan("groups_then_knockout", [3, 3, 2, 2], 1, 0, "semi")
+  ]),
+  12: plan("groups_then_knockout", [3, 3, 3, 3], 2, 0, "quarter"),
+  14: plan("groups_then_knockout", [4, 4, 3, 3], 2, 0, "quarter", true, [
+    plan("groups_then_knockout", [7, 7], 2, 0, "quarter")
+  ]),
+  16: plan("groups_then_knockout", [4, 4, 4, 4], 2, 0, "quarter"),
+  18: plan("groups_then_knockout", [3, 3, 3, 3, 3, 3], 1, 2, "quarter"),
+  20: plan("groups_then_knockout", [5, 5, 5, 5], 2, 0, "quarter", true, [
+    plan("groups_then_knockout", [4, 4, 4, 4, 4], 1, 3, "quarter")
+  ]),
+  24: plan("groups_then_knockout", [4, 4, 4, 4, 4, 4], 2, 4, "r16"),
+  32: plan("groups_then_knockout", [4, 4, 4, 4, 4, 4, 4, 4], 2, 0, "r16")
+};
+
+// src/lib/engine/format/index.ts
+function isPow2(n) {
+  return n >= 2 && (n & n - 1) === 0;
+}
+function pow2Below(n) {
+  let p = 1;
+  while (p * 2 <= n) p *= 2;
+  return p;
+}
+function knockoutStartForBracket(size) {
+  if (size <= 2) return "final";
+  if (size <= 4) return "semi";
+  if (size <= 8) return "quarter";
+  if (size <= 16) return "r16";
+  return "r32";
+}
+function distribute(n, g2) {
+  const base = Math.floor(n / g2);
+  const rem = n % g2;
+  const sizes = [];
+  for (let i = 0; i < g2; i++) sizes.push(base + (i < rem ? 1 : 0));
+  return sizes;
+}
+function scorePartition(sizes) {
+  if (sizes.some((s) => s < 3 || s > 5)) return null;
+  return sizes.reduce((acc, s) => acc + Math.abs(s - 4), 0);
+}
+function deriveFormat(n) {
+  if (n <= 5) {
+    return {
+      formatType: "round_robin",
+      groupSizes: [n],
+      advancePerGroup: n >= 4 ? 2 : 0,
+      bestExtraQualifiers: 0,
+      knockoutStart: "final",
+      ambiguous: false
+    };
+  }
+  let best = null;
+  let tie = false;
+  const gMin = Math.ceil(n / 5);
+  const gMax = Math.floor(n / 3);
+  for (let g3 = gMin; g3 <= gMax; g3++) {
+    const sizes = distribute(n, g3);
+    const score = scorePartition(sizes);
+    if (score === null) continue;
+    if (best === null || score < best.score) {
+      best = { g: g3, sizes, score };
+      tie = false;
+    } else if (score === best.score) {
+      tie = true;
+    }
+  }
+  if (best === null) {
+    const bracket2 = pow2Below(n);
+    return {
+      formatType: "knockout_only",
+      groupSizes: [],
+      advancePerGroup: 0,
+      bestExtraQualifiers: 0,
+      knockoutStart: knockoutStartForBracket(bracket2),
+      ambiguous: true
+    };
+  }
+  const g2 = best.g;
+  const direct2 = g2 * 2;
+  let advancePerGroup;
+  let bestExtraQualifiers;
+  let bracket;
+  if (isPow2(direct2)) {
+    advancePerGroup = 2;
+    bestExtraQualifiers = 0;
+    bracket = direct2;
+  } else {
+    bracket = pow2Below(direct2);
+    if (bracket >= g2) {
+      advancePerGroup = 1;
+      bestExtraQualifiers = bracket - g2;
+    } else {
+      advancePerGroup = 1;
+      bestExtraQualifiers = 0;
+      bracket = pow2Below(g2);
+    }
+  }
+  return {
+    formatType: "groups_then_knockout",
+    groupSizes: best.sizes,
+    advancePerGroup,
+    bestExtraQualifiers,
+    knockoutStart: knockoutStartForBracket(bracket),
+    ambiguous: tie
+  };
+}
+function computeFormat(numPairs) {
+  if (numPairs < 2) {
+    throw new Error("computeFormat: se requieren al menos 2 parejas.");
+  }
+  const listed = RULES[numPairs];
+  if (listed) return listed;
+  return deriveFormat(numPairs);
+}
+
+// src/lib/engine/fixtures/index.ts
+var BYE = "__BYE__";
+function generateRoundRobin(pairIds) {
+  if (pairIds.length < 2) {
+    throw new Error("generateRoundRobin: se requieren al menos 2 parejas.");
+  }
+  const arr = [...pairIds];
+  if (arr.length % 2 !== 0) arr.push(BYE);
+  const n = arr.length;
+  const rounds = n - 1;
+  const half = n / 2;
+  const fixtures = [];
+  let circle = [...arr];
+  for (let r = 0; r < rounds; r++) {
+    for (let i = 0; i < half; i++) {
+      const a = circle[i];
+      const b = circle[n - 1 - i];
+      if (a !== BYE && b !== BYE) {
+        fixtures.push({ round: r + 1, pairAId: a, pairBId: b });
+      }
+    }
+    circle = [circle[0], circle[n - 1], ...circle.slice(1, n - 1)];
+  }
+  return fixtures;
+}
+
+// src/lib/engine/score/index.ts
+var DEFAULT_SCORE_CONFIG = {
+  bestOf: 3,
+  setTarget: 6,
+  setWinBy: 2,
+  setTiebreakCap: 7,
+  superTiebreakTarget: 10,
+  superTiebreakWinBy: 2
+};
+function normalSetWinner(a, b, cfg) {
+  const hi = Math.max(a, b);
+  const lo = Math.min(a, b);
+  const okClean = hi === cfg.setTarget && lo <= cfg.setTarget - cfg.setWinBy;
+  const okSeven = hi === cfg.setTiebreakCap && (lo === cfg.setTarget - 1 || lo === cfg.setTarget);
+  if (!okClean && !okSeven) return null;
+  if (a === b) return null;
+  return a > b ? "A" : "B";
+}
+function superSetWinner(set, cfg) {
+  const a = set.tiebreakA ?? set.gamesA;
+  const b = set.tiebreakB ?? set.gamesB;
+  const hi = Math.max(a, b);
+  const lo = Math.min(a, b);
+  if (hi < cfg.superTiebreakTarget) return null;
+  if (hi - lo < cfg.superTiebreakWinBy) return null;
+  if (a === b) return null;
+  return a > b ? "A" : "B";
+}
+function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
+  const errors = [];
+  const setsToWin = Math.ceil(config.bestOf / 2);
+  if (!sets || sets.length === 0) {
+    return { valid: false, errors: ["Sin sets capturados."], winnerSide: null, setsA: 0, setsB: 0 };
+  }
+  if (sets.length > config.bestOf) {
+    errors.push(`Demasiados sets: ${sets.length} > mejor de ${config.bestOf}.`);
+  }
+  let setsA = 0;
+  let setsB = 0;
+  let decided = false;
+  for (let i = 0; i < sets.length; i++) {
+    const st = sets[i];
+    if (decided) {
+      errors.push(`Set ${i + 1} capturado despu\xE9s de que el partido ya estaba decidido.`);
+      continue;
+    }
+    const isDecider = setsA === setsToWin - 1 && setsB === setsToWin - 1;
+    if (st.isSuperTiebreak) {
+      if (!isDecider) {
+        errors.push(`Super muerte en el set ${i + 1} pero no es el set decisivo.`);
+      }
+      const w = superSetWinner(st, config);
+      if (w === null) {
+        errors.push(`Super muerte del set ${i + 1} con marcador inv\xE1lido.`);
+      } else if (w === "A") setsA++;
+      else setsB++;
+    } else {
+      const w = normalSetWinner(st.gamesA, st.gamesB, config);
+      if (w === null) {
+        errors.push(`Set ${i + 1} con marcador de games inv\xE1lido (${st.gamesA}-${st.gamesB}).`);
+      } else if (w === "A") setsA++;
+      else setsB++;
+    }
+    if (setsA >= setsToWin || setsB >= setsToWin) decided = true;
+  }
+  if (!decided) {
+    errors.push("Partido incompleto: ning\xFAn lado alcanz\xF3 los sets necesarios para ganar.");
+  }
+  const valid = errors.length === 0;
+  const winnerSide = valid ? setsA > setsB ? "A" : "B" : null;
+  return { valid, errors, winnerSide, setsA, setsB };
+}
+
+// src/lib/engine/standings/index.ts
+var DEFAULT_STANDINGS_CONFIG = {
+  pointsWin: 2,
+  pointsPlayedLoss: 1,
+  superTiebreakGames: "one"
+};
+var emptyStats = () => ({
+  played: 0,
+  won: 0,
+  lost: 0,
+  setsWon: 0,
+  setsLost: 0,
+  gamesWon: 0,
+  gamesLost: 0,
+  points: 0
+});
+function setWinner(set) {
+  if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) {
+    return set.tiebreakA > set.tiebreakB ? "A" : "B";
+  }
+  return set.gamesA >= set.gamesB ? "A" : "B";
+}
+function setGames(set, cfg) {
+  if (set.isSuperTiebreak) {
+    if (cfg.superTiebreakGames === "score" && set.tiebreakA != null && set.tiebreakB != null) {
+      return { a: set.tiebreakA, b: set.tiebreakB };
+    }
+    const w = setWinner(set);
+    return { a: w === "A" ? 1 : 0, b: w === "B" ? 1 : 0 };
+  }
+  return { a: set.gamesA, b: set.gamesB };
+}
+function computeStats(pairIds, matches, cfg) {
+  const set = new Set(pairIds);
+  const stats = /* @__PURE__ */ new Map();
+  pairIds.forEach((id) => stats.set(id, emptyStats()));
+  for (const m of matches) {
+    if (!m.played || m.winnerPairId == null) continue;
+    if (!set.has(m.pairAId) || !set.has(m.pairBId)) continue;
+    const sa = stats.get(m.pairAId);
+    const sb = stats.get(m.pairBId);
+    sa.played++;
+    sb.played++;
+    let setsA = 0;
+    let setsB = 0;
+    let gamesA = 0;
+    let gamesB = 0;
+    for (const st of m.sets) {
+      if (setWinner(st) === "A") setsA++;
+      else setsB++;
+      const g2 = setGames(st, cfg);
+      gamesA += g2.a;
+      gamesB += g2.b;
+    }
+    sa.setsWon += setsA;
+    sa.setsLost += setsB;
+    sb.setsWon += setsB;
+    sb.setsLost += setsA;
+    sa.gamesWon += gamesA;
+    sa.gamesLost += gamesB;
+    sb.gamesWon += gamesB;
+    sb.gamesLost += gamesA;
+    if (m.winnerPairId === m.pairAId) {
+      sa.won++;
+      sb.lost++;
+      sa.points += cfg.pointsWin;
+      sb.points += cfg.pointsPlayedLoss;
+    } else {
+      sb.won++;
+      sa.lost++;
+      sb.points += cfg.pointsWin;
+      sa.points += cfg.pointsPlayedLoss;
+    }
+  }
+  return stats;
+}
+var diff = (s, k) => k === "sets" ? s.setsWon - s.setsLost : s.gamesWon - s.gamesLost;
+function resolveTie(run, matches, full, cfg) {
+  if (run.length === 1) return run;
+  const mini = computeStats(run, matches, cfg);
+  return [...run].sort((a, b) => {
+    const ma = mini.get(a);
+    const mb = mini.get(b);
+    if (mb.points !== ma.points) return mb.points - ma.points;
+    if (diff(mb, "sets") !== diff(ma, "sets")) return diff(mb, "sets") - diff(ma, "sets");
+    if (diff(mb, "games") !== diff(ma, "games")) return diff(mb, "games") - diff(ma, "games");
+    if (mb.gamesWon !== ma.gamesWon) return mb.gamesWon - ma.gamesWon;
+    const ga = full.get(a);
+    const gb = full.get(b);
+    if (diff(gb, "sets") !== diff(ga, "sets")) return diff(gb, "sets") - diff(ga, "sets");
+    if (diff(gb, "games") !== diff(ga, "games")) return diff(gb, "games") - diff(ga, "games");
+    if (gb.gamesWon !== ga.gamesWon) return gb.gamesWon - ga.gamesWon;
+    return 0;
+  });
+}
+function computeStandings(pairIds, matches, config = DEFAULT_STANDINGS_CONFIG) {
+  const full = computeStats(pairIds, matches, config);
+  const byPoints = [...pairIds].sort(
+    (a, b) => full.get(b).points - full.get(a).points
+  );
+  const ordered = [];
+  let i = 0;
+  while (i < byPoints.length) {
+    let j = i;
+    const p = full.get(byPoints[i]).points;
+    while (j < byPoints.length && full.get(byPoints[j]).points === p) j++;
+    ordered.push(...resolveTie(byPoints.slice(i, j), matches, full, config));
+    i = j;
+  }
+  return ordered.map((pairId, idx) => {
+    const s = full.get(pairId);
+    return {
+      pairId,
+      played: s.played,
+      won: s.won,
+      lost: s.lost,
+      setsWon: s.setsWon,
+      setsLost: s.setsLost,
+      gamesWon: s.gamesWon,
+      gamesLost: s.gamesLost,
+      points: s.points,
+      position: idx + 1
+    };
+  });
+}
+
+// src/lib/engine/clinch/index.ts
+var MAX_BRUTE_FORCE_MATCHES = 16;
+function qualifiersForScenario(pairIds, matches, advanceCount, cfg) {
+  const table = computeStandings(pairIds, matches, cfg);
+  return new Set(table.slice(0, advanceCount).map((r) => r.pairId));
+}
+function applyScenario(base, remaining, mask) {
+  const decided = remaining.map((m, i) => {
+    const bWins = mask >> i & 1;
+    return {
+      ...m,
+      played: true,
+      winnerPairId: bWins ? m.pairBId : m.pairAId,
+      sets: m.sets.length ? m.sets : [
+        // marcador mínimo coherente para standings (2-0 al ganador)
+        { gamesA: bWins ? 0 : 6, gamesB: bWins ? 6 : 0, isSuperTiebreak: false },
+        { gamesA: bWins ? 0 : 6, gamesB: bWins ? 6 : 0, isSuperTiebreak: false }
+      ]
+    };
+  });
+  const playedBase = base.filter((m) => m.played && m.winnerPairId != null);
+  return [...playedBase, ...decided];
+}
+function computeClinch(pairIds, matches, advanceCount, config = DEFAULT_STANDINGS_CONFIG) {
+  const remaining = matches.filter((m) => !m.played || m.winnerPairId == null);
+  const k = remaining.length;
+  if (k === 0) {
+    const quals = qualifiersForScenario(pairIds, matches, advanceCount, config);
+    return pairIds.map((pairId) => ({
+      pairId,
+      status: quals.has(pairId) ? "clinched" : "eliminated",
+      dependsOnMatchIds: []
+    }));
+  }
+  if (k > MAX_BRUTE_FORCE_MATCHES) {
+    return conservativeByPointBound(pairIds, matches, remaining, advanceCount, config);
+  }
+  const scenarios = 1 << k;
+  const qualifiedPerScenario = pairIds.map(() => []);
+  const idx = new Map(pairIds.map((id, i) => [id, i]));
+  for (let mask = 0; mask < scenarios; mask++) {
+    const scenarioMatches = applyScenario(matches, remaining, mask);
+    const quals = qualifiersForScenario(pairIds, scenarioMatches, advanceCount, config);
+    pairIds.forEach((id) => qualifiedPerScenario[idx.get(id)].push(quals.has(id)));
+  }
+  return pairIds.map((pairId) => {
+    const arr = qualifiedPerScenario[idx.get(pairId)];
+    const allYes = arr.every(Boolean);
+    const noneYes = arr.every((x) => !x);
+    let status = "alive";
+    if (allYes) status = "clinched";
+    else if (noneYes) status = "eliminated";
+    let dependsOnMatchIds = [];
+    if (status === "alive") {
+      dependsOnMatchIds = remaining.filter((_, bit) => scenarioFlipsQualification(arr, bit, k)).map((m) => m.matchId);
+    }
+    return { pairId, status, dependsOnMatchIds };
+  });
+}
+function scenarioFlipsQualification(arr, bit, k) {
+  const total = 1 << k;
+  for (let mask = 0; mask < total; mask++) {
+    if (mask >> bit & 1) continue;
+    const other = mask | 1 << bit;
+    if (arr[mask] !== arr[other]) return true;
+  }
+  return false;
+}
+function conservativeByPointBound(pairIds, matches, remaining, advanceCount, config) {
+  const current = computeStandings(pairIds, matches, config);
+  const pointsNow = new Map(current.map((r) => [r.pairId, r.points]));
+  const remainingCount = new Map(pairIds.map((id) => [id, 0]));
+  for (const m of remaining) {
+    remainingCount.set(m.pairAId, (remainingCount.get(m.pairAId) ?? 0) + 1);
+    remainingCount.set(m.pairBId, (remainingCount.get(m.pairBId) ?? 0) + 1);
+  }
+  const best = (id) => (pointsNow.get(id) ?? 0) + config.pointsWin * (remainingCount.get(id) ?? 0);
+  const worst = (id) => (pointsNow.get(id) ?? 0) + config.pointsPlayedLoss * (remainingCount.get(id) ?? 0);
+  return pairIds.map((pairId) => {
+    const myWorst = worst(pairId);
+    const myBest = best(pairId);
+    const guaranteedAbove = pairIds.filter((o) => o !== pairId && worst(o) > myBest).length;
+    const canBeAbove = pairIds.filter((o) => o !== pairId && best(o) >= myWorst).length;
+    let status = "alive";
+    if (canBeAbove < advanceCount) status = "clinched";
+    else if (guaranteedAbove >= advanceCount) status = "eliminated";
+    return { pairId, status, dependsOnMatchIds: status === "alive" ? remaining.map((m) => m.matchId) : [] };
+  });
+}
+
+// src/lib/engine/seeding/select-qualifiers.ts
+function cmpTiebreak(a, b) {
+  if (b.points !== a.points) return b.points - a.points;
+  const setsA = a.setsWon - a.setsLost, setsB = b.setsWon - b.setsLost;
+  if (setsB !== setsA) return setsB - setsA;
+  const gA = a.gamesWon - a.gamesLost, gB = b.gamesWon - b.gamesLost;
+  if (gB !== gA) return gB - gA;
+  return b.gamesWon - a.gamesWon;
+}
+function selectQualifiers(standings, advancePerGroup, bestExtraQualifiers) {
+  if (advancePerGroup < 1) throw new Error("advancePerGroup must be >= 1");
+  const directos = standings.filter((s) => s.position <= advancePerGroup);
+  let extra = [];
+  if (bestExtraQualifiers > 0) {
+    extra = standings.filter((s) => s.position === advancePerGroup + 1).sort(cmpTiebreak).slice(0, bestExtraQualifiers);
+  }
+  const ordered = [...directos, ...extra].sort((a, b) => {
+    if (a.position !== b.position) return a.position - b.position;
+    return cmpTiebreak(a, b);
+  });
+  const n = ordered.length;
+  return ordered.map((s, i) => ({
+    pairId: s.pairId,
+    groupId: s.groupId,
+    rating: (n - i) * 100
+    // separación amplia y determinista; computeSeeding solo usa el orden
+  }));
+}
+
+// src/lib/engine/seeding/stage-map.ts
+function stageForBracketSize(bracketSize) {
+  switch (bracketSize) {
+    case 32:
+      return "round_of_32";
+    case 16:
+      return "round_of_16";
+    case 8:
+      return "quarter";
+    case 4:
+      return "semi";
+    case 2:
+      return "final";
+    default:
+      throw new Error(`unsupported bracket size: ${bracketSize}`);
+  }
+}
+
+// src/lib/engine/seeding/index.ts
+function pow2AtLeast(n) {
+  let p = 1;
+  while (p < n) p *= 2;
+  return Math.max(p, 2);
+}
+function seedOrder(bracketSize) {
+  let seeds = [1, 2];
+  while (seeds.length < bracketSize) {
+    const sum = seeds.length * 2 + 1;
+    const next = [];
+    for (const s of seeds) {
+      next.push(s);
+      next.push(sum - s);
+    }
+    seeds = next;
+  }
+  return seeds;
+}
+function groupOf(occupants, slot) {
+  return occupants[slot]?.groupId ?? null;
+}
+function pairingsFrom(occupants) {
+  const matches = [];
+  for (let i = 0; i < occupants.length; i += 2) {
+    const a = occupants[i];
+    const b = occupants[i + 1];
+    matches.push({
+      slotA: i,
+      slotB: i + 1,
+      pairAId: a?.pairId ?? null,
+      pairBId: b?.pairId ?? null,
+      isRematch: !!a && !!b && a.groupId === b.groupId
+    });
+  }
+  return matches;
+}
+function computeSeeding(qualifiers, bracketSize) {
+  if (qualifiers.length < 2) {
+    throw new Error("computeSeeding: se requieren al menos 2 parejas clasificadas.");
+  }
+  const size = bracketSize ?? pow2AtLeast(qualifiers.length);
+  const seeded = [...qualifiers].sort(
+    (a, b) => b.rating - a.rating || (a.pairId < b.pairId ? -1 : 1)
+  );
+  const order = seedOrder(size);
+  const occupants = new Array(size).fill(null);
+  order.forEach((seedNum, slot) => {
+    const q = seeded[seedNum - 1];
+    occupants[slot] = q ?? null;
+  });
+  for (let pass = 0; pass < size; pass++) {
+    let swapped = false;
+    for (let i = 0; i < size; i += 2) {
+      const a = occupants[i];
+      const b = occupants[i + 1];
+      if (!a || !b || a.groupId !== b.groupId) continue;
+      for (let j = 0; j < size; j++) {
+        if (j === i || j === i + 1) continue;
+        const partnerSlot = j % 2 === 0 ? j + 1 : j - 1;
+        if (partnerSlot === i || partnerSlot === i + 1) continue;
+        const cand = occupants[j];
+        const candPartner = occupants[partnerSlot];
+        const okHere = !cand || a.groupId !== cand.groupId;
+        const okThere = !candPartner || b.groupId !== groupOf([candPartner], 0);
+        if (okHere && okThere) {
+          occupants[i + 1] = cand;
+          occupants[j] = b;
+          swapped = true;
+          break;
+        }
+      }
+    }
+    if (!swapped) break;
+  }
+  const matches = pairingsFrom(occupants);
+  const rematchesAllowed = matches.filter((m) => m.isRematch).map((m) => `${m.pairAId} vs ${m.pairBId} (mismo grupo, rematch inevitable)`);
+  return { bracketSize: size, matches, rematchesAllowed };
+}
+
+// src/lib/engine/bracket/index.ts
+function winnerOf(m) {
+  if (m.winnerPairId) return m.winnerPairId;
+  if (m.pairAId && !m.pairBId) return m.pairAId;
+  if (m.pairBId && !m.pairAId) return m.pairBId;
+  return null;
+}
+function loserOf(m) {
+  const w = winnerOf(m);
+  if (!w || !m.pairAId || !m.pairBId) return null;
+  return w === m.pairAId ? m.pairBId : m.pairAId;
+}
+function advanceBracket(round) {
+  if (round.length < 2 || round.length % 2 !== 0) {
+    throw new Error("advanceBracket: la ronda debe tener un n\xBA par (>=2) de partidos.");
+  }
+  const next = [];
+  let complete = true;
+  for (let i = 0; i < round.length; i += 2) {
+    const wa = winnerOf(round[i]);
+    const wb = winnerOf(round[i + 1]);
+    if (wa === null || wb === null) complete = false;
+    next.push({
+      pairAId: wa,
+      pairBId: wb,
+      sourceMatchIds: [round[i].matchId, round[i + 1].matchId]
+    });
+  }
+  return { next, complete };
+}
+function thirdPlaceFromSemis(semis) {
+  const la = loserOf(semis[0]);
+  const lb = loserOf(semis[1]);
+  if (!la || !lb) return null;
+  return { pairAId: la, pairBId: lb, sourceMatchIds: [semis[0].matchId, semis[1].matchId] };
+}
+
+// src/lib/engine/rating/glicko2.ts
+var SCALE = 173.7178;
+var EPSILON = 1e-6;
+var DEFAULT_TAU = 0.5;
+function g(phi) {
+  return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI));
+}
+function expectedScore(mu, muJ, phiJ) {
+  return 1 / (1 + Math.exp(-g(phiJ) * (mu - muJ)));
+}
+function updateRating(player, opponents, tau = DEFAULT_TAU) {
+  const mu = (player.rating - 1500) / SCALE;
+  const phi = player.rd / SCALE;
+  const sigma = player.volatility;
+  if (opponents.length === 0) {
+    const phiStar2 = Math.sqrt(phi * phi + sigma * sigma);
+    return { rating: player.rating, rd: phiStar2 * SCALE, volatility: sigma };
+  }
+  let vInv = 0;
+  let deltaSum = 0;
+  for (const o of opponents) {
+    const muJ = (o.rating - 1500) / SCALE;
+    const phiJ = o.rd / SCALE;
+    const gj = g(phiJ);
+    const ej = expectedScore(mu, muJ, phiJ);
+    vInv += gj * gj * ej * (1 - ej);
+    deltaSum += gj * (o.score - ej);
+  }
+  const v = 1 / vInv;
+  const delta = v * deltaSum;
+  const a = Math.log(sigma * sigma);
+  const f = (x) => {
+    const ex = Math.exp(x);
+    const num = ex * (delta * delta - phi * phi - v - ex);
+    const den = 2 * Math.pow(phi * phi + v + ex, 2);
+    return num / den - (x - a) / (tau * tau);
+  };
+  let A = a;
+  let B;
+  if (delta * delta > phi * phi + v) {
+    B = Math.log(delta * delta - phi * phi - v);
+  } else {
+    let k = 1;
+    while (f(a - k * tau) < 0) k++;
+    B = a - k * tau;
+  }
+  let fA = f(A);
+  let fB = f(B);
+  while (Math.abs(B - A) > EPSILON) {
+    const C = A + (A - B) * fA / (fB - fA);
+    const fC = f(C);
+    if (fC * fB <= 0) {
+      A = B;
+      fA = fB;
+    } else {
+      fA = fA / 2;
+    }
+    B = C;
+    fB = fC;
+  }
+  const sigmaPrime = Math.exp(A / 2);
+  const phiStar = Math.sqrt(phi * phi + sigmaPrime * sigmaPrime);
+  const phiPrime = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
+  const muPrime = mu + phiPrime * phiPrime * deltaSum;
+  return {
+    rating: muPrime * SCALE + 1500,
+    rd: phiPrime * SCALE,
+    volatility: sigmaPrime
+  };
+}
+function combineOpponentPair(a, b) {
+  return {
+    rating: (a.rating + b.rating) / 2,
+    rd: Math.sqrt((a.rd * a.rd + b.rd * b.rd) / 2)
+  };
+}
+
+// src/lib/engine/rating/category-bands.ts
+var DEFAULT_BANDS = [
+  { division: "sexta", min: -Infinity, max: 1399 },
+  { division: "quinta", min: 1400, max: 1549 },
+  { division: "cuarta", min: 1550, max: 1699 },
+  { division: "tercera", min: 1700, max: 1849 },
+  { division: "segunda", min: 1850, max: 1999 },
+  { division: "primera", min: 2e3, max: Infinity }
+];
+var DEFAULT_BAND_CONFIG = {
+  bands: DEFAULT_BANDS,
+  rdConfidentThreshold: 100,
+  promotionTournamentsThreshold: 3
+};
+function divisionForRating(rating, cfg = DEFAULT_BAND_CONFIG) {
+  const band = cfg.bands.find((b) => rating >= b.min && rating <= b.max);
+  return band ? band.division : cfg.bands[cfg.bands.length - 1].division;
+}
+
+// src/lib/engine/ranking-points/index.ts
+var DEFAULT_RANKING_RULES = {
+  groupWinPoints: 50,
+  qualifyBonus: 100,
+  roundPoints: {
+    r16: 150,
+    quarter: 250,
+    semi: 400,
+    final: 650,
+    champion: 1e3
+  },
+  drawsizeMultipliers: {
+    lte8: 0.7,
+    from9to16: 1,
+    from17to32: 1.3,
+    gte33: 1.5
+  },
+  roundrobinChampionBonus: 1e3,
+  applyMultiplierToTotal: true
+};
+function drawMultiplier(drawSize, rules) {
+  const m = rules.drawsizeMultipliers;
+  if (drawSize <= 8) return m.lte8;
+  if (drawSize <= 16) return m.from9to16;
+  if (drawSize <= 32) return m.from17to32;
+  return m.gte33;
+}
+function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
+  let total = result.groupWins * rules.groupWinPoints;
+  if (result.roundRobinOnly) {
+    if (result.wonRoundRobin) total += rules.roundrobinChampionBonus;
+  } else {
+    if (result.qualified) total += rules.qualifyBonus;
+    if (result.furthestRound !== "none") {
+      total += rules.roundPoints[result.furthestRound];
+    }
+  }
+  if (rules.applyMultiplierToTotal) {
+    total *= drawMultiplier(result.drawSize, rules);
+  }
+  return Math.round(total);
+}
+
+export { advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, generateRoundRobin, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };

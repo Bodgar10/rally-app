@@ -1,0 +1,45 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@supabase/supabase-js@2": "2.108.2"
+  },
+  "jsr": {
+    "@supabase/supabase-js@2.108.2": {
+      "integrity": "db603b534b1939a216ef004fe9fdd0c72bb4ba097fb04be23ea76cb8c70272aa"
+    }
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.45.4": "1108d69216995335d057dbd15907caaf514a4d1ef082f097050573b9d589a57c",
+    "https://esm.sh/stripe@17.5.0?target=deno": "d6c6f9f18f527a114908a3e9a9bc777e2d05b4acbcb626595b85f0a6513eb6ab"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@react-native-async-storage/async-storage@2.2.0",
+        "npm:@react-native/jest-preset@0.86",
+        "npm:@supabase/supabase-js@^2.108.2",
+        "npm:@types/jest@29.5.14",
+        "npm:@types/react@~19.2.2",
+        "npm:babel-preset-expo@56.0",
+        "npm:expo-constants@~56.0.18",
+        "npm:expo-font@~56.0.7",
+        "npm:expo-linear-gradient@~56.0.4",
+        "npm:expo-linking@~56.0.14",
+        "npm:expo-router@~56.2.11",
+        "npm:expo-status-bar@~56.0.4",
+        "npm:expo@~56.0.12",
+        "npm:jest-expo@~56.0.5",
+        "npm:jest@29.7",
+        "npm:nativewind@^4.2.5",
+        "npm:react-native-safe-area-context@5.7",
+        "npm:react-native-screens@4.25.2",
+        "npm:react-native-worklets@0.8.3",
+        "npm:react-native@0.85.3",
+        "npm:react@19.2.3",
+        "npm:tailwindcss@^3.4.19",
+        "npm:tsup@^8.3.0",
+        "npm:typescript@~6.0.3"
+      ]
+    }
+  }
+}

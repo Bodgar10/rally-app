@@ -127,3 +127,8 @@ export function computeSeeding(
 
   return { bracketSize: size, matches, rematchesAllowed };
 }
+
+export { selectQualifiers } from './select-qualifiers';
+export type { QualifierStanding } from './select-qualifiers';
+export { stageForBracketSize } from './stage-map';
+export type { MatchStage } from './stage-map';

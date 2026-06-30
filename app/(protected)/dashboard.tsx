@@ -25,6 +25,13 @@ import { useRouter } from 'expo-router';
 import type { User } from '@supabase/supabase-js';
 
 import { supabase } from '@/lib/supabase/client';
+import MyNextMatch from '@/components/realtime/MyNextMatch';
+import { ProBenefitsSheet } from '@/components/checkout/ProBenefitsSheet';
+import { ProActivatedModal } from '@/components/checkout/ProActivatedModal';
+import { getFeatureFlags } from '@/lib/feature-flags';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useProActivation } from '@/hooks/useProActivation';
+import { useURL, parse } from 'expo-linking';
 import { hasOrganizerMembership } from '@/lib/auth/guards';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 
@@ -34,6 +41,9 @@ export default function DashboardScreen() {
   const [user, setUser]           = useState<User | null>(null);
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [loading, setLoading]     = useState(true);
+  const [pairIds, setPairIds]     = useState<string[]>([]);
+  const [subscription, setSubscription] = useState<{ status: string | null; billing_cycle: string | null } | null>(null);
+  const [proSheetOpen, setProSheetOpen] = useState(false);
 
   useEffect(() => {
     async function loadUserData() {
@@ -42,6 +52,22 @@ export default function DashboardScreen() {
 
       setUser(data.user);
 
+      // Obtener pair_ids del usuario para MyNextMatch
+      const { data: pairs } = await supabase
+        .from('pairs')
+        .select('id')
+        .or(`player1_id.eq.${data.user.id},player2_id.eq.${data.user.id}`);
+      if (pairs) setPairIds(pairs.map((p: { id: string }) => p.id));
+
+      // Suscripción del usuario (para el banner Pro): active o trialing
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('status, billing_cycle')
+        .eq('user_id', data.user.id)
+        .in('status', ['active', 'trialing'])
+        .maybeSingle();
+      setSubscription(sub ?? null);
+
       // Verificar membresía de organizador (muestra switch de modo o CTA)
       const hasMembership = await hasOrganizerMembership(data.user.id);
       setIsOrganizer(hasMembership);
@@ -49,6 +75,24 @@ export default function DashboardScreen() {
     }
     loadUserData();
   }, []);
+
+  // Deep link de regreso desde la web de suscripción (la BD es la fuente de verdad).
+  const incomingURL = useURL();
+  const {
+    isProJustActivated,
+    billingCycle: activatedCycle,
+    checkProStatus,
+    clearActivation,
+  } = useProActivation();
+
+  useEffect(() => {
+    if (!incomingURL) return;
+    const { queryParams } = parse(incomingURL);
+    if (queryParams?.pro_activated === 'true') {
+      // El parámetro solo gatilla la verificación; la activación se confirma contra la BD.
+      checkProStatus();
+    }
+  }, [incomingURL, checkProStatus]);
 
   // Nombre visible: metadata del auth o email como fallback
   const displayName = user?.user_metadata?.full_name
@@ -63,8 +107,21 @@ export default function DashboardScreen() {
     );
   }
 
+  const flags = getFeatureFlags();
+  const isPro = subscription?.status === 'active' || subscription?.status === 'trialing';
+
   return (
     <SafeAreaView style={styles.safe}>
+      <ProBenefitsSheet
+        visible={proSheetOpen}
+        onClose={() => setProSheetOpen(false)}
+        isDirectCTA={flags.SUBSCRIPTION_CTA_DIRECT ?? false}
+      />
+      <ProActivatedModal
+        visible={isProJustActivated}
+        billingCycle={activatedCycle}
+        onClose={clearActivation}
+      />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -81,21 +138,26 @@ export default function DashboardScreen() {
           <Text style={styles.sectionLabelText}>MI PRÓXIMO PARTIDO</Text>
         </View>
 
-        <View style={styles.heroCard}>
-          <View style={styles.accentBar} />
-          <Text style={styles.heroEmpty}>Sin partidos programados</Text>
-          <Text style={styles.heroSubtext}>
-            Inscríbete a un torneo para ver tu próximo partido aquí, en vivo.
-          </Text>
-          <Pressable
-            style={({ pressed }) => [styles.btnPrimary, pressed && styles.btnPrimaryPressed]}
-            onPress={() => router.push('/(protected)/torneos/index')}
-            accessibilityRole="button"
-            accessibilityLabel="Ver torneos disponibles"
-          >
-            <Text style={styles.btnPrimaryText}>Ver torneos disponibles</Text>
-          </Pressable>
-        </View>
+        {pairIds.length > 0 ? (
+          // En vivo via Realtime cuando el usuario tiene parejas inscritas
+          <MyNextMatch pairIds={pairIds} />
+        ) : (
+          <View style={styles.heroCard}>
+            <View style={styles.accentBar} />
+            <Text style={styles.heroEmpty}>Sin partidos programados</Text>
+            <Text style={styles.heroSubtext}>
+              Inscríbete a un torneo para ver tu próximo partido aquí, en vivo.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.btnPrimary, pressed && styles.btnPrimaryPressed]}
+              onPress={() => router.push('/(protected)/torneos/index')}
+              accessibilityRole="button"
+              accessibilityLabel="Ver torneos disponibles"
+            >
+              <Text style={styles.btnPrimaryText}>Ver torneos disponibles</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* ── CTA Organizador o Switch de Modo ─────────────────── */}
         {isOrganizer ? (
@@ -139,6 +201,73 @@ export default function DashboardScreen() {
               </Pressable>
             </View>
           </View>
+        )}
+
+        {/* ── Banner Pro — solo visible para usuarios no suscritos ─ */}
+        {!isPro && (
+          <Pressable
+            onPress={() => setProSheetOpen(true)}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.92 : 1,
+              marginBottom: 14,
+            })}
+          >
+            <View
+              style={{
+                backgroundColor: color.wine,
+                borderRadius: 15,
+                borderWidth: 1,
+                borderColor: 'rgba(241,217,140,0.38)',
+                padding: 13,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 11,
+                shadowColor: 'rgba(120,28,48,0.6)',
+                shadowOffset: { width: 0, height: 8 },
+                shadowRadius: 24,
+                shadowOpacity: 1,
+                elevation: 8,
+              }}
+            >
+              <LinearGradient
+                colors={[color.goldBright, color.goldDeep]}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Text style={{ fontSize: 16 }}>⚡</Text>
+              </LinearGradient>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text
+                  style={{
+                    fontFamily: font.display,
+                    fontSize: 13.5,
+                    fontWeight: '600',
+                    color: '#F7EAC6',
+                  }}
+                >
+                  Conoce los beneficios Pro
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: font.body,
+                    fontSize: 10.5,
+                    color: '#E6CDC2',
+                    marginTop: 2,
+                    lineHeight: 14,
+                  }}
+                >
+                  Análisis, scouting, descuento en torneos y más.
+                </Text>
+              </View>
+              <Text style={{ color: color.goldBright, fontSize: 16 }}>›</Text>
+            </View>
+          </Pressable>
         )}
 
         {/* ── Acceso rápido a torneos ──────────────────────────── */}

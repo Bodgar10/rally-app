@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable,
+  View, Text, ScrollView, Pressable, TextInput,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -32,6 +32,13 @@ export default function OrgTournamentScreen() {
   const [loading, setLoading]       = useState(true);
   const [updating, setUpdating]     = useState(false);
 
+  // ── Estado de jueces asignados ──
+  const [judges, setJudges] = useState<Array<{ id: string; userId: string; name: string; email: string }>>([]);
+  const [judgeEmail, setJudgeEmail] = useState('');
+  const [judgeSearching, setJudgeSearching] = useState(false);
+  const [judgeError, setJudgeError] = useState<string | null>(null);
+  const [judgeSuccess, setJudgeSuccess] = useState<string | null>(null);
+
   async function load() {
     const [{ data: t }, { data: cats }] = await Promise.all([
       supabase.from('tournaments').select('id,name,start_date,end_date,status,registration_fee').eq('id', tournamentId).single(),
@@ -42,7 +49,111 @@ export default function OrgTournamentScreen() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [tournamentId]);
+  useEffect(() => { load(); loadJudges(); }, [tournamentId]);
+
+  async function loadJudges() {
+    if (!tournamentId) return;
+    const { data, error } = await supabase
+      .from('tournament_judges')
+      .select(
+        `id, user_id,
+         users:user_id ( full_name, email )`
+      )
+      .eq('tournament_id', tournamentId)
+      .order('assigned_at', { ascending: true });
+
+    if (error) {
+      console.error('[loadJudges]', error);
+      return;
+    }
+
+    setJudges(
+      ((data ?? []) as unknown as Array<{
+        id: string;
+        user_id: string;
+        users: { full_name: string; email: string };
+      }>).map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        name: row.users?.full_name ?? '—',
+        email: row.users?.email ?? '—',
+      }))
+    );
+  }
+
+  async function assignJudge() {
+    setJudgeError(null);
+    setJudgeSuccess(null);
+    if (!judgeEmail.trim()) {
+      setJudgeError('Ingresa el correo del juez.');
+      return;
+    }
+    setJudgeSearching(true);
+    try {
+      // Buscar usuario por correo (RPC SECURITY DEFINER)
+      const { data: found, error: rpcErr } = await supabase.rpc(
+        'find_user_by_email',
+        { p_email: judgeEmail.trim().toLowerCase() }
+      );
+      if (rpcErr || !found || found.length === 0) {
+        setJudgeError('No se encontró un usuario con ese correo. Debe estar registrado en RALLY.');
+        return;
+      }
+      const candidate = (found as Array<{ id: string; full_name: string; email: string }>)[0];
+
+      // Verificar que no esté ya asignado
+      if (judges.some((j) => j.userId === candidate.id)) {
+        setJudgeError(`${candidate.full_name} ya está asignado a este torneo.`);
+        return;
+      }
+
+      // Obtener organizer_id del torneo
+      const { data: tData } = await supabase
+        .from('tournaments')
+        .select('organizer_id')
+        .eq('id', tournamentId)
+        .single();
+
+      if (!tData) {
+        setJudgeError('No se pudo obtener información del torneo.');
+        return;
+      }
+
+      const { error: insertErr } = await supabase
+        .from('tournament_judges')
+        .insert({
+          tournament_id: tournamentId,
+          user_id: candidate.id,
+          organizer_id: tData.organizer_id,
+        });
+
+      if (insertErr) {
+        console.error('[assignJudge] insert error:', insertErr);
+        setJudgeError('Error al asignar. Verifica que el usuario sea juez de este organizador.');
+        return;
+      }
+
+      setJudgeEmail('');
+      setJudgeSuccess(`${candidate.full_name} asignado como juez.`);
+      await loadJudges();
+    } finally {
+      setJudgeSearching(false);
+    }
+  }
+
+  async function removeJudge(judgeRowId: string, name: string) {
+    const { error } = await supabase
+      .from('tournament_judges')
+      .delete()
+      .eq('id', judgeRowId);
+
+    if (error) {
+      console.error('[removeJudge]', error);
+      return;
+    }
+    setJudgeSuccess(`${name} desasignado.`);
+    await loadJudges();
+  }
 
   async function handleOpenRegistration() {
     setUpdating(true);
@@ -152,6 +263,156 @@ export default function OrgTournamentScreen() {
           }
           variant="secondary"
         />
+
+        {/* ── Sección: Jueces asignados ── */}
+        <View style={{ marginTop: 24, marginBottom: 8 }}>
+          <Text
+            style={{
+              fontFamily: font.display,
+              fontSize: 10,
+              fontWeight: '500',
+              color: color.champagne,
+              textTransform: 'uppercase',
+              letterSpacing: 1.2,
+              marginBottom: 12,
+            }}
+          >
+            Jueces asignados
+          </Text>
+
+          {/* Lista de jueces actuales */}
+          {judges.length === 0 ? (
+            <View
+              style={{
+                backgroundColor: color.surface,
+                borderRadius: radius.lg,
+                padding: 14,
+                borderWidth: 1,
+                borderColor: color.lineSoft,
+                marginBottom: 12,
+              }}
+            >
+              <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted, textAlign: 'center' }}>
+                Sin jueces asignados. Asigna uno para que pueda capturar resultados.
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: 8, marginBottom: 12 }}>
+              {judges.map((j) => (
+                <View
+                  key={j.id}
+                  style={{
+                    backgroundColor: color.surface,
+                    borderRadius: radius.lg,
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: color.lineSoft,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: font.body, fontSize: 13, fontWeight: '600', color: color.text }}>
+                      {j.name}
+                    </Text>
+                    <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted }}>
+                      {j.email}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => removeJudge(j.id, j.name)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: radius.sm,
+                      borderWidth: 1,
+                      borderColor: 'rgba(224,114,111,0.30)',
+                      backgroundColor: 'rgba(224,114,111,0.08)',
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Desasignar a ${j.name}`}
+                  >
+                    <Text style={{ fontFamily: font.body, fontSize: 11, color: color.danger }}>
+                      Quitar
+                    </Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Formulario de asignación */}
+          <View
+            style={{
+              backgroundColor: color.surface,
+              borderRadius: radius.lg,
+              padding: 14,
+              borderWidth: 1,
+              borderColor: color.lineSoft,
+              gap: 10,
+            }}
+          >
+            <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>
+              Asignar juez por correo:
+            </Text>
+            <TextInput
+              value={judgeEmail}
+              onChangeText={(v) => { setJudgeEmail(v); setJudgeError(null); setJudgeSuccess(null); }}
+              placeholder="correo@ejemplo.com"
+              placeholderTextColor={color.muted}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              style={{
+                backgroundColor: color.surface2,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: color.lineSoft,
+                color: color.text,
+                fontFamily: font.body,
+                fontSize: 13,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                minHeight: 44,
+              }}
+              accessibilityLabel="Correo del juez"
+            />
+
+            {judgeError && (
+              <Text style={{ fontFamily: font.body, fontSize: 11, color: color.danger }}>
+                {judgeError}
+              </Text>
+            )}
+            {judgeSuccess && (
+              <Text style={{ fontFamily: font.body, fontSize: 11, color: color.live }}>
+                {judgeSuccess}
+              </Text>
+            )}
+
+            <Pressable
+              onPress={assignJudge}
+              disabled={judgeSearching}
+              style={({ pressed }) => ({
+                backgroundColor: pressed || judgeSearching ? color.goldDeep : color.gold,
+                borderRadius: radius.sm,
+                paddingVertical: 10,
+                alignItems: 'center',
+                opacity: judgeSearching ? 0.7 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel="Asignar juez"
+              accessibilityState={{ disabled: judgeSearching }}
+            >
+              {judgeSearching ? (
+                <ActivityIndicator color={color.onGold} size="small" />
+              ) : (
+                <Text style={{ fontFamily: font.body, fontSize: 13, fontWeight: '600', color: color.onGold }}>
+                  Asignar juez
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
 
       </ScrollView>
     </SafeAreaView>
