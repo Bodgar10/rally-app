@@ -14,6 +14,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase }                          from '@/lib/supabase/client';
 import { Card, Badge, SectionLabel, Button } from '@/components/ui';
 import { color, font, fontSize, space }      from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 interface Tournament {
   id:               string;
@@ -149,7 +150,7 @@ const styles = StyleSheet.create({
   back:     { paddingHorizontal: space[4.5], paddingTop: space[4], paddingBottom: space[2] },
   backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
 
-  content: { paddingHorizontal: space[4.5], paddingBottom: space[6] * 2, gap: space[3] },
+  content: { paddingHorizontal: space[4.5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   heroCard: {
     backgroundColor: '#19171A',

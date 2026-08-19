@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, SectionLabel }           from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ─── Opciones ──────────────────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ export default function OnboardingScreen() {
 
 const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: color.bg },
-  content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[6] * 2, gap: space[3] },
+  content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   header:   { marginBottom: space[2] },
   eyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },

@@ -19,6 +19,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel, Avatar } from '@/components/ui';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -448,7 +449,7 @@ const s = StyleSheet.create({
   eyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[2] },
 
-  content: { paddingHorizontal: space[4.5], paddingBottom: space[6] * 2, gap: space[3] },
+  content: { paddingHorizontal: space[4.5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   emptyText: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center' },
 

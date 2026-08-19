@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 type TournamentStatus = 'draft' | 'registration_open' | 'registration_closed' | 'in_progress' | 'finished';
 
@@ -148,11 +149,11 @@ export default function TorneosScreen() {
 
 const styles = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: color.bg },
-  header: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[2] },
+  header: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[2], ...webContentColumn },
   eyebrow:{ fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:  { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
 
-  segmentWrapper: { paddingHorizontal: space[4.5], marginBottom: space[3] },
+  segmentWrapper: { paddingHorizontal: space[4.5], marginBottom: space[3], ...webContentColumn },
   segment: {
     flexDirection:   'row',
     backgroundColor: color.surface,
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  list: { paddingHorizontal: space[4.5], paddingBottom: space[6] * 2, gap: space[3] },
+  list: { paddingHorizontal: space[4.5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   empty:     { alignItems: 'center', paddingVertical: space[6] },
   emptyText: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center' },

@@ -18,6 +18,7 @@ import { PlayerAnalysis }                       from '@/components/player/Player
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 interface UserProfile {
   full_name:    string;
@@ -246,7 +247,7 @@ export default function PerfilScreen() {
 const styles = StyleSheet.create({
   safe:             { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[6] * 2 },
+  content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, ...webContentColumn },
 
   header:      { flexDirection: 'row', alignItems: 'center', gap: space[4], marginBottom: space[2] },
   headerTexts: { flex: 1 },

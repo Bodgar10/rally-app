@@ -76,7 +76,10 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
   return (
     <View style={styles.root}>
       {/* ── Barra superior ──────────────────────────────────────── */}
+      {/* La barra ocupa todo el ancho (el borde inferior cruza la ventana),
+          pero su contenido va en la misma columna que el contenido. */}
       <View style={styles.nav}>
+        <View style={styles.navInner}>
         {isDesktop ? (
           <>
             <Text style={styles.wordmark}>RALLY</Text>
@@ -118,6 +121,7 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
             <View style={styles.burgerSpacer} />
           </>
         )}
+        </View>
       </View>
 
       {/* ── Contenido centrado ──────────────────────────────────── */}
@@ -163,15 +167,22 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.bg },
 
-  // Barra superior
+  // Barra superior — ancho completo, para que el borde cruce toda la ventana
   nav: {
     height:             layout.webNavHeight,
+    borderBottomWidth:  1,
+    borderBottomColor:  color.lineSoft,
+  },
+  // Contenido de la barra — centrado en la misma columna que el contenido
+  navInner: {
+    flex:               1,
+    width:              '100%',
+    maxWidth:           layout.contentMaxWidth,
+    alignSelf:          'center',
     flexDirection:      'row',
     alignItems:         'center',
     justifyContent:     'space-between',
     paddingHorizontal:  space[6],
-    borderBottomWidth:  1,
-    borderBottomColor:  color.lineSoft,
   },
   wordmark: {
     fontFamily:    font.display,
@@ -205,14 +216,13 @@ const styles = StyleSheet.create({
   },
   burgerSpacer: { width: touchTarget },
 
-  // Columna de contenido centrada
+  // Contenedor de contenido — ANCHO COMPLETO a propósito.
+  // El centrado ya no vive aquí: lo aplica cada pantalla con
+  // `webContentColumn` en el contentContainerStyle de su ScrollView.
+  // Así el scroller ocupa toda la ventana, la rueda del mouse funciona
+  // en cualquier punto y el scrollbar queda pegado al borde derecho.
   contentOuter:   { flex: 1 },
-  contentColumn:  {
-    flex:      1,
-    width:     '100%',
-    maxWidth:  layout.contentMaxWidth,
-    alignSelf: 'center',
-  },
+  contentColumn:  { flex: 1, width: '100%' },
 
   // Menú lateral
   backdrop: {

@@ -31,6 +31,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { color, radius, font } from '@/lib/design-tokens';
+import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 import { ConsentBox } from '@/components/checkout/ConsentBox';
 import { getFeatureFlags } from '@/lib/feature-flags';
@@ -618,7 +619,7 @@ export default function PlanesScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: color.bg }}>
         <ScrollView
-          contentContainerStyle={{ padding: 18, paddingTop: 32 }}
+          contentContainerStyle={{ padding: 18, paddingTop: 32, ...webContentColumn }}
           showsVerticalScrollIndicator={false}
         >
           <Text
@@ -741,7 +742,7 @@ export default function PlanesScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: color.bg }}>
       <ScrollView
-        contentContainerStyle={{ padding: 18, paddingTop: 32, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 18, paddingTop: 32, paddingBottom: 40, ...webContentColumn }}
         showsVerticalScrollIndicator={false}
       >
         {/* Eyebrow */}

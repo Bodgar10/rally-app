@@ -26,6 +26,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { color, radius, font } from '@/lib/design-tokens';
+import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 import { PayBreakdown, computeTotal } from '@/components/checkout/PayBreakdown';
 import { getFeatureFlags } from '@/lib/feature-flags';
@@ -308,7 +309,7 @@ export default function PagoScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: color.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 0 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 0, ...webContentColumn }} showsVerticalScrollIndicator={false}>
         <Text style={{ fontFamily: font.display, fontSize: 11, letterSpacing: 2, color: color.champagne, textTransform: 'uppercase', marginBottom: 10 }}>
           Confirmar pago
         </Text>

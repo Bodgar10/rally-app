@@ -21,6 +21,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { color, radius, space, font } from '@/lib/design-tokens';
+import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
@@ -228,7 +229,7 @@ export default function RankingScreen() {
     <View style={{ flex: 1, backgroundColor: color.bg }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: space[6] }}
+        contentContainerStyle={{ paddingBottom: space[6], ...webContentColumn }}
       >
         {/* Encabezado */}
         <View style={{ paddingHorizontal: space[4], paddingTop: space[5], paddingBottom: space[2] }}>

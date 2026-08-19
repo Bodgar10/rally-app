@@ -34,6 +34,7 @@ import { useProActivation } from '@/hooks/useProActivation';
 import { useURL, parse } from 'expo-linking';
 import { hasOrganizerMembership } from '@/lib/auth/guards';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 
 export default function DashboardScreen() {
@@ -328,7 +329,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[6] * 2, gap: space[3] },
+  content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   // Header
   header: { marginBottom: space[2] },

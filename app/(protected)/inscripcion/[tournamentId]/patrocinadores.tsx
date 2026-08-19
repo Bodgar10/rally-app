@@ -9,6 +9,7 @@ import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { color, radius, space, font } from '@/lib/design-tokens';
+import { webContentColumn } from '@/lib/web-layout';
 import { SponsorCatalog } from '@/components/sponsors/SponsorCatalog';
 import { SponsorUpsell } from '@/components/sponsors/SponsorUpsell';
 import type { SponsorProduct } from '@/components/sponsors/SponsorCatalog';
@@ -27,7 +28,7 @@ export default function PatrocinadoresScreen() {
     <View style={{ flex: 1, backgroundColor: color.bg }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 100, ...webContentColumn }}
       >
         {/* Header */}
         <View style={{ paddingHorizontal: space[4], paddingTop: space[5], paddingBottom: space[3] }}>
