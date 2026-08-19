@@ -295,10 +295,10 @@ export default function PagoScreen() {
         <Text style={{ fontFamily: font.body, fontSize: 13, color: color.muted, textAlign: 'center', lineHeight: 20, marginBottom: 32 }}>
           Completa el pago en la página que se abrió. Cuando Stripe confirme, tu inscripción quedará activa.
         </Text>
-        <Pressable onPress={() => router.replace('/(protected)/torneos')} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+        <Pressable onPress={() => router.replace(`/(protected)/inscripcion/${tournamentId}/patrocinadores`)} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
           <LinearGradient colors={['#F6E3A6', '#E2BE4A']} style={{ borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: 32 }}>
             <Text style={{ fontFamily: font.display, fontSize: 16, fontWeight: '600', color: color.onGold }}>
-              Ver mis torneos
+              Continuar
             </Text>
           </LinearGradient>
         </Pressable>

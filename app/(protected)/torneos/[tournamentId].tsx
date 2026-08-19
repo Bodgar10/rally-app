@@ -130,6 +130,12 @@ export default function TorneoDetailScreen() {
             La tabla en vivo aparecerá aquí cuando el torneo esté en curso.
           </Text>
         </Card>
+
+        {/* TODO S5-SON-02: cuando esta pantalla cargue resultados/posición del torneo
+            (read-path ranking_public o Realtime de group_standings), renderizar aquí el badge:
+              import { RankingBadge } from '@/components/tournament/RankingBadge';
+              <RankingBadge variant="top_tournament" value={miPosicion} subtitle={`de ${totalJugadores} jugadores`} />
+            o variant="champion"/"finalist" según el resultado final. NUNCA derivar de player_ratings. */}
       </ScrollView>
     </SafeAreaView>
   );

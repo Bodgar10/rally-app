@@ -194,11 +194,11 @@ export default function InscripcionScreen() {
     }
 
     // Éxito. Con pago online → pantalla de pago (checkout Stripe Connect).
-    // Gratis → directo al detalle del torneo.
+    // Gratis → upsell de patrocinadores (S5-FIX-02); desde ahí "Ir a mi torneo".
     if (isOnlinePay) {
       router.push(`/(protected)/inscripcion/${tournamentId}/pago`);
     } else {
-      router.replace(`/(protected)/torneos/${tournamentId}`);
+      router.replace(`/(protected)/inscripcion/${tournamentId}/patrocinadores`);
     }
   }
 

@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import type { User } from '@supabase/supabase-js';
 
 import { supabase }                             from '@/lib/supabase/client';
+import { PlayerAnalysis }                       from '@/components/player/PlayerAnalysis';
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
@@ -154,6 +155,11 @@ export default function PerfilScreen() {
             </>
           )}
         </Card>
+
+        {/* Análisis descriptivo del jugador (free) + gating Pro — S5-SON-03 */}
+        {user && (
+          <PlayerAnalysis userId={user.id} />
+        )}
 
         <CancellationFlow
           visible={cancelOpen}

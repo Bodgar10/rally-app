@@ -34,6 +34,7 @@ import { useProActivation } from '@/hooks/useProActivation';
 import { useURL, parse } from 'expo-linking';
 import { hasOrganizerMembership } from '@/lib/auth/guards';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
+import { RankingBadge } from '@/components/tournament/RankingBadge';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -44,6 +45,7 @@ export default function DashboardScreen() {
   const [pairIds, setPairIds]     = useState<string[]>([]);
   const [subscription, setSubscription] = useState<{ status: string | null; billing_cycle: string | null } | null>(null);
   const [proSheetOpen, setProSheetOpen] = useState(false);
+  const [networkRank, setNetworkRank] = useState<number | null>(null); // mejor posición de red (S5-SON-02b)
 
   useEffect(() => {
     async function loadUserData() {
@@ -67,6 +69,16 @@ export default function DashboardScreen() {
         .in('status', ['active', 'trialing'])
         .maybeSingle();
       setSubscription(sub ?? null);
+
+      // Mejor posición de red del jugador (S5-SON-02b) — read-path ranking_public.
+      // La mejor (menor) posición entre sus divisiones. Sin filas -> sin badge.
+      const { data: ranks } = await supabase
+        .from('ranking_public')
+        .select('position')
+        .eq('player_id', data.user.id)
+        .order('position', { ascending: true })
+        .limit(1);
+      setNetworkRank(ranks && ranks.length > 0 ? (ranks[0] as { position: number }).position : null);
 
       // Verificar membresía de organizador (muestra switch de modo o CTA)
       const hasMembership = await hasOrganizerMembership(data.user.id);
@@ -297,6 +309,13 @@ export default function DashboardScreen() {
             <Text style={styles.quickCardChevron}>›</Text>
           </View>
           <Text style={styles.quickCardSub}>Tus puntos por categoría</Text>
+
+          {/* Badge de posición de red (S5-SON-02b) — solo si el jugador ya tiene ranking */}
+          {networkRank !== null && (
+            <View style={{ marginTop: space[2] }}>
+              <RankingBadge variant="top_network" value={networkRank} compact />
+            </View>
+          )}
         </Pressable>
       </ScrollView>
     </SafeAreaView>

@@ -23,6 +23,14 @@ interface Category {
   id: string; display_name: string; status: string;
 }
 
+// ── Tipos locales Sprint 5 (S5-SON-06) ──
+type FinishState =
+  | { status: 'idle' }
+  | { status: 'confirming' }
+  | { status: 'loading' }
+  | { status: 'success' }
+  | { status: 'error'; message: string };
+
 export default function OrgTournamentScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
@@ -31,6 +39,7 @@ export default function OrgTournamentScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading]       = useState(true);
   const [updating, setUpdating]     = useState(false);
+  const [finishState, setFinishState] = useState<FinishState>({ status: 'idle' });
 
   // ── Estado de jueces asignados ──
   const [judges, setJudges] = useState<Array<{ id: string; userId: string; name: string; email: string }>>([]);
@@ -162,6 +171,37 @@ export default function OrgTournamentScreen() {
     setUpdating(false);
   }
 
+  // ── Finalización del torneo (S5-SON-06) → Edge Function finish-tournament ──
+  // No usa UPDATE directo: el guard de Opus (029) bloquea el UPDATE crudo a 'finished'.
+  const handleFinishRequest = () => setFinishState({ status: 'confirming' });
+  const handleFinishCancel = () => setFinishState({ status: 'idle' });
+
+  const handleFinishConfirm = async () => {
+    setFinishState({ status: 'loading' });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sesión expirada');
+
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/finish-tournament`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ tournament_id: tournamentId }),
+        },
+      );
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message ?? json.error ?? `Error ${res.status}`);
+      setFinishState({ status: 'success' });
+    } catch (e: any) {
+      setFinishState({ status: 'error', message: e.message ?? 'No se pudo terminar el torneo.' });
+    }
+  };
+
   if (loading) return (
     <View style={s.loadingContainer}><ActivityIndicator color={color.gold} /></View>
   );
@@ -263,6 +303,115 @@ export default function OrgTournamentScreen() {
           }
           variant="secondary"
         />
+
+        {/* Terminar torneo (S5-SON-06) — solo en in_progress → Edge Function finish-tournament */}
+        {tournament.status === 'in_progress' && (
+          <View style={{ gap: 10 }}>
+            <Pressable
+              onPress={
+                finishState.status === 'idle'
+                  ? handleFinishRequest
+                  : finishState.status === 'confirming'
+                  ? handleFinishConfirm
+                  : undefined
+              }
+              disabled={finishState.status === 'loading' || finishState.status === 'success'}
+              style={({ pressed }) => ({
+                backgroundColor: color.alive,
+                borderRadius: radius.sm,
+                paddingVertical: 13,
+                alignItems: 'center',
+                opacity: pressed ? 0.85 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel="Terminar torneo"
+            >
+              <Text style={{ fontFamily: font.display, fontSize: 15, fontWeight: '600', color: '#1A1407' }}>
+                {finishState.status === 'idle' && 'Terminar torneo'}
+                {finishState.status === 'confirming' && 'Terminar torneo'}
+                {finishState.status === 'loading' && 'Terminando…'}
+                {finishState.status === 'success' && '¡Torneo terminado! ✓'}
+                {finishState.status === 'error' && 'Terminar torneo'}
+              </Text>
+            </Pressable>
+
+            {/* Confirmación antes de terminar el torneo */}
+            {finishState.status === 'confirming' && (
+              <View
+                style={{
+                  backgroundColor: color.surface,
+                  borderRadius: radius.lg,
+                  borderWidth: 1,
+                  borderColor: 'rgba(230,180,80,0.3)',
+                  padding: 16,
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 15, color: color.alive }}>
+                  ¿Confirmar cierre del torneo?
+                </Text>
+                <Text style={{ fontFamily: font.body, fontSize: 13, color: color.muted, lineHeight: 20 }}>
+                  Esto marcará el torneo como terminado y calculará el ranking final y los ratings
+                  de todos los jugadores. Esta acción no se puede deshacer.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Pressable
+                    onPress={handleFinishCancel}
+                    style={{
+                      flex: 1,
+                      borderRadius: radius.sm,
+                      borderWidth: 1,
+                      borderColor: color.lineSoft,
+                      backgroundColor: color.surface2,
+                      paddingVertical: 11,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 14, color: color.muted }}>
+                      Cancelar
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleFinishConfirm}
+                    style={{
+                      flex: 1,
+                      borderRadius: radius.sm,
+                      backgroundColor: color.alive,
+                      paddingVertical: 11,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 14, color: '#1A1407' }}>
+                      Confirmar
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {/* Error de finalización */}
+            {finishState.status === 'error' && (
+              <View
+                style={{
+                  backgroundColor: 'rgba(224,114,111,0.1)',
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: 'rgba(224,114,111,0.3)',
+                  padding: 12,
+                }}
+              >
+                <Text style={{ fontFamily: font.body, fontSize: 13, color: color.danger, lineHeight: 20 }}>
+                  {finishState.message}
+                </Text>
+                <Pressable onPress={handleFinishCancel} style={{ marginTop: 8 }}>
+                  <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 13, color: color.muted }}>
+                    Reintentar
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ── Sección: Jueces asignados ── */}
         <View style={{ marginTop: 24, marginBottom: 8 }}>

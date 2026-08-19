@@ -1,231 +1,683 @@
 /**
- * RALLY · Mi Ranking
- * Muestra los puntos visibles del jugador por división (ranking_points).
- * Glicko-2 oculto en v1 (feature flag ENABLE_GLICKO_UI apagado).
- * Doc A §4.13 — ranking_points: puntos acumulables entre torneos,
- * bien común de la red (cruzan organizadores).
+ * app/(protected)/ranking.tsx
+ * Mi Ranking — posición en la red por categoría/división.
+ * Read-path: ranking_public — vista pública post-migración 028 (bien común de red, cruza organizadores).
+ * NUNCA leer player_ratings directo: acceso revocado para roles de cliente en la migración 028.
+ * Sprint 5 · S5-SON-01
+ *
+ * NOTA (ajuste §0): ranking_public YA expone full_name (join a users resuelto en la vista),
+ * por eso se lee full_name directo y NO se usa el embed users:player_id(full_name)
+ * (PostgREST no puede embeder users desde una vista sin relación FK detectable).
  */
-
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, ScrollView, ActivityIndicator,
-  StyleSheet, SafeAreaView,
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+  FlatList,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { color, radius, space, font } from '@/lib/design-tokens';
+import { supabase } from '@/lib/supabase/client';
 
-import { supabase }                             from '@/lib/supabase/client';
-import { Card, SectionLabel, Badge }            from '@/components/ui';
-import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+// ─── Tipos ───────────────────────────────────────────────────────────────
 
-// ─── Tipos ──────────────────────────────────────────────────────────────────
-
-interface RankingRow {
-  division: string;
-  points:   number;
-  position: number | null;
-}
-
-const DIVISION_LABELS: Record<string, string> = {
-  sexta:    '6ª',
-  quinta:   '5ª',
-  cuarta:   '4ª',
-  tercera:  '3ª',
-  segunda:  '2ª',
-  primera:  '1ª',
+type RankRow = {
+  player_id: string;
+  full_name: string | null;
+  points: number;
+  position: number;
+  is_me: boolean;
 };
 
-// ─── Pantalla ────────────────────────────────────────────────────────────
+type MyRankSummary = {
+  points: number;
+  position: number;
+  total_players: number;
+  delta_this_week: number | null; // null si no hay datos previos
+  win_rate: number | null;        // porcentaje 0-100, null si sin partidos
+  streak: number;                 // racha actual de victorias (0 si ninguna)
+  tournaments_played: number;
+};
+
+type DivisionOption = {
+  label: string;
+  value: string; // ej. "primera", "quinta"
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+/** Formatea posición ordinal: 1 → "#1", 7 → "#7" */
+function fmtPos(pos: number): string {
+  return `#${pos}`;
+}
+
+/** Top percentil: posición / total → "Top X%" */
+function fmtPercentile(pos: number, total: number): string {
+  if (total === 0) return '';
+  const pct = Math.ceil((pos / total) * 100);
+  return `Top ${pct}%`;
+}
+
+/** Iniciales de nombre para avatar */
+function initials(name: string | null): string {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+}
+
+// ─── Componente ──────────────────────────────────────────────────────────
 
 export default function RankingScreen() {
-  const [rows, setRows]       = useState<RankingRow[]>([]);
+  const router = useRouter();
+
+  const [userId, setUserId] = useState<string | null>(null);
+  const [divisions, setDivisions] = useState<DivisionOption[]>([]);
+  const [selectedDivision, setSelectedDivision] = useState<string | null>(null);
+  const [summary, setSummary] = useState<MyRankSummary | null>(null);
+  const [leaderboard, setLeaderboard] = useState<RankRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
+  // Obtener usuario actual
   useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-
-      // Nombre para el saludo
-      setUserName(user.user_metadata?.full_name?.split(' ')[0] ?? '');
-
-      // Ranking points del jugador
-      const { data } = await supabase
-        .from('ranking_points')
-        .select('division, points, position')
-        .eq('player_id', user.id)
-        .order('points', { ascending: false });
-
-      if (data) setRows(data as RankingRow[]);
-      setLoading(false);
-    }
-    load();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setUserId(data.user.id);
+    });
   }, []);
 
-  if (loading) return (
-    <View style={s.loadingContainer}><ActivityIndicator color={color.gold} /></View>
-  );
+  // Cargar divisiones disponibles para este jugador
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const { data, error: err } = await supabase
+        .from('ranking_public')
+        .select('division')
+        .eq('player_id', userId)
+        .order('points', { ascending: false });
+
+      if (err) return;
+
+      // Deduplica divisiones del jugador y construye opciones
+      const seen = new Set<string>();
+      const opts: DivisionOption[] = [];
+      (data ?? []).forEach((row: { division: string }) => {
+        if (!seen.has(row.division)) {
+          seen.add(row.division);
+          opts.push({ label: labelForDivision(row.division), value: row.division });
+        }
+      });
+
+      setDivisions(opts);
+      if (opts.length > 0 && !selectedDivision) {
+        setSelectedDivision(opts[0].value);
+      }
+    })();
+  }, [userId]);
+
+  // Cargar datos de la división seleccionada
+  const loadRanking = useCallback(async () => {
+    if (!userId || !selectedDivision) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      // 1. Mi fila en ranking_public
+      const { data: myRow, error: myErr } = await supabase
+        .from('ranking_public')
+        .select('points, position')
+        .eq('player_id', userId)
+        .eq('division', selectedDivision)
+        .maybeSingle();
+
+      if (myErr) throw myErr;
+
+      // 2. Total de jugadores en esta división
+      const { count: totalCount } = await supabase
+        .from('ranking_public')
+        .select('*', { count: 'exact', head: true })
+        .eq('division', selectedDivision);
+
+      // 3. Top 50 del leaderboard (full_name viene directo de la vista, sin embed)
+      const { data: board, error: boardErr } = await supabase
+        .from('ranking_public')
+        .select(`
+          player_id,
+          points,
+          position,
+          full_name
+        `)
+        .eq('division', selectedDivision)
+        .order('position', { ascending: true })
+        .limit(50);
+
+      if (boardErr) throw boardErr;
+
+      // 4. Estadísticas descriptivas del jugador (matches terminados)
+      const { data: matchStats } = await supabase.rpc('get_player_match_stats', {
+        p_player_id: userId,
+        p_division: selectedDivision,
+      });
+      // Si la RPC no existe aún, matchStats será null → se maneja con fallback
+
+      const stats = matchStats as {
+        win_rate: number | null;
+        streak: number;
+        tournaments_played: number;
+      } | null;
+
+      setSummary({
+        points: myRow?.points ?? 0,
+        position: myRow?.position ?? 0,
+        total_players: totalCount ?? 0,
+        delta_this_week: null, // TODO: implementar delta cuando haya histórico semanal
+        win_rate: stats?.win_rate ?? null,
+        streak: stats?.streak ?? 0,
+        tournaments_played: stats?.tournaments_played ?? 0,
+      });
+
+      const rows: RankRow[] = (board ?? []).map((r: any) => ({
+        player_id: r.player_id,
+        full_name: r.full_name ?? null,
+        points: r.points,
+        position: r.position,
+        is_me: r.player_id === userId,
+      }));
+
+      // Si el jugador autenticado no está en el top 50, agregar su fila al final
+      if (myRow && !rows.some((r) => r.player_id === userId)) {
+        rows.push({
+          player_id: userId,
+          full_name: null,
+          points: myRow.points,
+          position: myRow.position,
+          is_me: true,
+        });
+      }
+
+      setLeaderboard(rows);
+    } catch (e: any) {
+      setError('No se pudo cargar el ranking. Intenta de nuevo.');
+    } finally {
+      setLoading(false);
+    }
+  }, [userId, selectedDivision]);
+
+  useEffect(() => {
+    loadRanking();
+  }, [loadRanking]);
+
+  // ─── Render ──────────────────────────────────────────────────────────
+
+  if (loading && !summary) {
+    return (
+      <View style={{ flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={color.gold} />
+      </View>
+    );
+  }
 
   return (
-    <SafeAreaView style={s.safe}>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-
-        {/* Header */}
-        <View style={s.header}>
-          <Text style={s.eyebrow}>MI RANKING</Text>
-          <Text style={s.title}>Temporada 2026</Text>
-          <Text style={s.subtitle}>
-            Puntos acumulados en toda la red RALLY · Ciudad de México
+    <View style={{ flex: 1, backgroundColor: color.bg }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: space[6] }}
+      >
+        {/* Encabezado */}
+        <View style={{ paddingHorizontal: space[4], paddingTop: space[5], paddingBottom: space[2] }}>
+          <Text
+            style={{
+              fontFamily: font.display,
+              fontWeight: '600',
+              fontSize: 28,
+              color: color.text,
+              letterSpacing: 0.4,
+            }}
+          >
+            Mi Ranking
           </Text>
         </View>
 
-        {/* Sin datos */}
-        {rows.length === 0 && (
-          <>
-            <Card variant="hero">
-              <Text style={s.emptyHeroLabel}>SIN PUNTOS AÚN</Text>
-              <Text style={s.emptyHeroNumber}>—</Text>
-              <Text style={s.emptyHeroSub}>
-                Completa tu primer torneo para aparecer en el ranking de la red.
-              </Text>
-            </Card>
-            <View style={s.tipBox}>
-              <Text style={s.tipTitle}>¿Cómo funcionan los puntos?</Text>
-              <Text style={s.tipBody}>
-                Ganas puntos en cada torneo según tu resultado: victorias en grupos, ronda alcanzada en eliminatoria y el tamaño del cuadro. Los puntos se acumulan entre todos los torneos de la red.
-              </Text>
-            </View>
-          </>
+        {/* Selector de división */}
+        {divisions.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: space[4], gap: 8, paddingBottom: space[2] }}
+          >
+            {divisions.map((div) => {
+              const active = div.value === selectedDivision;
+              return (
+                <Pressable
+                  key={div.value}
+                  onPress={() => setSelectedDivision(div.value)}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: radius.pill,
+                    backgroundColor: active ? color.gold : color.surface,
+                    borderWidth: 1,
+                    borderColor: active ? color.gold : color.line,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: font.body,
+                      fontWeight: '600',
+                      fontSize: 12.5,
+                      color: active ? color.onGold : color.goldBright,
+                    }}
+                  >
+                    {div.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         )}
 
-        {/* Rankings por categoría */}
-        {rows.length > 0 && (
-          <>
-            {/* Hero — categoría con más puntos */}
-            <Card variant="hero">
-              <Text style={s.heroLabel}>
-                {DIVISION_LABELS[rows[0].division] ?? rows[0].division} · CDMX
-              </Text>
-              <Text style={s.heroNumber}>
-                {rows[0].position != null ? `#${rows[0].position}` : '—'}
-              </Text>
-              <Text style={s.heroPoints}>{rows[0].points.toLocaleString('es-MX')} pts</Text>
-              <Badge label="Tu mejor categoría" type="gold" />
-            </Card>
-
-            {/* Todas las categorías */}
-            {rows.length > 1 && (
-              <>
-                <SectionLabel title="Todas las categorías" />
-                <Card variant="standard">
-                  {rows.map((row, i) => (
-                    <View key={row.division}>
-                      {i > 0 && <View style={s.divider} />}
-                      <View style={s.rankRow}>
-                        <View style={s.rankLeft}>
-                          <Text style={s.rankDivision}>
-                            {DIVISION_LABELS[row.division] ?? row.division} División
-                          </Text>
-                          <Text style={s.rankPoints}>
-                            {row.points.toLocaleString('es-MX')} puntos
-                          </Text>
-                        </View>
-                        <View style={s.rankRight}>
-                          {row.position != null
-                            ? <Text style={s.rankPosition}>#{row.position}</Text>
-                            : <Text style={s.rankPositionMuted}>—</Text>
-                          }
-                        </View>
-                      </View>
-                    </View>
-                  ))}
-                </Card>
-              </>
-            )}
-          </>
-        )}
-
-        {/* Cómo se calculan */}
-        <SectionLabel title="Cómo se calculan" />
-        <Card variant="standard">
-          {[
-            { label: 'Victoria en fase de grupos',  value: '50 pts' },
-            { label: 'Clasificar de grupos',         value: '+100 pts' },
-            { label: 'Llegar a cuartos',             value: '+250 pts' },
-            { label: 'Llegar a semifinal',           value: '+400 pts' },
-            { label: 'Llegar a final',               value: '+650 pts' },
-            { label: 'Campeón',                      value: '+1,000 pts' },
-          ].map((item, i, arr) => (
-            <View key={item.label}>
-              <View style={s.ruleRow}>
-                <Text style={s.ruleLabel}>{item.label}</Text>
-                <Text style={s.ruleValue}>{item.value}</Text>
-              </View>
-              {i < arr.length - 1 && <View style={s.divider} />}
-            </View>
-          ))}
-          <Text style={s.ruleNote}>
-            * Los puntos se multiplican por el tamaño del cuadro (×0.7 en cuadros de ≤8 parejas, hasta ×1.5 en cuadros de 33+).
-          </Text>
-        </Card>
-
-        {/* Nota Glicko oculto */}
-        {process.env.EXPO_PUBLIC_ENABLE_GLICKO_UI !== 'true' && (
-          <View style={s.glickoNote}>
-            <Text style={s.glickoText}>
-              🔒 Tu rating de habilidad real (Glicko-2) se calcula internamente desde tu primer torneo. Se mostrará en una próxima actualización.
+        {error && (
+          <View style={{ paddingHorizontal: space[4], marginTop: space[3] }}>
+            <Text style={{ color: color.danger, fontFamily: font.body, fontSize: 13 }}>
+              {error}
             </Text>
           </View>
         )}
 
+        {/* Estado vacío: el jugador aún no tiene ranking */}
+        {!loading && !error && summary && summary.position === 0 && (
+          <EmptyRanking />
+        )}
+
+        {/* Hero de posición */}
+        {summary && summary.position > 0 && (
+          <HeroCard summary={summary} division={selectedDivision} />
+        )}
+
+        {/* Stats rápidos */}
+        {summary && summary.position > 0 && (
+          <StatsRow summary={summary} />
+        )}
+
+        {/* Leaderboard */}
+        {leaderboard.length > 0 && (
+          <View style={{ marginTop: space[4], paddingHorizontal: space[4] }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space[3] }}>
+              <Text
+                style={{
+                  fontFamily: font.display,
+                  fontWeight: '500',
+                  fontSize: 13,
+                  letterSpacing: 1.6,
+                  textTransform: 'uppercase',
+                  color: color.champagne,
+                }}
+              >
+                Ranking de red
+              </Text>
+            </View>
+
+            {leaderboard.map((row) => (
+              <LeaderboardRow key={row.player_id} row={row} />
+            ))}
+          </View>
+        )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-// ─── Estilos ──────────────────────────────────────────────────────────────
+// ─── Sub-componentes ──────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  safe:             { flex: 1, backgroundColor: color.bg },
-  loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[6] * 2, gap: space[3] },
+function HeroCard({
+  summary,
+  division,
+}: {
+  summary: MyRankSummary;
+  division: string | null;
+}) {
+  const pct = fmtPercentile(summary.position, summary.total_players);
+  return (
+    <View style={{ paddingHorizontal: space[4], marginTop: space[3] }}>
+      {/* Tarjeta hero con borde dorado superior */}
+      <View
+        style={{
+          borderRadius: radius.xl2,
+          backgroundColor: color.surface,
+          borderWidth: 1,
+          borderColor: color.line,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Raya dorada superior */}
+        <LinearGradient
+          colors={[color.goldDeep, color.goldBright, color.goldDeep]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ height: 3 }}
+        />
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <Text
+            style={{
+              fontFamily: font.display,
+              letterSpacing: 3,
+              fontSize: 11,
+              color: color.gold,
+              textTransform: 'uppercase',
+              marginBottom: 6,
+            }}
+          >
+            Posición en la red
+          </Text>
 
-  header:   { marginBottom: space[2] },
-  eyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
-  title:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[1] },
-  subtitle: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 20 },
+          {/* Número grande */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+            <Text
+              style={{
+                fontFamily: font.display,
+                fontWeight: '600',
+                fontSize: 26,
+                color: color.gold,
+                marginTop: 6,
+                marginRight: 2,
+              }}
+            >
+              #
+            </Text>
+            <Text
+              style={{
+                fontFamily: font.display,
+                fontWeight: '600',
+                fontSize: 74,
+                lineHeight: 72,
+                color: color.goldBright,
+              }}
+            >
+              {summary.position}
+            </Text>
+          </View>
 
-  // Hero vacío
-  emptyHeroLabel:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[2] },
-  emptyHeroNumber: { fontFamily: font.display, fontSize: 74, color: color.champagne, lineHeight: 74, marginBottom: space[2] },
-  emptyHeroSub:    { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 20 },
+          <Text style={{ fontFamily: font.body, fontSize: 13, color: color.champagne, marginTop: 2 }}>
+            {division ? labelForDivision(division) : ''} · {summary.total_players} jugadores
+          </Text>
 
-  // Hero con datos
-  heroLabel:   { fontFamily: font.display, fontSize: fontSize.section, color: color.champagne, letterSpacing: 2, marginBottom: space[2] },
-  heroNumber:  { fontFamily: font.display, fontSize: 74, color: color.goldBright, lineHeight: 74 },
-  heroPoints:  { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, marginBottom: space[3] },
+          {/* Pills: puntos + percentil */}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+            <PillChip label={`${summary.points.toLocaleString()} pts`} icon="🏆" />
+            {pct !== '' && <PillChip label={pct} />}
+            {summary.delta_this_week !== null && summary.delta_this_week !== 0 && (
+              <PillChip
+                label={`${summary.delta_this_week > 0 ? '▲' : '▼'} ${Math.abs(summary.delta_this_week)} esta semana`}
+                positive={summary.delta_this_week > 0}
+              />
+            )}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
 
-  // Filas de ranking
-  divider:  { height: 1, backgroundColor: color.lineSoft },
-  rankRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: space[3] },
-  rankLeft: { flex: 1 },
-  rankDivision: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  rankPoints:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: 2 },
-  rankRight:    { alignItems: 'flex-end' },
-  rankPosition: { fontFamily: font.display, fontSize: fontSize.metric, color: color.goldBright },
-  rankPositionMuted: { fontFamily: font.display, fontSize: fontSize.metric, color: color.muted },
+function PillChip({
+  label,
+  icon,
+  positive,
+}: {
+  label: string;
+  icon?: string;
+  positive?: boolean;
+}) {
+  const textColor =
+    positive === true ? color.live : positive === false ? color.danger : color.champagne;
+  const borderColor =
+    positive === true
+      ? 'rgba(66,214,164,0.3)'
+      : positive === false
+      ? 'rgba(224,114,111,0.3)'
+      : color.line;
 
-  // Reglas de puntos
-  ruleRow:   { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: space[2.5] },
-  ruleLabel: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
-  ruleValue: { fontFamily: font.display, fontSize: fontSize.body, color: color.goldBright },
-  ruleNote:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: space[3], lineHeight: 18 },
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: 'rgba(0,0,0,0.25)',
+        borderWidth: 1,
+        borderColor,
+        borderRadius: radius.pill,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+      }}
+    >
+      {icon && <Text style={{ fontSize: 12 }}>{icon}</Text>}
+      <Text style={{ fontFamily: font.body, fontSize: 11.5, color: textColor, fontWeight: '600' }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
 
-  // Tips
-  tipBox:   { backgroundColor: color.surface, borderRadius: radius.xl, padding: space[4], borderWidth: 1, borderColor: color.lineSoft },
-  tipTitle: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne, marginBottom: space[1] },
-  tipBody:  { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 20 },
+function StatsRow({ summary }: { summary: MyRankSummary }) {
+  const items = [
+    {
+      value: summary.win_rate !== null ? `${Math.round(summary.win_rate)}%` : '—',
+      label: 'Win-rate',
+    },
+    {
+      value: summary.streak > 0 ? `🔥 ${summary.streak}` : '—',
+      label: 'Racha',
+    },
+    {
+      value: summary.tournaments_played > 0 ? String(summary.tournaments_played) : '—',
+      label: 'Torneos',
+    },
+  ];
 
-  // Glicko note
-  glickoNote: { backgroundColor: color.surface2, borderRadius: radius.xl, padding: space[4], borderWidth: 1, borderColor: color.lineSoft },
-  glickoText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
-});
+  return (
+    <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: space[4], marginTop: 13 }}>
+      {items.map((item) => (
+        <View
+          key={item.label}
+          style={{
+            flex: 1,
+            backgroundColor: color.surface,
+            borderWidth: 1,
+            borderColor: color.lineSoft,
+            borderRadius: radius.lg,
+            paddingVertical: 13,
+            paddingHorizontal: 10,
+            alignItems: 'center',
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: font.display,
+              fontWeight: '600',
+              fontSize: 22,
+              color: color.goldBright,
+            }}
+          >
+            {item.value}
+          </Text>
+          <Text style={{ fontFamily: font.body, fontSize: 10, color: color.muted, marginTop: 3 }}>
+            {item.label}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function LeaderboardRow({ row }: { row: RankRow }) {
+  const isTop3 = row.position <= 3;
+  const bgColor = row.is_me
+    ? 'rgba(212,175,55,0.08)'
+    : 'transparent';
+  const borderColor = row.is_me ? color.line : 'transparent';
+
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderRadius: radius.md,
+        backgroundColor: bgColor,
+        borderWidth: row.is_me ? 1 : 0,
+        borderColor,
+        marginBottom: 4,
+      }}
+    >
+      {/* Posición */}
+      <Text
+        style={{
+          fontFamily: font.display,
+          fontWeight: '600',
+          fontSize: isTop3 ? 16 : 14,
+          color: isTop3 ? color.goldBright : color.muted,
+          width: 32,
+        }}
+      >
+        {fmtPos(row.position)}
+      </Text>
+
+      {/* Avatar */}
+      <View
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: radius.pill,
+          backgroundColor: row.is_me ? color.gold : color.surface2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: 10,
+          borderWidth: row.is_me ? 0 : 1,
+          borderColor: color.lineSoft,
+        }}
+      >
+        <Text
+          style={{
+            fontFamily: font.display,
+            fontWeight: '600',
+            fontSize: 13,
+            color: row.is_me ? color.onGold : color.champagne,
+          }}
+        >
+          {initials(row.full_name)}
+        </Text>
+      </View>
+
+      {/* Nombre */}
+      <Text
+        style={{
+          flex: 1,
+          fontFamily: font.body,
+          fontWeight: row.is_me ? '600' : '400',
+          fontSize: 14,
+          color: row.is_me ? color.text : color.champagne,
+        }}
+        numberOfLines={1}
+      >
+        {row.is_me ? 'Tú' : (row.full_name ?? 'Jugador')}
+      </Text>
+
+      {/* Puntos */}
+      <Text
+        style={{
+          fontFamily: font.display,
+          fontWeight: '600',
+          fontSize: 14,
+          color: row.is_me ? color.goldBright : color.muted,
+        }}
+      >
+        {row.points.toLocaleString()}
+      </Text>
+    </View>
+  );
+}
+
+function EmptyRanking() {
+  return (
+    <View
+      style={{
+        marginHorizontal: space[4],
+        marginTop: space[4],
+        backgroundColor: color.surface,
+        borderRadius: radius.xl2,
+        borderWidth: 1,
+        borderColor: color.lineSoft,
+        padding: space[5],
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <Text style={{ fontSize: 32 }}>🎾</Text>
+      <Text
+        style={{
+          fontFamily: font.display,
+          fontWeight: '500',
+          fontSize: 17,
+          color: color.text,
+          textAlign: 'center',
+        }}
+      >
+        Aún sin ranking en esta categoría
+      </Text>
+      <Text
+        style={{
+          fontFamily: font.body,
+          fontSize: 13,
+          color: color.muted,
+          textAlign: 'center',
+          lineHeight: 20,
+        }}
+      >
+        Tu posición en la red aparece aquí después de tu primer torneo terminado.
+      </Text>
+    </View>
+  );
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────
+
+/** Convierte el valor de división del enum a etiqueta legible.
+ *  Enum real public.division = primera..sexta (solo tier). Se mantienen también
+ *  las claves con sufijo de género por compatibilidad futura. */
+function labelForDivision(value: string): string {
+  const map: Record<string, string> = {
+    primera: '1ª',
+    segunda: '2ª',
+    tercera: '3ª',
+    cuarta: '4ª',
+    quinta: '5ª',
+    sexta: '6ª',
+    primera_varonil: '1ª Varonil',
+    segunda_varonil: '2ª Varonil',
+    tercera_varonil: '3ª Varonil',
+    cuarta_varonil: '4ª Varonil',
+    quinta_varonil: '5ª Varonil',
+    sexta_varonil: '6ª Varonil',
+    primera_femenil: '1ª Femenil',
+    segunda_femenil: '2ª Femenil',
+    tercera_femenil: '3ª Femenil',
+    cuarta_femenil: '4ª Femenil',
+    quinta_femenil: '5ª Femenil',
+    sexta_femenil: '6ª Femenil',
+    primera_mixto: '1ª Mixto',
+    segunda_mixto: '2ª Mixto',
+    tercera_mixto: '3ª Mixto',
+    cuarta_mixto: '4ª Mixto',
+    quinta_mixto: '5ª Mixto',
+    sexta_mixto: '6ª Mixto',
+  };
+  return map[value] ?? value;
+}
