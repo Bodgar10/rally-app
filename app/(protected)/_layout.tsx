@@ -114,12 +114,12 @@ export default function ProtectedLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="📊" active={focused} />,
         }}
       />
-      {/* Tab 4 — Tienda (Leads de patrocinadores) */}
+      {/* Tab 4 — Pro (suscripción del jugador) */}
       <Tabs.Screen
         name="planes"
         options={{
-          title: 'Tienda',
-          tabBarIcon: ({ focused }) => <TabIcon label="🛍️" active={focused} />,
+          title: 'Pro',
+          tabBarIcon: ({ focused }) => <TabIcon label="⚡" active={focused} />,
         }}
       />
       {/* Tab 5 — Perfil */}
@@ -130,6 +130,13 @@ export default function ProtectedLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="👤" active={focused} />,
         }}
       />
+
+      {/* --- Rutas navegables que NO son pestañas (href: null las oculta del tab bar) --- */}
+      <Tabs.Screen name="onboarding" options={{ href: null }} />
+      <Tabs.Screen name="torneos/[tournamentId]" options={{ href: null }} />
+      <Tabs.Screen name="inscripcion/[tournamentId]/index" options={{ href: null }} />
+      <Tabs.Screen name="inscripcion/[tournamentId]/pago" options={{ href: null }} />
+      <Tabs.Screen name="inscripcion/[tournamentId]/patrocinadores" options={{ href: null }} />
     </Tabs>
   );
 }
