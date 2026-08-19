@@ -114,6 +114,17 @@ export const fontSize = {
 
 export const touchTarget = 44; // Doc D §4 — mínimo 44×44px
 
+export const layout = {
+  // Ancho máximo de la columna de contenido en web.
+  // En móvil (nativo y web) no aplica: el contenido ocupa todo el ancho.
+  contentMaxWidth: 720,
+  // A partir de este ancho de ventana, web usa nav horizontal.
+  // Por debajo, usa menú hamburguesa. Solo aplica en web.
+  desktopBreakpoint: 900,
+  // Alto de la barra de navegación superior en web.
+  webNavHeight: 64,
+} as const;
+
 // —— Re-export agrupado (import { T } from '@/lib/design-tokens') ———
-export const T = { color, gradient, radius, space, font, fontSize, touchTarget } as const;
+export const T = { color, gradient, radius, space, font, fontSize, touchTarget, layout } as const;
 export default T;

@@ -5,12 +5,10 @@
  * Aquí vive el tab bar del jugador (Doc D §8.6).
  */
 
-import { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
-import type { Session } from '@supabase/supabase-js';
+import { Tabs } from 'expo-router';
 
-import { supabase } from '@/lib/supabase/client';
+import { useSessionGuard } from '@/hooks/useSessionGuard';
 import { color } from '@/lib/design-tokens';
 
 // Importar íconos de Tabler (outline) — Doc D §7
@@ -27,30 +25,7 @@ function TabIcon({ label, active }: { label: string; active: boolean }) {
 }
 
 export default function ProtectedLayout() {
-  const router = useRouter();
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
-
-  useEffect(() => {
-    // Verificar sesión al montar
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (!data.session) {
-        router.replace('/(auth)/login');
-      }
-    });
-
-    // Escuchar cambios (logout, expiración)
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) {
-        router.replace('/(auth)/login');
-      }
-    });
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, []);
+  const session = useSessionGuard();
 
   // Cargando mientras se verifica la sesión
   if (session === undefined) {
