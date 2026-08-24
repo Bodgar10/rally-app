@@ -430,9 +430,11 @@ export default function OnboardingConnectScreen() {
             ))}
           </View>
 
-          {/* CTA: volver a torneos */}
+          {/* CTA: volver al panel, que es donde vive la lista de torneos.
+              No hay ruta `org/torneos`: ese directorio solo tiene `nuevo` y
+              `[tournamentId]`, así que apuntar ahí daba Unmatched Route. */}
           <Pressable
-            onPress={() => router.push('/(organizer)/org/torneos')}
+            onPress={() => router.push('/(organizer)/org')}
             style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
           >
             <LinearGradient
