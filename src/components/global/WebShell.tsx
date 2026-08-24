@@ -26,15 +26,17 @@ import {
 } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
 
+import { useIsOrganizerOwner } from '@/hooks/useIsOrganizerOwner';
 import { color, font, radius, space, touchTarget, layout } from '@/lib/design-tokens';
 
 /**
  * Un destino de la navegación.
- *   href    → path para router.push. Sigue la convención del proyecto:
- *             grupo entre paréntesis incluido, y `/index` explícito donde
- *             la pantalla es el index de una carpeta (ver torneos).
+ *   href    → path para router.push, con el grupo entre paréntesis incluido.
+ *             NUNCA terminar en `/index`: expo-router registra `torneos/index.tsx`
+ *             como `/torneos`, así que `/(protected)/torneos/index` no resuelve
+ *             (o peor: cae en `torneos/[tournamentId]` con id="index").
  *   segment → primer segmento de la URL real. Los grupos entre paréntesis
- *             NO aparecen en la URL, así que /(protected)/torneos/index
+ *             NO aparecen en la URL, así que /(protected)/torneos
  *             se sirve como /torneos. Se usa solo para marcar el activo.
  */
 interface NavItem {
@@ -65,6 +67,11 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
+  const isOwner = useIsOrganizerOwner();
+
+  // Mientras `isOwner` es undefined el item se muestra igual: el destino se
+  // resuelve al tocarlo, y ocultarlo provocaría un parpadeo en el nav.
+  const organizarHref = isOwner ? '/(organizer)/org' : '/(protected)/organizador';
 
   const isDesktop = width >= layout.desktopBreakpoint;
 
@@ -99,6 +106,17 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
                   </Pressable>
                 );
               })}
+
+              {/* Destacado — distinto por FORMA (pastilla perfilada), no solo
+                  por color. El granate está reservado al banner Pro. */}
+              <Pressable
+                onPress={() => go(organizarHref)}
+                style={styles.organizar}
+                accessibilityRole="link"
+                accessibilityLabel="Organizar torneos"
+              >
+                <Text style={styles.organizarLabel}>Organizar</Text>
+              </Pressable>
             </View>
           </>
         ) : (
@@ -155,6 +173,17 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
                 </Pressable>
               );
             })}
+
+            {/* Separado del resto: esto es otra cosa, no una sección más */}
+            <View style={styles.panelDivider} />
+            <Pressable
+              onPress={() => go(organizarHref)}
+              style={[styles.panelItem, styles.organizar]}
+              accessibilityRole="link"
+              accessibilityLabel="Organizar torneos"
+            >
+              <Text style={styles.organizarLabel}>Organizar</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -252,4 +281,27 @@ const styles = StyleSheet.create({
     color:      color.muted,
   },
   panelLabelActive: { color: color.gold },
+
+  // Item destacado "Organizar" — oro perfilado.
+  // NO granate: color.wine es el del banner Pro y no deben competir.
+  organizar: {
+    borderWidth:       1,
+    borderColor:       color.gold,
+    backgroundColor:   'rgba(212,175,55,0.08)',
+    borderRadius:      radius.pill,
+    paddingHorizontal: space[3],
+    paddingVertical:   space[2],
+    alignItems:        'center',
+    justifyContent:    'center',
+  },
+  organizarLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize:   13,
+    color:      color.champagne,
+  },
+  panelDivider: {
+    height:          1,
+    backgroundColor: color.lineSoft,
+    marginVertical:  space[3],
+  },
 });

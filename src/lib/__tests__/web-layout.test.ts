@@ -52,6 +52,11 @@ describe('web-layout · nativo — debe ser inerte', () => {
     expect(resolveWebLayout(os).bottomInset).toBe(48);
   });
 
+  it.each(['ios', 'android'])('en %s, el acceso a Organizar va en el header', (os) => {
+    // No hay nav lateral y un sexto tab no cabe: el header es el único sitio.
+    expect(resolveWebLayout(os).organizerEntryInHeader).toBe(true);
+  });
+
   // El invariante que sostiene "iOS y Android no cambian ni un píxel" para los
   // campos de texto: en nativo `inputFontSize` es la identidad, sin excepciones.
   describe.each(['ios', 'android'])('en %s, inputFontSize es la identidad', (os) => {
@@ -82,6 +87,11 @@ describe('web-layout · web — debe centrar y reducir el relleno', () => {
 
   it('bottomInset baja a 24 (en web no hay tab bar)', () => {
     expect(resolveWebLayout('web').bottomInset).toBe(24);
+  });
+
+  it('el acceso a Organizar NO va en el header (ya está en el nav de WebShell)', () => {
+    // Si esto fuera true, el botón saldría duplicado en la misma vista.
+    expect(resolveWebLayout('web').organizerEntryInHeader).toBe(false);
   });
 
   describe('inputFontSize eleva a 16 para no disparar el zoom de Safari iOS', () => {

@@ -14,9 +14,8 @@ import { useRouter } from 'expo-router';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, SectionLabel }           from '@/components/ui';
+import VenuePicker, { type Venue }              from '@/components/organizer/VenuePicker';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
-
-interface Venue { id: string; name: string; city: string }
 
 export default function NuevoTorneoScreen() {
   const router = useRouter();
@@ -45,7 +44,7 @@ export default function NuevoTorneoScreen() {
           .single(),
         supabase
           .from('venues')
-          .select('id, name, city')
+          .select('id, name, city, name_normalized')
           .order('name'),
       ]);
 
@@ -146,21 +145,12 @@ export default function NuevoTorneoScreen() {
 
         {/* Sede */}
         <SectionLabel title="Sede" />
-        {venues.length === 0
-          ? <Text style={s.noVenueText}>No hay sedes registradas. El admin debe agregar sedes primero.</Text>
-          : venues.map(v => (
-              <Pressable
-                key={v.id}
-                style={[s.venueBtn, selectedVenue?.id === v.id && s.venueBtnActive]}
-                onPress={() => setSelectedVenue(v)}
-              >
-                <Text style={[s.venueName, selectedVenue?.id === v.id && s.venueNameActive]}>
-                  {v.name}
-                </Text>
-                <Text style={s.venueCity}>{v.city}</Text>
-              </Pressable>
-            ))
-        }
+        <VenuePicker
+          venues={venues}
+          selectedVenue={selectedVenue}
+          onSelect={setSelectedVenue}
+          onCreated={(v) => setVenues(prev => [...prev, v].sort((a, b) => a.name.localeCompare(b.name)))}
+        />
 
         {/* Cuota base */}
         <SectionLabel title="Cuota de inscripción (MXN por pareja)" />
@@ -216,12 +206,6 @@ const s = StyleSheet.create({
   dateField: { flex: 1, gap: space[1] },
   dateLabel: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
 
-  venueBtn:      { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3] },
-  venueBtnActive:{ borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.08)' },
-  venueName:     { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  venueNameActive:{ color: color.goldBright },
-  venueCity:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
-  noVenueText:   { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
 
   errorText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
   btns:      { gap: space[2] },

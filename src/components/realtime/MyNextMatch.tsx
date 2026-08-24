@@ -12,6 +12,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
+import ComoLlegar from '@/components/tournament/ComoLlegar';
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
@@ -30,6 +31,8 @@ interface NextMatch {
   rivalPlayer1: string;
   rivalPlayer2: string;
   courtName: string | null;
+  /** Sede del torneo, para el botón "Cómo llegar". Null si el torneo no tiene. */
+  venue: { name: string; address: string | null; city: string | null } | null;
   status: 'scheduled' | 'in_progress' | 'finished';
 }
 
@@ -80,7 +83,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     .from('matches')
     .select(
       `id, stage, round_label, scheduled_at, status, court_label,
-       tournaments:tournament_id ( name ),
+       tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
        categories:category_id ( display_name ),
        pair_b:pair_b_id (
          player1:player1_id ( full_name ),
@@ -96,7 +99,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     .from('matches')
     .select(
       `id, stage, round_label, scheduled_at, status, court_label,
-       tournaments:tournament_id ( name ),
+       tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
        categories:category_id ( display_name ),
        pair_a:pair_a_id (
          player1:player1_id ( full_name ),
@@ -120,7 +123,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     const row = asA[0] as unknown as {
       id: string; stage: string; round_label: string | null;
       scheduled_at: string | null; status: string; court_label: string | null;
-      tournaments: { name: string };
+      tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
       categories: { display_name: string };
       pair_b: { player1: { full_name: string }; player2: { full_name: string } };
     };
@@ -134,6 +137,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       rivalPlayer1: row.pair_b?.player1?.full_name ?? '—',
       rivalPlayer2: row.pair_b?.player2?.full_name ?? '—',
       courtName: row.court_label ?? null,
+      venue: row.tournaments?.venues ?? null,
       status: row.status as NextMatch['status'],
     });
   }
@@ -142,7 +146,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     const row = asB[0] as unknown as {
       id: string; stage: string; round_label: string | null;
       scheduled_at: string | null; status: string; court_label: string | null;
-      tournaments: { name: string };
+      tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
       categories: { display_name: string };
       pair_a: { player1: { full_name: string }; player2: { full_name: string } };
     };
@@ -156,6 +160,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       rivalPlayer1: row.pair_a?.player1?.full_name ?? '—',
       rivalPlayer2: row.pair_a?.player2?.full_name ?? '—',
       courtName: row.court_label ?? null,
+      venue: row.tournaments?.venues ?? null,
       status: row.status as NextMatch['status'],
     });
   }
@@ -362,6 +367,9 @@ export default function MyNextMatch({ pairIds }: MyNextMatchProps) {
             </Text>
           </View>
         )}
+
+        {/* El momento de verdad: "juego en 40 min, ¿dónde es?" */}
+        <ComoLlegar venue={match.venue} variant="compact" />
       </View>
     </View>
   );

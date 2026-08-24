@@ -69,6 +69,17 @@ export interface WebLayoutValues {
    * de ScoreCapture usa 28 y sigue en 28.
    */
   inputFontSize: (nativeSize: number) => number;
+  /**
+   * ¿El acceso a "Organizar" va en el header del dashboard?
+   *
+   * Nativo: true — no hay nav lateral, y un sexto tab no cabe (5 es el máximo
+   *         cómodo en un iPhone). El header es el único sitio visible que no
+   *         interrumpe el contenido.
+   * Web:    false — ya vive como item destacado en el nav de WebShell, que se
+   *         renderiza en todas las pantallas del jugador. Ponerlo también en el
+   *         header lo duplicaría en la misma vista.
+   */
+  organizerEntryInHeader: boolean;
 }
 
 /**
@@ -91,6 +102,7 @@ export function resolveWebLayout(os: string): WebLayoutValues {
     inputFontSize: isWeb
       ? (nativeSize: number): number => Math.max(nativeSize, NO_ZOOM_MIN_FONT_SIZE)
       : (nativeSize: number): number => nativeSize,
+    organizerEntryInHeader: !isWeb,
   };
 }
 
@@ -104,3 +116,6 @@ export const bottomInset: number = resolved.bottomInset;
 
 /** Ver WebLayoutValues.inputFontSize */
 export const inputFontSize: (nativeSize: number) => number = resolved.inputFontSize;
+
+/** Ver WebLayoutValues.organizerEntryInHeader */
+export const organizerEntryInHeader: boolean = resolved.organizerEntryInHeader;

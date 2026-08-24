@@ -32,16 +32,16 @@ import { getFeatureFlags } from '@/lib/feature-flags';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useProActivation } from '@/hooks/useProActivation';
 import { useURL, parse } from 'expo-linking';
-import { isOrganizerOwner } from '@/lib/auth/guards';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
-import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { useIsOrganizerOwner } from '@/hooks/useIsOrganizerOwner';
+import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 
 export default function DashboardScreen() {
   const router = useRouter();
 
   const [user, setUser]           = useState<User | null>(null);
-  const [isOrganizer, setIsOrganizer] = useState(false);
+  const isOwner                   = useIsOrganizerOwner();
   const [loading, setLoading]     = useState(true);
   const [pairIds, setPairIds]     = useState<string[]>([]);
   const [subscription, setSubscription] = useState<{ status: string | null; billing_cycle: string | null } | null>(null);
@@ -81,11 +81,6 @@ export default function DashboardScreen() {
         .limit(1);
       setNetworkRank(ranks && ranks.length > 0 ? (ranks[0] as { position: number }).position : null);
 
-      // Membresía OWNER, no cualquier membresía: el switch lleva a (organizer),
-      // cuyo guard exige owner. Con hasOrganizerMembership, un usuario que solo
-      // fuera juez vería el switch y el guard lo rebotaría al entrar.
-      const isOwner = await isOrganizerOwner(data.user.id);
-      setIsOrganizer(isOwner);
       setLoading(false);
     }
     loadUserData();
@@ -144,8 +139,24 @@ export default function DashboardScreen() {
       >
         {/* ── Header ─────────────────────────────────────────── */}
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>RALLY</Text>
-          <Text style={styles.greeting}>Hola, {displayName} 👋</Text>
+          <View style={styles.headerTextos}>
+            <Text style={styles.eyebrow}>RALLY</Text>
+            <Text style={styles.greeting}>Hola, {displayName} 👋</Text>
+          </View>
+
+          {/* Acceso a organizador — SOLO nativo. En web ya vive en el nav de
+              WebShell, y ponerlo aquí lo duplicaría en la misma vista.
+              Oro perfilado: el granate está reservado al banner Pro. */}
+          {organizerEntryInHeader && (
+            <Pressable
+              onPress={() => router.push(isOwner ? '/(organizer)/org' : '/(protected)/organizador')}
+              style={({ pressed }) => [styles.organizar, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Organizar torneos"
+            >
+              <Text style={styles.organizarLabel}>Organizar</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Mi próximo partido — STUB (Sprint 3) ─────────────── */}
@@ -171,46 +182,6 @@ export default function DashboardScreen() {
             >
               <Text style={styles.btnPrimaryText}>Ver torneos disponibles</Text>
             </Pressable>
-          </View>
-        )}
-
-        {/* ── CTA Organizador o Switch de Modo ─────────────────── */}
-        {isOrganizer ? (
-          // Switch de modo — tiene al menos una membresía de organizador
-          <Pressable
-            style={({ pressed }) => [styles.switchModeCard, pressed && { opacity: 0.85 }]}
-            onPress={() => router.push('/(organizer)/org')}
-            accessibilityRole="button"
-            accessibilityLabel="Ir al panel de organizador"
-          >
-            <View style={styles.switchModeRow}>
-              <Text style={styles.switchModeIcon}>⚙️</Text>
-              <View style={styles.switchModeTexts}>
-                <Text style={styles.switchModeTitle}>Modo Organizador</Text>
-                <Text style={styles.switchModeSubtitle}>Administra tus torneos</Text>
-              </View>
-              <Text style={styles.switchModeChevron}>›</Text>
-            </View>
-          </Pressable>
-        ) : (
-          // CTA granate — no es organizador aún
-          <View style={styles.ctaBanner}>
-            <View style={styles.ctaContent}>
-              <Text style={styles.ctaEyebrow}>¿ORGANIZAS TORNEOS?</Text>
-              <Text style={styles.ctaTitle}>Crea el tuyo en RALLY</Text>
-              <Text style={styles.ctaBody}>
-                Tabla en vivo, clasificación anticipada y pagos automáticos.
-                Sin Excel.
-              </Text>
-              <Pressable
-                style={({ pressed }) => [styles.ctaBtn, pressed && { opacity: 0.85 }]}
-                onPress={() => router.push('/(protected)/organizador/nuevo')}
-                accessibilityRole="button"
-                accessibilityLabel="Comenzar como organizador"
-              >
-                <Text style={styles.ctaBtnText}>Comenzar →</Text>
-              </Pressable>
-            </View>
           </View>
         )}
 
@@ -330,7 +301,22 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   // Header
-  header: { marginBottom: space[2] },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3], marginBottom: space[2] },
+  headerTextos: { flex: 1, minWidth: 0 },
+
+  // Acceso a organizador (nativo) — mismo tratamiento que el item de WebShell
+  organizar: {
+    borderWidth:       1,
+    borderColor:       color.gold,
+    backgroundColor:   'rgba(212,175,55,0.08)',
+    borderRadius:      radius.pill,
+    paddingHorizontal: space[3],
+    paddingVertical:   space[2],
+    alignItems:        'center',
+    justifyContent:    'center',
+    flexShrink:        0,
+  },
+  organizarLabel: { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.champagne },
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   greeting: { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, letterSpacing: 0.3 },
 
@@ -367,49 +353,6 @@ const styles = StyleSheet.create({
   },
   btnPrimaryPressed: { opacity: 0.85 },
   btnPrimaryText: { fontFamily: font.body, fontSize: 14, fontWeight: '600', color: color.onGold, letterSpacing: 0.3 },
-
-  // Switch de modo organizador
-  switchModeCard: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.lineSoft,
-    borderRadius: radius.xl,
-    padding: space[4],
-  },
-  switchModeRow: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  switchModeIcon: { fontSize: 22, color: color.gold },
-  switchModeTexts: { flex: 1 },
-  switchModeTitle: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  switchModeSubtitle: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
-  switchModeChevron: { fontSize: 22, color: color.muted },
-
-  // CTA Banner granate — "¿Organizas torneos?" (Doc D §8.13)
-  ctaBanner: {
-    backgroundColor: color.wine,
-    borderWidth: 1,
-    borderColor: 'rgba(241,217,140,0.38)',
-    borderRadius: 15,
-    overflow: 'hidden',
-    // shadow granate (Doc D §8.13)
-    shadowColor: '#7B1C30',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    elevation: 8,
-  },
-  ctaContent: { padding: space[5], gap: space[2] },
-  ctaEyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.onWine, letterSpacing: 2.5, opacity: 0.7 },
-  ctaTitle: { fontFamily: font.display, fontSize: fontSize.metric, color: color.onWine, letterSpacing: 0.3 },
-  ctaBody: { fontFamily: font.body, fontSize: fontSize.body, color: 'rgba(247,234,198,0.8)', lineHeight: 20 },
-  ctaBtn: {
-    backgroundColor: color.gold,
-    borderRadius: radius.sm,
-    minHeight: touchTarget,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: space[2],
-  },
-  ctaBtnText: { fontFamily: font.body, fontSize: 14, fontWeight: '600', color: color.onGold },
 
   // Quick access cards
   quickCard: {

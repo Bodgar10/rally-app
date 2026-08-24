@@ -18,6 +18,7 @@ import {
 import { useRouter, Link } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { invalidateOrganizerOwnerCache } from '@/hooks/useIsOrganizerOwner';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 
@@ -101,6 +102,10 @@ export default function NuevoOrganizadorScreen() {
         setError(MENSAJE_ERROR[codigo] ?? ERROR_GENERICO);
         return;
       }
+
+      // El usuario acaba de volverse owner: sin esto, la caché seguiría
+      // diciendo `false` y el botón "Organizar" lo devolvería a la landing.
+      invalidateOrganizerOwnerCache();
 
       // `already_existed` no es un error: el usuario ya tenía marca (doble tap,
       // reintento de red, o simplemente volvió aquí). Se entra igual.

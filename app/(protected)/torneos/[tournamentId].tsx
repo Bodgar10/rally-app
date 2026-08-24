@@ -13,6 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { supabase }                          from '@/lib/supabase/client';
 import { Card, Badge, SectionLabel, Button } from '@/components/ui';
+import ComoLlegar                            from '@/components/tournament/ComoLlegar';
 import { color, font, fontSize, space }      from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
@@ -76,9 +77,15 @@ export default function TorneoDetailScreen() {
             {new Date(tournament.end_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
           </Text>
           {tournament.venues && (
-            <Text style={styles.venue}>
-              📍 {tournament.venues.name} · {tournament.venues.city}
-            </Text>
+            <>
+              <Text style={styles.venue}>
+                📍 {tournament.venues.name} · {tournament.venues.city}
+              </Text>
+              {/* Donde el jugador decide si se inscribe, saber dónde queda pesa */}
+              <View style={{ marginTop: space[2] }}>
+                <ComoLlegar venue={tournament.venues} />
+              </View>
+            </>
           )}
           <View style={{ marginTop: space[2] }}>
             <Badge
