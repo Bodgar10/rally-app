@@ -1,29 +1,49 @@
 /**
  * RALLY · Panel de torneo del organizador
- * Gestión: cambiar status, ver categorías, ir a agregar categorías.
- * Sprint 2: cerrar inscripciones + sugerencia IA de cuadro.
+ *
+ * PRINCIPIO DE DISEÑO (rediseño fase 1):
+ *   · UNA sola acción dorada por pantalla: el siguiente paso según el estado.
+ *   · Lo que NAVEGA es una fila de ajuste (ícono, título, valor, chevron).
+ *   · Lo secundario, gris perfilado. Lo irreversible, en danger y con confirmación.
+ *
+ * Antes había tres bloques dorados compitiendo (abrir, cerrar y asignar juez) y
+ * "Cerrar inscripciones" se veía incluso en borrador. Ahora la acción dorada
+ * existe solo en `draft` (abrir), y cerrar aparece en rojo solo cuando toca.
+ *
+ * FASE 1: las filas cuya pantalla de destino aún no existe quedan visibles pero
+ * deshabilitadas, mostrando su valor real. Se ve el diseño entero y se lee la
+ * configuración; editar llega en la fase 2.
  */
 
 import { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, TextInput,
+  View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import { supabase }                             from '@/lib/supabase/client';
-import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
-import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { supabase }               from '@/lib/supabase/client';
+import SettingRow                 from '@/components/organizer/SettingRow';
+import ChecklistApertura, { type ItemChecklist } from '@/components/organizer/ChecklistApertura';
+import { formatearRango }     from '@/lib/fechas';
+import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
+
+// ── Tipos ───────────────────────────────────────────────────────────────────
+
+interface Venue { name: string; city: string | null }
 
 interface Tournament {
-  id: string; name: string; start_date: string; end_date: string;
-  status: string; registration_fee: number;
-}
-interface Category {
-  id: string; display_name: string; status: string;
+  id:               string;
+  name:             string;
+  start_date:       string;
+  end_date:         string;
+  status:           string;
+  registration_fee: number;
+  venues:           Venue | null;
 }
 
-// ── Tipos locales Sprint 5 (S5-SON-06) ──
+interface Category { id: string; display_name: string }
+
 type FinishState =
   | { status: 'idle' }
   | { status: 'confirming' }
@@ -31,138 +51,87 @@ type FinishState =
   | { status: 'success' }
   | { status: 'error'; message: string };
 
+// ── Presentación del estado ─────────────────────────────────────────────────
+
+/**
+ * El pill explica, no traduce. Antes decía `draft` en inglés y crudo, que no
+ * le dice nada a un organizador — sobre todo el dato que más importa en
+ * borrador: que los jugadores todavía no lo ven.
+ */
+const ESTADO: Record<string, { label: string; tinte: string }> = {
+  draft:               { label: 'Borrador · no visible para jugadores', tinte: color.muted },
+  registration_open:   { label: 'Inscripciones abiertas',              tinte: color.live  },
+  registration_closed: { label: 'Inscripciones cerradas',              tinte: color.alive },
+  in_progress:         { label: 'En curso',                            tinte: color.alive },
+  finished:            { label: 'Finalizado',                          tinte: color.muted },
+};
+
+function resumenCategorias(cats: Category[]): string {
+  if (cats.length === 0) return 'Ninguna todavía';
+  const primeras = cats.slice(0, 3).map((c) => c.display_name).join(', ');
+  return cats.length > 3 ? `${primeras} y ${cats.length - 3} más` : primeras;
+}
+
+// ── Pantalla ────────────────────────────────────────────────────────────────
+
 export default function OrgTournamentScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
 
-  const [tournament, setTournament] = useState<Tournament | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [updating, setUpdating]     = useState(false);
+  const [tournament, setTournament]   = useState<Tournament | null>(null);
+  const [categories, setCategories]   = useState<Category[]>([]);
+  const [judgeCount, setJudgeCount]   = useState(0);
+  const [pairCount, setPairCount]     = useState(0);
+  const [canCharge, setCanCharge]     = useState(false);
+  const [loading, setLoading]         = useState(true);
+  const [updating, setUpdating]       = useState(false);
   const [finishState, setFinishState] = useState<FinishState>({ status: 'idle' });
 
-  // ── Estado de jueces asignados ──
-  const [judges, setJudges] = useState<Array<{ id: string; userId: string; name: string; email: string }>>([]);
-  const [judgeEmail, setJudgeEmail] = useState('');
-  const [judgeSearching, setJudgeSearching] = useState(false);
-  const [judgeError, setJudgeError] = useState<string | null>(null);
-  const [judgeSuccess, setJudgeSuccess] = useState<string | null>(null);
-
   async function load() {
-    const [{ data: t }, { data: cats }] = await Promise.all([
-      supabase.from('tournaments').select('id,name,start_date,end_date,status,registration_fee').eq('id', tournamentId).single(),
-      supabase.from('categories').select('id,display_name,status').eq('tournament_id', tournamentId).order('division'),
+    // Una sola tanda: la pantalla necesita sede, conteos y el estado de Connect
+    // del organizador para poder mostrar el valor de cada fila.
+    const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }] = await Promise.all([
+      supabase
+        .from('tournaments')
+        .select('id,name,start_date,end_date,status,registration_fee,organizer_id,venues:venue_id(name,city)')
+        .eq('id', tournamentId)
+        .single(),
+      supabase
+        .from('categories')
+        .select('id,display_name')
+        .eq('tournament_id', tournamentId)
+        .order('division'),
+      supabase
+        .from('tournament_judges')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId),
+      supabase
+        .from('pairs')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId),
     ]);
-    if (t) setTournament(t as Tournament);
+
+    if (t) {
+      const fila = t as unknown as Tournament & { organizer_id: string };
+      setTournament(fila);
+
+      // Connect activo = puede cobrar en línea. Mismo criterio que aplica
+      // checkout-tournament antes de crear la sesión de pago.
+      const { data: org } = await supabase
+        .from('organizers')
+        .select('connect_status')
+        .eq('id', fila.organizer_id)
+        .maybeSingle();
+      setCanCharge(org?.connect_status === 'active');
+    }
+
     if (cats) setCategories(cats as Category[]);
+    setJudgeCount(jueces ?? 0);
+    setPairCount(parejas ?? 0);
     setLoading(false);
   }
 
-  useEffect(() => { load(); loadJudges(); }, [tournamentId]);
-
-  async function loadJudges() {
-    if (!tournamentId) return;
-    const { data, error } = await supabase
-      .from('tournament_judges')
-      .select(
-        `id, user_id,
-         users:user_id ( full_name, email )`
-      )
-      .eq('tournament_id', tournamentId)
-      .order('assigned_at', { ascending: true });
-
-    if (error) {
-      console.error('[loadJudges]', error);
-      return;
-    }
-
-    setJudges(
-      ((data ?? []) as unknown as Array<{
-        id: string;
-        user_id: string;
-        users: { full_name: string; email: string };
-      }>).map((row) => ({
-        id: row.id,
-        userId: row.user_id,
-        name: row.users?.full_name ?? '—',
-        email: row.users?.email ?? '—',
-      }))
-    );
-  }
-
-  async function assignJudge() {
-    setJudgeError(null);
-    setJudgeSuccess(null);
-    if (!judgeEmail.trim()) {
-      setJudgeError('Ingresa el correo del juez.');
-      return;
-    }
-    setJudgeSearching(true);
-    try {
-      // Buscar usuario por correo (RPC SECURITY DEFINER)
-      const { data: found, error: rpcErr } = await supabase.rpc(
-        'find_user_by_email',
-        { p_email: judgeEmail.trim().toLowerCase() }
-      );
-      if (rpcErr || !found || found.length === 0) {
-        setJudgeError('No se encontró un usuario con ese correo. Debe estar registrado en RALLY.');
-        return;
-      }
-      const candidate = (found as Array<{ id: string; full_name: string; email: string }>)[0];
-
-      // Verificar que no esté ya asignado
-      if (judges.some((j) => j.userId === candidate.id)) {
-        setJudgeError(`${candidate.full_name} ya está asignado a este torneo.`);
-        return;
-      }
-
-      // Obtener organizer_id del torneo
-      const { data: tData } = await supabase
-        .from('tournaments')
-        .select('organizer_id')
-        .eq('id', tournamentId)
-        .single();
-
-      if (!tData) {
-        setJudgeError('No se pudo obtener información del torneo.');
-        return;
-      }
-
-      const { error: insertErr } = await supabase
-        .from('tournament_judges')
-        .insert({
-          tournament_id: tournamentId,
-          user_id: candidate.id,
-          organizer_id: tData.organizer_id,
-        });
-
-      if (insertErr) {
-        console.error('[assignJudge] insert error:', insertErr);
-        setJudgeError('Error al asignar. Verifica que el usuario sea juez de este organizador.');
-        return;
-      }
-
-      setJudgeEmail('');
-      setJudgeSuccess(`${candidate.full_name} asignado como juez.`);
-      await loadJudges();
-    } finally {
-      setJudgeSearching(false);
-    }
-  }
-
-  async function removeJudge(judgeRowId: string, name: string) {
-    const { error } = await supabase
-      .from('tournament_judges')
-      .delete()
-      .eq('id', judgeRowId);
-
-    if (error) {
-      console.error('[removeJudge]', error);
-      return;
-    }
-    setJudgeSuccess(`${name} desasignado.`);
-    await loadJudges();
-  }
+  useEffect(() => { load(); }, [tournamentId]);
 
   async function handleOpenRegistration() {
     setUpdating(true);
@@ -171,11 +140,8 @@ export default function OrgTournamentScreen() {
     setUpdating(false);
   }
 
-  // ── Finalización del torneo (S5-SON-06) → Edge Function finish-tournament ──
-  // No usa UPDATE directo: el guard de Opus (029) bloquea el UPDATE crudo a 'finished'.
-  const handleFinishRequest = () => setFinishState({ status: 'confirming' });
-  const handleFinishCancel = () => setFinishState({ status: 'idle' });
-
+  // Finalizar torneo → Edge Function. No hace UPDATE directo: el guard de la
+  // migración 029 bloquea la transición cruda a 'finished'.
   const handleFinishConfirm = async () => {
     setFinishState({ status: 'loading' });
     try {
@@ -197,8 +163,12 @@ export default function OrgTournamentScreen() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.message ?? json.error ?? `Error ${res.status}`);
       setFinishState({ status: 'success' });
-    } catch (e: any) {
-      setFinishState({ status: 'error', message: e.message ?? 'No se pudo terminar el torneo.' });
+      await load();
+    } catch (e: unknown) {
+      setFinishState({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'No se pudo terminar el torneo.',
+      });
     }
   };
 
@@ -207,10 +177,26 @@ export default function OrgTournamentScreen() {
   );
   if (!tournament) return null;
 
-  const statusColors: Record<string, 'live' | 'alive' | 'muted'> = {
-    draft: 'muted', registration_open: 'live', registration_closed: 'alive',
-    in_progress: 'alive', finished: 'muted',
-  };
+  const estado    = ESTADO[tournament.status] ?? { label: tournament.status, tinte: color.muted };
+  const esDraft   = tournament.status === 'draft';
+  const esAbierto = tournament.status === 'registration_open';
+  const enCurso   = tournament.status === 'in_progress';
+
+  const tieneSede       = !!tournament.venues;
+  const tieneCategorias = categories.length > 0;
+
+  // El juez es el único no-obligatorio: no entra en `puedeAbrir`.
+  const checklist: ItemChecklist[] = [
+    { label: 'Nombre y fechas',        subtitle: formatearRango(tournament.start_date, tournament.end_date), done: true,            required: true },
+    { label: 'Sede',                   subtitle: tournament.venues?.name ?? 'Sin asignar',                  done: tieneSede,       required: true },
+    { label: 'Al menos una categoría', subtitle: tieneCategorias ? resumenCategorias(categories) : 'Ninguna todavía', done: tieneCategorias, required: true },
+    { label: 'Al menos un juez',       subtitle: 'Puedes ser tú mismo',                                     done: judgeCount > 0,  required: false },
+  ];
+  const puedeAbrir = checklist.every((i) => !i.required || i.done);
+
+  const valorCuota = tournament.registration_fee > 0
+    ? `$${tournament.registration_fee.toLocaleString('es-MX')} MXN por pareja`
+    : canCharge ? 'Gratis' : 'Gratis · conecta Stripe para cobrar';
 
   return (
     <SafeAreaView style={s.safe}>
@@ -219,348 +205,197 @@ export default function OrgTournamentScreen() {
       </Pressable>
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+
+        {/* ── Cabecera ─────────────────────────────────────────── */}
         <Text style={s.eyebrow}>TORNEO</Text>
         <Text style={s.title}>{tournament.name}</Text>
-        <Badge
-          label={tournament.status.replace('_', ' ')}
-          type={statusColors[tournament.status] ?? 'muted'}
-        />
+        <View style={[s.pill, { borderColor: estado.tinte }]}>
+          <View style={[s.pillDot, { backgroundColor: estado.tinte }]} />
+          <Text style={[s.pillTexto, { color: estado.tinte }]}>{estado.label}</Text>
+        </View>
 
-        {/* Acciones según status */}
-        {tournament.status === 'draft' && (
-          <Card variant="standard">
-            <Text style={s.actionHint}>
-              Agrega las categorías y luego abre las inscripciones para que los jugadores puedan registrarse.
-            </Text>
-            <View style={{ marginTop: space[3] }}>
-              <Button
-                label={updating ? 'Abriendo…' : 'Abrir inscripciones'}
-                variant="primary"
-                loading={updating}
-                onPress={handleOpenRegistration}
-              />
-            </View>
-          </Card>
-        )}
-
-        {tournament.status === 'registration_open' && (
-          <Card variant="standard">
-            <Text style={s.actionHint}>
-              Las inscripciones están abiertas. Cuando se complete el cuadro, cierra las inscripciones para generar los grupos. (Sprint 2)
-            </Text>
-          </Card>
-        )}
-
-        {/* Categorías */}
-        <SectionLabel
-          title="Categorías"
-          actionLabel="+ Agregar"
-          onAction={() => router.push(`/(organizer)/org/torneos/${tournamentId}/categorias`)}
-        />
-
-        {categories.length === 0 && (
-          <Card variant="standard">
-            <Text style={s.emptyText}>
-              No hay categorías aún. Agrega al menos una para abrir inscripciones.
-            </Text>
-          </Card>
-        )}
-
-        {categories.map(cat => (
-          <Card key={cat.id} variant="standard">
-            <View style={s.catRow}>
-              <Text style={s.catName}>{cat.display_name}</Text>
-              <Badge label={cat.status} type={cat.status === 'open' ? 'live' : 'muted'} />
-            </View>
-          </Card>
-        ))}
-
-        {/* Acciones futuras (Sprint 2+) */}
-        <SectionLabel title="Próximamente" />
-        <Card variant="standard">
-          {[
-            'Ajuste de calendario',
-          ].map((item, i) => (
-            <Text key={i} style={s.futureItem}>· {item}</Text>
-          ))}
-        </Card>
-
-        {/* Acciones del torneo — Sprint 2 */}
-        <SectionLabel title="Acciones" />
-        <TournamentActionButton
-          label="Cerrar inscripciones"
-          subtitle="Genera el cuadro automáticamente por categoría"
-          onPress={() =>
-            router.push(`/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`)
-          }
-          variant="primary"
-        />
-        <TournamentActionButton
-          label="Agregar pareja manual"
-          subtitle="Inscripción paid_offline (pago recibido fuera de la plataforma)"
-          onPress={() =>
-            router.push(`/(organizer)/org/torneos/${tournamentId}/agregar-pareja`)
-          }
-          variant="secondary"
-        />
-
-        {/* Terminar torneo (S5-SON-06) — solo en in_progress → Edge Function finish-tournament */}
-        {tournament.status === 'in_progress' && (
-          <View style={{ gap: 10 }}>
+        {/* ── Siguiente paso: la ÚNICA acción dorada ───────────── */}
+        {esDraft && (
+          <ChecklistApertura items={checklist}>
             <Pressable
-              onPress={
-                finishState.status === 'idle'
-                  ? handleFinishRequest
-                  : finishState.status === 'confirming'
-                  ? handleFinishConfirm
-                  : undefined
-              }
-              disabled={finishState.status === 'loading' || finishState.status === 'success'}
-              style={({ pressed }) => ({
-                backgroundColor: color.alive,
-                borderRadius: radius.sm,
-                paddingVertical: 13,
-                alignItems: 'center',
-                opacity: pressed ? 0.85 : 1,
-              })}
+              onPress={handleOpenRegistration}
+              disabled={!puedeAbrir || updating}
+              style={({ pressed }) => [
+                s.btnDorado,
+                (!puedeAbrir || updating) && s.btnDoradoInactivo,
+                pressed && { opacity: 0.85 },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel="Terminar torneo"
+              accessibilityLabel="Abrir inscripciones"
+              accessibilityState={{ disabled: !puedeAbrir || updating }}
             >
-              <Text style={{ fontFamily: font.display, fontSize: 15, fontWeight: '600', color: '#1A1407' }}>
-                {finishState.status === 'idle' && 'Terminar torneo'}
-                {finishState.status === 'confirming' && 'Terminar torneo'}
-                {finishState.status === 'loading' && 'Terminando…'}
-                {finishState.status === 'success' && '¡Torneo terminado! ✓'}
-                {finishState.status === 'error' && 'Terminar torneo'}
+              {updating
+                ? <ActivityIndicator color={color.onGold} />
+                : <Text style={[s.btnDoradoTexto, !puedeAbrir && s.btnDoradoTextoInactivo]}>
+                    Abrir inscripciones
+                  </Text>
+              }
+            </Pressable>
+          </ChecklistApertura>
+        )}
+
+        {/* ── Configuración ────────────────────────────────────── */}
+        <Text style={s.seccion}>CONFIGURACIÓN</Text>
+        <View style={s.grupo}>
+          <SettingRow
+            icon="calendar"
+            title="Fechas"
+            value={formatearRango(tournament.start_date, tournament.end_date)}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/fechas`)}
+          />
+          <SettingRow
+            icon="pin"
+            title="Sede"
+            value={tournament.venues
+              ? [tournament.venues.name, tournament.venues.city].filter(Boolean).join(' · ')
+              : 'Sin asignar'}
+            iconColor={tieneSede ? undefined : color.alive}
+            disabled
+          />
+          <SettingRow
+            icon="grid"
+            title="Categorías"
+            value={resumenCategorias(categories)}
+            badge={categories.length > 0 ? String(categories.length) : undefined}
+            iconColor={tieneCategorias ? undefined : color.alive}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/categorias`)}
+          />
+          <SettingRow
+            icon="money"
+            title="Cuota de inscripción"
+            value={valorCuota}
+            disabled
+          />
+          <SettingRow
+            icon="clock"
+            title="Horarios de partidos"
+            value="Sin definir"
+            disabled
+          />
+          <SettingRow
+            icon="whistle"
+            title="Jueces"
+            value={judgeCount > 0
+              ? `${judgeCount} ${judgeCount === 1 ? 'asignado' : 'asignados'}`
+              : 'Ninguno asignado'}
+            badge={judgeCount > 0 ? String(judgeCount) : undefined}
+            iconColor={judgeCount > 0 ? undefined : color.alive}
+            disabled
+          />
+        </View>
+
+        {/* ── Parejas ──────────────────────────────────────────── */}
+        <Text style={s.seccion}>PAREJAS</Text>
+        <View style={s.grupo}>
+          <SettingRow
+            icon="users"
+            title="Inscritas"
+            value={pairCount === 0
+              ? 'Ninguna todavía'
+              : `${pairCount} ${pairCount === 1 ? 'pareja' : 'parejas'}`}
+            badge={pairCount > 0 ? String(pairCount) : undefined}
+            disabled
+          />
+          <SettingRow
+            icon="userPlus"
+            title="Registrar pareja a mano"
+            value="Para quien te pagó por fuera"
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/agregar-pareja`)}
+          />
+        </View>
+
+        {/* ── Cerrar inscripciones: solo con inscripciones abiertas ─
+             En ROJO, no dorado: dispara el motor de formato y no tiene
+             marcha atrás. Es destacada, pero por peligro, no por ser el
+             camino feliz. */}
+        {esAbierto && (
+          <>
+            <Text style={s.seccion}>SIGUIENTE PASO</Text>
+            <Pressable
+              onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`)}
+              style={({ pressed }) => [s.btnPeligro, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar inscripciones"
+            >
+              <Text style={s.btnPeligroTexto}>Cerrar inscripciones</Text>
+              <Text style={s.btnPeligroSub}>
+                Genera los grupos y el cuadro de cada categoría. No se puede deshacer.
               </Text>
             </Pressable>
-
-            {/* Confirmación antes de terminar el torneo */}
-            {finishState.status === 'confirming' && (
-              <View
-                style={{
-                  backgroundColor: color.surface,
-                  borderRadius: radius.lg,
-                  borderWidth: 1,
-                  borderColor: 'rgba(230,180,80,0.3)',
-                  padding: 16,
-                  gap: 10,
-                }}
-              >
-                <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 15, color: color.alive }}>
-                  ¿Confirmar cierre del torneo?
-                </Text>
-                <Text style={{ fontFamily: font.body, fontSize: 13, color: color.muted, lineHeight: 20 }}>
-                  Esto marcará el torneo como terminado y calculará el ranking final y los ratings
-                  de todos los jugadores. Esta acción no se puede deshacer.
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Pressable
-                    onPress={handleFinishCancel}
-                    style={{
-                      flex: 1,
-                      borderRadius: radius.sm,
-                      borderWidth: 1,
-                      borderColor: color.lineSoft,
-                      backgroundColor: color.surface2,
-                      paddingVertical: 11,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 14, color: color.muted }}>
-                      Cancelar
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleFinishConfirm}
-                    style={{
-                      flex: 1,
-                      borderRadius: radius.sm,
-                      backgroundColor: color.alive,
-                      paddingVertical: 11,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 14, color: '#1A1407' }}>
-                      Confirmar
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
-            )}
-
-            {/* Error de finalización */}
-            {finishState.status === 'error' && (
-              <View
-                style={{
-                  backgroundColor: 'rgba(224,114,111,0.1)',
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: 'rgba(224,114,111,0.3)',
-                  padding: 12,
-                }}
-              >
-                <Text style={{ fontFamily: font.body, fontSize: 13, color: color.danger, lineHeight: 20 }}>
-                  {finishState.message}
-                </Text>
-                <Pressable onPress={handleFinishCancel} style={{ marginTop: 8 }}>
-                  <Text style={{ fontFamily: font.display, fontWeight: '600', fontSize: 13, color: color.muted }}>
-                    Reintentar
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
+          </>
         )}
 
-        {/* ── Sección: Jueces asignados ── */}
-        <View style={{ marginTop: 24, marginBottom: 8 }}>
-          <Text
-            style={{
-              fontFamily: font.display,
-              fontSize: 10,
-              fontWeight: '500',
-              color: color.champagne,
-              textTransform: 'uppercase',
-              letterSpacing: 1.2,
-              marginBottom: 12,
-            }}
-          >
-            Jueces asignados
-          </Text>
-
-          {/* Lista de jueces actuales */}
-          {judges.length === 0 ? (
-            <View
-              style={{
-                backgroundColor: color.surface,
-                borderRadius: radius.lg,
-                padding: 14,
-                borderWidth: 1,
-                borderColor: color.lineSoft,
-                marginBottom: 12,
-              }}
-            >
-              <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted, textAlign: 'center' }}>
-                Sin jueces asignados. Asigna uno para que pueda capturar resultados.
-              </Text>
-            </View>
-          ) : (
-            <View style={{ gap: 8, marginBottom: 12 }}>
-              {judges.map((j) => (
-                <View
-                  key={j.id}
-                  style={{
-                    backgroundColor: color.surface,
-                    borderRadius: radius.lg,
-                    padding: 12,
-                    borderWidth: 1,
-                    borderColor: color.lineSoft,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: font.body, fontSize: 13, fontWeight: '600', color: color.text }}>
-                      {j.name}
-                    </Text>
-                    <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted }}>
-                      {j.email}
-                    </Text>
+        {/* ── Zona irreversible ────────────────────────────────── */}
+        <Text style={s.seccion}>ZONA DE RIESGO</Text>
+        <View style={s.grupo}>
+          {enCurso && (
+            <>
+              {finishState.status === 'confirming' ? (
+                <View style={s.confirmacion}>
+                  <Text style={s.confirmacionTitulo}>¿Terminar el torneo?</Text>
+                  <Text style={s.confirmacionCuerpo}>
+                    Se calculará el ranking final y los ratings de todos los
+                    jugadores. No se puede deshacer.
+                  </Text>
+                  <View style={s.confirmacionBotones}>
+                    <Pressable
+                      onPress={() => setFinishState({ status: 'idle' })}
+                      style={s.btnCancelar}
+                      accessibilityRole="button"
+                    >
+                      <Text style={s.btnCancelarTexto}>Cancelar</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleFinishConfirm}
+                      style={s.btnConfirmarPeligro}
+                      accessibilityRole="button"
+                    >
+                      <Text style={s.btnConfirmarPeligroTexto}>Sí, terminar</Text>
+                    </Pressable>
                   </View>
-                  <Pressable
-                    onPress={() => removeJudge(j.id, j.name)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: radius.sm,
-                      borderWidth: 1,
-                      borderColor: 'rgba(224,114,111,0.30)',
-                      backgroundColor: 'rgba(224,114,111,0.08)',
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Desasignar a ${j.name}`}
-                  >
-                    <Text style={{ fontFamily: font.body, fontSize: 11, color: color.danger }}>
-                      Quitar
-                    </Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => setFinishState({ status: 'confirming' })}
+                  disabled={finishState.status === 'loading' || finishState.status === 'success'}
+                  style={({ pressed }) => [s.btnPerfiladoPeligro, pressed && { opacity: 0.85 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Terminar torneo"
+                >
+                  {finishState.status === 'loading'
+                    ? <ActivityIndicator color={color.danger} />
+                    : <Text style={s.btnPerfiladoPeligroTexto}>
+                        {finishState.status === 'success' ? 'Torneo terminado ✓' : 'Terminar torneo'}
+                      </Text>
+                  }
+                </Pressable>
+              )}
+
+              {finishState.status === 'error' && (
+                <View style={s.errorBox}>
+                  <Text style={s.errorTexto}>{finishState.message}</Text>
+                  <Pressable onPress={() => setFinishState({ status: 'idle' })}>
+                    <Text style={s.errorReintentar}>Reintentar</Text>
                   </Pressable>
                 </View>
-              ))}
-            </View>
+              )}
+            </>
           )}
 
-          {/* Formulario de asignación */}
-          <View
-            style={{
-              backgroundColor: color.surface,
-              borderRadius: radius.lg,
-              padding: 14,
-              borderWidth: 1,
-              borderColor: color.lineSoft,
-              gap: 10,
-            }}
+          <Pressable
+            style={({ pressed }) => [s.btnPerfiladoPeligro, s.btnInerte, pressed && { opacity: 0.85 }]}
+            disabled
+            accessibilityRole="button"
+            accessibilityLabel="Eliminar torneo"
+            accessibilityState={{ disabled: true }}
           >
-            <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>
-              Asignar juez por correo:
-            </Text>
-            <TextInput
-              value={judgeEmail}
-              onChangeText={(v) => { setJudgeEmail(v); setJudgeError(null); setJudgeSuccess(null); }}
-              placeholder="correo@ejemplo.com"
-              placeholderTextColor={color.muted}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              style={{
-                backgroundColor: color.surface2,
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: color.lineSoft,
-                color: color.text,
-                fontFamily: font.body,
-                fontSize: 13,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                minHeight: 44,
-              }}
-              accessibilityLabel="Correo del juez"
-            />
-
-            {judgeError && (
-              <Text style={{ fontFamily: font.body, fontSize: 11, color: color.danger }}>
-                {judgeError}
-              </Text>
-            )}
-            {judgeSuccess && (
-              <Text style={{ fontFamily: font.body, fontSize: 11, color: color.live }}>
-                {judgeSuccess}
-              </Text>
-            )}
-
-            <Pressable
-              onPress={assignJudge}
-              disabled={judgeSearching}
-              style={({ pressed }) => ({
-                backgroundColor: pressed || judgeSearching ? color.goldDeep : color.gold,
-                borderRadius: radius.sm,
-                paddingVertical: 10,
-                alignItems: 'center',
-                opacity: judgeSearching ? 0.7 : 1,
-              })}
-              accessibilityRole="button"
-              accessibilityLabel="Asignar juez"
-              accessibilityState={{ disabled: judgeSearching }}
-            >
-              {judgeSearching ? (
-                <ActivityIndicator color={color.onGold} size="small" />
-              ) : (
-                <Text style={{ fontFamily: font.body, fontSize: 13, fontWeight: '600', color: color.onGold }}>
-                  Asignar juez
-                </Text>
-              )}
-            </Pressable>
-          </View>
+            <Text style={s.btnPerfiladoPeligroTexto}>Eliminar torneo</Text>
+          </Pressable>
         </View>
 
       </ScrollView>
@@ -574,60 +409,104 @@ const s = StyleSheet.create({
   back:             { paddingHorizontal: space[4.5], paddingTop: space[4] },
   backText:         { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content:          { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: space[6] * 2, gap: space[3] },
-  eyebrow:          { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
-  title:            { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
-  actionHint:       { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 20 },
-  emptyText:        { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center', paddingVertical: space[3] },
-  catRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  catName:          { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text, flex: 1 },
-  futureItem:       { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, paddingVertical: space[1] },
-});
 
-// ─── Subcomponente: botón de acción del panel ───────────────────────────────
-function TournamentActionButton({
-  label,
-  subtitle,
-  onPress,
-  variant = "secondary",
-}: {
-  label: string;
-  subtitle?: string;
-  onPress: () => void;
-  variant?: "primary" | "secondary";
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        backgroundColor: variant === "primary" ? color.gold : color.surface,
-        borderRadius: radius.xl,
-        padding: space[4],
-        borderWidth: 1,
-        borderColor: variant === "primary" ? "transparent" : color.line,
-        gap: 4,
-      }}
-    >
-      <Text
-        style={{
-          fontFamily: "Oswald",
-          fontSize: 15,
-          fontWeight: "600",
-          color: variant === "primary" ? color.onGold : color.text,
-        }}
-      >
-        {label}
-      </Text>
-      {subtitle ? (
-        <Text
-          style={{
-            fontFamily: "Inter",
-            fontSize: 11,
-            color: variant === "primary" ? color.onGold : color.muted,
-          }}
-        >
-          {subtitle}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
+  eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
+  title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
+
+  pill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               space[2],
+    alignSelf:         'flex-start',
+    borderWidth:       1,
+    borderRadius:      radius.pill,
+    paddingHorizontal: space[3],
+    paddingVertical:   space[1],
+  },
+  pillDot:   { width: 6, height: 6, borderRadius: 3 },
+  pillTexto: { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600' },
+
+  seccion: {
+    fontFamily:    font.display,
+    fontSize:      fontSize.eyebrow,
+    color:         color.champagne,
+    letterSpacing: 2,
+    marginTop:     space[3],
+  },
+  grupo: { gap: space[2] },
+
+  // Única acción dorada de la pantalla
+  btnDorado: {
+    backgroundColor: color.gold,
+    borderWidth:     1,
+    borderColor:     color.goldBright,
+    borderRadius:    radius.sm,
+    minHeight:       touchTarget,
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
+  btnDoradoInactivo:     { backgroundColor: color.surface2, borderColor: color.line },
+  btnDoradoTexto:        { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold, letterSpacing: 0.3 },
+  btnDoradoTextoInactivo:{ color: color.muted },
+
+  // Acción destacada pero peligrosa (cerrar inscripciones)
+  btnPeligro: {
+    backgroundColor:   'rgba(224,114,111,0.10)',
+    borderWidth:       1,
+    borderColor:       color.danger,
+    borderRadius:      radius.md,
+    paddingHorizontal: space[4],
+    paddingVertical:   space[3],
+    gap:               3,
+  },
+  btnPeligroTexto: { fontFamily: font.display, fontSize: fontSize.cardName, fontWeight: '600', color: color.danger },
+  btnPeligroSub:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+
+  // Perfilado gris con texto danger — irreversible, bajo perfil
+  btnPerfiladoPeligro: {
+    borderWidth:     1,
+    borderColor:     color.lineSoft,
+    backgroundColor: 'transparent',
+    borderRadius:    radius.md,
+    minHeight:       touchTarget,
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
+  btnPerfiladoPeligroTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.danger },
+  btnInerte: { opacity: 0.45 },
+
+  confirmacion: {
+    backgroundColor: color.surface,
+    borderWidth:     1,
+    borderColor:     color.danger,
+    borderRadius:    radius.md,
+    padding:         space[4],
+    gap:             space[2],
+  },
+  confirmacionTitulo:  { fontFamily: font.display, fontSize: fontSize.cardName, fontWeight: '600', color: color.danger },
+  confirmacionCuerpo:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  confirmacionBotones: { flexDirection: 'row', gap: space[2], marginTop: space[1] },
+
+  btnCancelar: {
+    flex: 1, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.sm,
+  },
+  btnCancelarTexto: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
+
+  btnConfirmarPeligro: {
+    flex: 1, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: color.danger, borderRadius: radius.sm,
+  },
+  btnConfirmarPeligroTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.bg },
+
+  errorBox: {
+    backgroundColor: 'rgba(224,114,111,0.10)',
+    borderWidth:     1,
+    borderColor:     'rgba(224,114,111,0.30)',
+    borderRadius:    radius.md,
+    padding:         space[3],
+    gap:             space[2],
+  },
+  errorTexto:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 18 },
+  errorReintentar: { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.muted },
+});

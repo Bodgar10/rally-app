@@ -14,6 +14,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase }                          from '@/lib/supabase/client';
 import { Card, Badge, SectionLabel, Button } from '@/components/ui';
 import ComoLlegar                            from '@/components/tournament/ComoLlegar';
+import { formatearRango }                    from '@/lib/fechas';
 import { color, font, fontSize, space }      from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
@@ -72,9 +73,7 @@ export default function TorneoDetailScreen() {
           <Text style={styles.eyebrow}>RALLY</Text>
           <Text style={styles.title}>{tournament.name}</Text>
           <Text style={styles.dates}>
-            {new Date(tournament.start_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
-            {' — '}
-            {new Date(tournament.end_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
+            {formatearRango(tournament.start_date, tournament.end_date)}
           </Text>
           {tournament.venues && (
             <>

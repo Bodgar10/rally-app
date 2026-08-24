@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
+import { formatearLargo }                      from '@/lib/fechas';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 
 interface OrgTournament {
@@ -115,7 +116,7 @@ export default function OrgHomeScreen() {
                   <View style={s.tLeft}>
                     <Text style={s.tName}>{t.name}</Text>
                     <Text style={s.tDate}>
-                      {new Date(t.start_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {formatearLargo(t.start_date)}
                     </Text>
                   </View>
                   <Badge label={st.label} type={st.type} />

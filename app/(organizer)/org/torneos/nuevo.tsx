@@ -15,14 +15,15 @@ import { useRouter } from 'expo-router';
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, SectionLabel }           from '@/components/ui';
 import VenuePicker, { type Venue }              from '@/components/organizer/VenuePicker';
+import CalendarioRango                          from '@/components/ui/CalendarioRango';
+import { rangoCompleto, type RangoSeleccion }   from '@/lib/rango-fechas';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 
 export default function NuevoTorneoScreen() {
   const router = useRouter();
 
   const [name, setName]             = useState('');
-  const [startDate, setStartDate]   = useState('');
-  const [endDate, setEndDate]       = useState('');
+  const [rango, setRango]           = useState<RangoSeleccion>({ inicio: null, fin: null });
   const [fee, setFee]               = useState('');
   const [venues, setVenues]         = useState<Venue[]>([]);
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
@@ -54,17 +55,13 @@ export default function NuevoTorneoScreen() {
     load();
   }, []);
 
-  function validateDate(d: string): boolean {
-    return /^\d{4}-\d{2}-\d{2}$/.test(d);
-  }
-
   async function handleSave() {
     setError(null);
-    if (!name.trim())          { setError('El nombre es obligatorio.');          return; }
-    if (!validateDate(startDate)) { setError('Fecha de inicio inválida (YYYY-MM-DD).'); return; }
-    if (!validateDate(endDate))   { setError('Fecha de fin inválida (YYYY-MM-DD).');    return; }
-    if (endDate < startDate)   { setError('La fecha de fin debe ser después del inicio.'); return; }
-    if (!organizerId)          { setError('No se encontró tu organización.');    return; }
+    if (!name.trim())        { setError('El nombre es obligatorio.');                 return; }
+    // El calendario no puede producir un rango inválido ni invertido (ver
+    // rango-fechas.ts), así que solo queda comprobar que esté completo.
+    if (!rangoCompleto(rango)) { setError('Elige las fechas del torneo.');              return; }
+    if (!organizerId)        { setError('No se encontró tu organización.');            return; }
 
     setSaving(true);
 
@@ -74,8 +71,8 @@ export default function NuevoTorneoScreen() {
         organizer_id:     organizerId,
         venue_id:         selectedVenue?.id ?? null,
         name:             name.trim(),
-        start_date:       startDate,
-        end_date:         endDate,
+        start_date:       rango.inicio,
+        end_date:         rango.fin,
         registration_fee: parseFloat(fee) || 0,
         status:           'draft',
       })
@@ -114,34 +111,15 @@ export default function NuevoTorneoScreen() {
           selectionColor={color.gold}
         />
 
-        {/* Fechas */}
+        {/* Fechas — bloquearPasado en true: se está CREANDO el torneo, y
+            programarlo hacia atrás no tiene sentido. Al editar uno existente
+            (fechas.tsx) sí se permite, por si se corrige uno ya jugado. */}
         <SectionLabel title="Fechas" />
-        <View style={s.dateRow}>
-          <View style={s.dateField}>
-            <Text style={s.dateLabel}>Inicio</Text>
-            <TextInput
-              style={s.input}
-              placeholder="2026-07-12"
-              placeholderTextColor={color.muted}
-              value={startDate}
-              onChangeText={setStartDate}
-              keyboardType="numbers-and-punctuation"
-              selectionColor={color.gold}
-            />
-          </View>
-          <View style={s.dateField}>
-            <Text style={s.dateLabel}>Fin</Text>
-            <TextInput
-              style={s.input}
-              placeholder="2026-07-13"
-              placeholderTextColor={color.muted}
-              value={endDate}
-              onChangeText={setEndDate}
-              keyboardType="numbers-and-punctuation"
-              selectionColor={color.gold}
-            />
-          </View>
-        </View>
+        <CalendarioRango
+          valor={rango}
+          onChange={setRango}
+          bloquearPasado
+        />
 
         {/* Sede */}
         <SectionLabel title="Sede" />
@@ -202,9 +180,6 @@ const s = StyleSheet.create({
     fontSize:          fontSize.body,
     color:             color.text,
   },
-  dateRow:   { flexDirection: 'row', gap: space[2] },
-  dateField: { flex: 1, gap: space[1] },
-  dateLabel: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
 
 
   errorText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },

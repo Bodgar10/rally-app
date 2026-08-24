@@ -189,7 +189,7 @@ export default function AgregarParejaScreen() {
         </Text>
         <Text style={{ color: color.text, fontFamily: "Inter", fontSize: 14, textAlign: "center" }}>
           {player1?.full_name ?? player1?.email} y {player2?.full_name ?? player2?.email}
-          {"\n"}están inscritos como paid_offline en {selectedCategory?.display_name}.
+          {"\n"}ya están inscritos en {selectedCategory?.display_name}.
         </Text>
         <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12, textAlign: "center" }}>
           Esta inscripción es un dato de seguimiento. No registra ingreso en la plataforma.
@@ -274,7 +274,7 @@ export default function AgregarParejaScreen() {
           Agregar pareja manual
         </Text>
         <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 13, marginTop: 4 }}>
-          Inscripción paid_offline: el pago se recibió fuera de la plataforma.
+          El pago se recibió fuera de la plataforma.
         </Text>
       </View>
 
@@ -378,7 +378,7 @@ export default function AgregarParejaScreen() {
             <ConfirmRow label="Categoría" value={selectedCategory.display_name} />
             <ConfirmRow label="Jugador 1" value={player1.full_name ?? player1.email} />
             <ConfirmRow label="Jugador 2" value={player2.full_name ?? player2.email} />
-            <ConfirmRow label="Pago" value="Paid offline (fuera de plataforma)" />
+            <ConfirmRow label="Pago" value="Recibido fuera de la plataforma" />
           </View>
 
           <View style={{

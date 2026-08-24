@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
+import { formatearRango }                       from '@/lib/fechas';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
@@ -126,9 +127,7 @@ export default function TorneosScreen() {
                     </Text>
                     <View style={styles.cardMeta}>
                       <Text style={styles.metaText}>
-                        {new Date(t.start_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
-                        {' — '}
-                        {new Date(t.end_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {formatearRango(t.start_date, t.end_date)}
                       </Text>
                       <Text style={styles.metaFee}>
                         {t.registration_fee > 0
