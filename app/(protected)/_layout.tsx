@@ -112,6 +112,7 @@ export default function ProtectedLayout() {
       <Tabs.Screen name="inscripcion/[tournamentId]/index" options={{ href: null }} />
       <Tabs.Screen name="inscripcion/[tournamentId]/pago" options={{ href: null }} />
       <Tabs.Screen name="inscripcion/[tournamentId]/patrocinadores" options={{ href: null }} />
+      <Tabs.Screen name="organizador/nuevo" options={{ href: null }} />
     </Tabs>
   );
 }

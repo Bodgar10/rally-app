@@ -32,7 +32,7 @@ import { getFeatureFlags } from '@/lib/feature-flags';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useProActivation } from '@/hooks/useProActivation';
 import { useURL, parse } from 'expo-linking';
-import { hasOrganizerMembership } from '@/lib/auth/guards';
+import { isOrganizerOwner } from '@/lib/auth/guards';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
@@ -81,9 +81,11 @@ export default function DashboardScreen() {
         .limit(1);
       setNetworkRank(ranks && ranks.length > 0 ? (ranks[0] as { position: number }).position : null);
 
-      // Verificar membresía de organizador (muestra switch de modo o CTA)
-      const hasMembership = await hasOrganizerMembership(data.user.id);
-      setIsOrganizer(hasMembership);
+      // Membresía OWNER, no cualquier membresía: el switch lleva a (organizer),
+      // cuyo guard exige owner. Con hasOrganizerMembership, un usuario que solo
+      // fuera juez vería el switch y el guard lo rebotaría al entrar.
+      const isOwner = await isOrganizerOwner(data.user.id);
+      setIsOrganizer(isOwner);
       setLoading(false);
     }
     loadUserData();
@@ -202,11 +204,7 @@ export default function DashboardScreen() {
               </Text>
               <Pressable
                 style={({ pressed }) => [styles.ctaBtn, pressed && { opacity: 0.85 }]}
-                onPress={() => {
-                  // TODO Sprint 4: router.push('/(organizer)/org/onboarding-connect')
-                  // Por ahora muestra un stub de "próximamente"
-                  router.push('/(protected)/dashboard'); // placeholder
-                }}
+                onPress={() => router.push('/(protected)/organizador/nuevo')}
                 accessibilityRole="button"
                 accessibilityLabel="Comenzar como organizador"
               >
