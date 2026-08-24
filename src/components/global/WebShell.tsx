@@ -45,7 +45,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Inicio',  href: '/(protected)/dashboard',     segment: 'dashboard' },
-  { label: 'Torneos', href: '/(protected)/torneos/index', segment: 'torneos'   },
+  { label: 'Torneos', href: '/(protected)/torneos',       segment: 'torneos'   },
   { label: 'Ranking', href: '/(protected)/ranking',       segment: 'ranking'   },
   { label: 'Pro',     href: '/(protected)/planes',        segment: 'planes'    },
   { label: 'Perfil',  href: '/(protected)/perfil',        segment: 'perfil'    },

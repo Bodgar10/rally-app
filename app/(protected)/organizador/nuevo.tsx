@@ -24,19 +24,19 @@ import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 /**
  * Códigos de la Edge Function / RPC traducidos a algo que un humano entienda.
  * Nunca se enseña el código crudo: `create_failed` o `invalid_name` no le
- * dicen nada a un organizador que solo quiere dar de alta su club.
+ * dicen nada a un organizador que solo quiere dar de alta su marca.
  */
 const MENSAJE_ERROR: Record<string, string> = {
-  invalid_name:           'El nombre del club debe tener entre 3 y 60 caracteres.',
+  invalid_name:           'El nombre debe tener entre 3 y 60 caracteres.',
   invalid_email:          'El correo de contacto no tiene un formato válido.',
   invalid_json:           'No se pudo enviar el formulario. Intenta de nuevo.',
   unauthenticated:        'Tu sesión expiró. Vuelve a entrar para continuar.',
-  slug_generation_failed: 'Ya existen demasiados clubes con ese nombre. Prueba con otro.',
-  create_failed:          'No se pudo crear el club. Intenta de nuevo en un momento.',
-  method_not_allowed:     'No se pudo crear el club. Intenta de nuevo en un momento.',
+  slug_generation_failed: 'Ya existen demasiadas marcas con ese nombre. Prueba con otro.',
+  create_failed:          'No se pudo crear tu marca. Intenta de nuevo en un momento.',
+  method_not_allowed:     'No se pudo crear tu marca. Intenta de nuevo en un momento.',
 };
 
-const ERROR_GENERICO = 'No se pudo crear el club. Intenta de nuevo en un momento.';
+const ERROR_GENERICO = 'No se pudo crear tu marca. Intenta de nuevo en un momento.';
 const ERROR_RED      = 'Sin conexión con el servidor. Revisa tu internet e intenta de nuevo.';
 
 export default function NuevoOrganizadorScreen() {
@@ -102,9 +102,9 @@ export default function NuevoOrganizadorScreen() {
         return;
       }
 
-      // `already_existed` no es un error: el usuario ya tenía club (doble tap,
+      // `already_existed` no es un error: el usuario ya tenía marca (doble tap,
       // reintento de red, o simplemente volvió aquí). Se entra igual.
-      router.replace('/(organizer)/org/index');
+      router.replace('/(organizer)/org');
     } catch {
       setError(ERROR_RED);
     } finally {
@@ -121,18 +121,18 @@ export default function NuevoOrganizadorScreen() {
         </Pressable>
 
         <Text style={s.eyebrow}>ORGANIZADOR</Text>
-        <Text style={s.title}>Crea tu club</Text>
+        <Text style={s.title}>Crea tu marca de torneos</Text>
         <Text style={s.subtitle}>
           Arma torneos con tabla en vivo, clasificación automática y cobro de
           inscripciones. Sin Excel y sin perseguir transferencias.
         </Text>
 
-        {/* Nombre del club */}
+        {/* Nombre de la marca organizadora — NO es la sede (eso son `venues`) */}
         <View style={s.field}>
-          <Text style={s.label}>Nombre del club</Text>
+          <Text style={s.label}>Nombre de tu marca de torneos</Text>
           <TextInput
             style={s.input}
-            placeholder="Ej. Club Padel Coyoacán"
+            placeholder="Ej. Mexapadel"
             placeholderTextColor={color.muted}
             value={name}
             onChangeText={setName}
@@ -141,9 +141,12 @@ export default function NuevoOrganizadorScreen() {
             maxLength={60}
             returnKeyType="next"
             selectionColor={color.gold}
-            accessibilityLabel="Nombre del club"
+            accessibilityLabel="Nombre de tu marca de torneos"
           />
-          <Text style={s.hint}>Así lo verán los jugadores en cada torneo.</Text>
+          <Text style={s.hint}>
+            Así te verán los jugadores en cada torneo que publiques. No es el club
+            ni la cancha: la sede la eliges después, al crear cada torneo.
+          </Text>
         </View>
 
         {/* Correo de contacto */}
@@ -161,7 +164,7 @@ export default function NuevoOrganizadorScreen() {
             returnKeyType="done"
             onSubmitEditing={handleCrear}
             selectionColor={color.gold}
-            accessibilityLabel="Correo de contacto del club"
+            accessibilityLabel="Correo de contacto"
           />
           <Text style={s.hint}>Para avisos de inscripciones y pagos.</Text>
         </View>
@@ -201,11 +204,11 @@ export default function NuevoOrganizadorScreen() {
           onPress={handleCrear}
           disabled={!puedeEnviar}
           accessibilityRole="button"
-          accessibilityLabel="Crear club"
+          accessibilityLabel="Crear marca"
         >
           {saving
             ? <ActivityIndicator color={color.onGold} />
-            : <Text style={[s.btnPrimaryText, !puedeEnviar && s.btnDisabledText]}>Crear club</Text>
+            : <Text style={[s.btnPrimaryText, !puedeEnviar && s.btnDisabledText]}>Crear marca</Text>
           }
         </Pressable>
 

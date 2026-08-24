@@ -165,7 +165,7 @@ export default function DashboardScreen() {
             </Text>
             <Pressable
               style={({ pressed }) => [styles.btnPrimary, pressed && styles.btnPrimaryPressed]}
-              onPress={() => router.push('/(protected)/torneos/index')}
+              onPress={() => router.push('/(protected)/torneos')}
               accessibilityRole="button"
               accessibilityLabel="Ver torneos disponibles"
             >
@@ -179,7 +179,7 @@ export default function DashboardScreen() {
           // Switch de modo — tiene al menos una membresía de organizador
           <Pressable
             style={({ pressed }) => [styles.switchModeCard, pressed && { opacity: 0.85 }]}
-            onPress={() => router.push('/(organizer)/org/index')}
+            onPress={() => router.push('/(organizer)/org')}
             accessibilityRole="button"
             accessibilityLabel="Ir al panel de organizador"
           >
@@ -288,7 +288,7 @@ export default function DashboardScreen() {
 
         <Pressable
           style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85 }]}
-          onPress={() => router.push('/(protected)/torneos/index')}
+          onPress={() => router.push('/(protected)/torneos')}
           accessibilityRole="button"
         >
           <View style={styles.quickCardRow}>

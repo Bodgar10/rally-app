@@ -98,18 +98,22 @@ export const font = {
 } as const;
 
 export const fontSize = {
-  // Doc D §3.1 — escala tipográfica
-  displayXl:   74,
-  displayL:    40,
-  screenH1:    28,
-  metric:      22,
-  h1Inline:    18,
-  cardName:    16,
-  section:     13,
-  eyebrow:     11,
-  body:        12,
-  caption:     11,
-  minAbsolute: 11,
+  // Doc D §3.1 — escala tipográfica.
+  // Subida de 1-2px por escalón: la escala original se leía demasiado pequeña,
+  // sobre todo en web. Se mantiene la jerarquía relativa entre escalones.
+  // GEMELO: tailwind.config.js tiene estos mismos valores en formato Tailwind.
+  // Si tocas uno, toca el otro.
+  displayXl:   76,
+  displayL:    42,
+  screenH1:    30,
+  metric:      24,
+  h1Inline:    19,
+  cardName:    17,
+  section:     14,
+  eyebrow:     12,
+  body:        14,
+  caption:     12,
+  minAbsolute: 12,
 } as const;
 
 export const touchTarget = 44; // Doc D §4 — mínimo 44×44px

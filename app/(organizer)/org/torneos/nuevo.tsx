@@ -91,7 +91,7 @@ export default function NuevoTorneoScreen() {
     }
 
     // Ir al detalle del torneo recién creado para agregar categorías
-    router.replace(`/(organizer)/org/torneos/${data.id}/index`);
+    router.replace(`/(organizer)/org/torneos/${data.id}`);
   }
 
   return (

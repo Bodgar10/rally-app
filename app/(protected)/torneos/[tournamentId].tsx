@@ -109,7 +109,7 @@ export default function TorneoDetailScreen() {
                 <Button
                   label="Inscribirme a este torneo"
                   variant="primary"
-                  onPress={() => router.push(`/(protected)/inscripcion/${tournament.id}/index`)}
+                  onPress={() => router.push(`/(protected)/inscripcion/${tournament.id}`)}
                 />
               </View>
             </Card>

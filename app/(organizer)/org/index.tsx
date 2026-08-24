@@ -107,7 +107,7 @@ export default function OrgHomeScreen() {
           return (
             <Pressable
               key={t.id}
-              onPress={() => router.push(`/(organizer)/org/torneos/${t.id}/index`)}
+              onPress={() => router.push(`/(organizer)/org/torneos/${t.id}`)}
               style={({ pressed }) => [pressed && { opacity: 0.8 }]}
             >
               <Card variant="standard">

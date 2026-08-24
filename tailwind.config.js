@@ -46,17 +46,18 @@ module.exports = {
         body:    ['Inter'],
       },
       fontSize: {
-        // Doc D §3.1 — escala tipográfica
-        'display-xl': ['74px', { lineHeight: '0.9' }],
-        'display-l':  ['40px', {}],
-        'screen-h1':  ['28px', { letterSpacing: '0.01em' }],
-        'metric':     ['22px', {}],
-        'h1-inline':  ['18px', {}],
-        'card-name':  ['16px', {}],
-        'section':    ['13px', { letterSpacing: '0.14em' }],
-        'eyebrow':    ['11px', { letterSpacing: '0.22em' }],
-        body:         ['12px', { lineHeight: '1.5' }],
-        caption:      ['11px', {}],
+        // Doc D §3.1 — escala tipográfica.
+        // GEMELO de `fontSize` en src/lib/design-tokens.ts — mantener en sync.
+        'display-xl': ['76px', { lineHeight: '0.9' }],
+        'display-l':  ['42px', {}],
+        'screen-h1':  ['30px', { letterSpacing: '0.01em' }],
+        'metric':     ['24px', {}],
+        'h1-inline':  ['19px', {}],
+        'card-name':  ['17px', {}],
+        'section':    ['14px', { letterSpacing: '0.14em' }],
+        'eyebrow':    ['12px', { letterSpacing: '0.22em' }],
+        body:         ['14px', { lineHeight: '1.5' }],
+        caption:      ['12px', {}],
       },
       spacing: {
         // Doc D §4 — escala de espaciado

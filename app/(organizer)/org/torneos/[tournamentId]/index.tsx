@@ -214,7 +214,7 @@ export default function OrgTournamentScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.replace('/(organizer)/org/index')} style={s.back}>
+      <Pressable onPress={() => router.replace('/(organizer)/org')} style={s.back}>
         <Text style={s.backText}>← Mis torneos</Text>
       </Pressable>
 
