@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
+import { inputFontSize } from '@/lib/web-layout';
 
 export default function RecuperarScreen() {
   const router = useRouter();
@@ -94,7 +95,7 @@ const styles = StyleSheet.create({
   title:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, letterSpacing: 0.4, marginBottom: space[1], textAlign: 'center' },
   subtitle: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center', marginBottom: space[5] },
   form:  { width: '100%', gap: space[3] },
-  input: { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, minHeight: touchTarget, paddingHorizontal: space[4], fontFamily: font.body, fontSize: fontSize.body, color: color.text },
+  input: { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, minHeight: touchTarget, paddingHorizontal: space[4], fontFamily: font.body, fontSize: inputFontSize(fontSize.body), color: color.text },
   errorText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
   btnPrimary: { backgroundColor: color.gold, borderRadius: radius.sm, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },
   btnPrimaryText: { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold },

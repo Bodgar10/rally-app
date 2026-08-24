@@ -17,7 +17,17 @@ import {
   resolveWebLayout,
   webContentColumn,
   bottomInset,
+  inputFontSize,
 } from '../web-layout';
+
+// Los cuatro tamaños de fuente que usan hoy los TextInput del proyecto.
+// Si aparece un quinto, añádelo aquí: el invariante debe cubrirlos todos.
+const TAMANOS_NATIVOS_REALES = [
+  12, // fontSize.body — los 4 archivos de (auth), org/torneos/nuevo, partnerInput
+  13, // inline — org/torneos/[tournamentId], CancellationFlow (textarea)
+  14, // inline — agregar-pareja
+  28, // inline — ScoreCapture; ya cumple el umbral, no debe tocarse
+] as const;
 
 describe('web-layout · nativo — debe ser inerte', () => {
   it.each(['ios', 'android'])('en %s, webContentColumn es un objeto vacío', (os) => {
@@ -41,6 +51,24 @@ describe('web-layout · nativo — debe ser inerte', () => {
   it.each(['ios', 'android'])('en %s, bottomInset son 48 (tab bar de 86px)', (os) => {
     expect(resolveWebLayout(os).bottomInset).toBe(48);
   });
+
+  // El invariante que sostiene "iOS y Android no cambian ni un píxel" para los
+  // campos de texto: en nativo `inputFontSize` es la identidad, sin excepciones.
+  describe.each(['ios', 'android'])('en %s, inputFontSize es la identidad', (os) => {
+    it.each(TAMANOS_NATIVOS_REALES)('deja %i intacto', (size) => {
+      expect(resolveWebLayout(os).inputFontSize(size)).toBe(size);
+    });
+
+    it('no eleva NINGÚN tamaño, ni siquiera por debajo del umbral de Safari', () => {
+      const fn = resolveWebLayout(os).inputFontSize;
+
+      // Barrido exhaustivo: si alguien mete un Math.max sin la rama de web,
+      // este test lo caza aunque el tamaño no esté en la tabla de arriba.
+      for (let size = 1; size <= 40; size++) {
+        expect(fn(size)).toBe(size);
+      }
+    });
+  });
 });
 
 describe('web-layout · web — debe centrar y reducir el relleno', () => {
@@ -54,6 +82,35 @@ describe('web-layout · web — debe centrar y reducir el relleno', () => {
 
   it('bottomInset baja a 24 (en web no hay tab bar)', () => {
     expect(resolveWebLayout('web').bottomInset).toBe(24);
+  });
+
+  describe('inputFontSize eleva a 16 para no disparar el zoom de Safari iOS', () => {
+    // Safari hace zoom automático al enfocar un campo por debajo de 16px, y con
+    // `body { overflow: hidden }` del reset de RNW ese zoom no se revierte solo.
+    it.each([
+      [12, 16], // fontSize.body — el caso de login y registro
+      [13, 16],
+      [14, 16],
+      [28, 28], // ya cumple: se respeta, no se aplasta a 16
+    ])('%i sube a %i', (nativo, esperado) => {
+      expect(resolveWebLayout('web').inputFontSize(nativo)).toBe(esperado);
+    });
+
+    it('ningún tamaño queda por debajo del umbral', () => {
+      const fn = resolveWebLayout('web').inputFontSize;
+
+      for (let size = 1; size <= 40; size++) {
+        expect(fn(size)).toBeGreaterThanOrEqual(16);
+      }
+    });
+
+    it('nunca REDUCE un tamaño que ya cumplía', () => {
+      const fn = resolveWebLayout('web').inputFontSize;
+
+      for (let size = 16; size <= 80; size++) {
+        expect(fn(size)).toBe(size);
+      }
+    });
   });
 });
 
@@ -70,5 +127,12 @@ describe('web-layout · las constantes exportadas, en la plataforma real del pre
     // importarán las pantallas.
     expect(webContentColumn).toEqual({});
     expect(bottomInset).toBe(48);
+  });
+
+  it('inputFontSize resuelve a la identidad en los cuatro tamaños reales', () => {
+    // La constante que de verdad importan los 4 archivos de (auth).
+    for (const size of TAMANOS_NATIVOS_REALES) {
+      expect(inputFontSize(size)).toBe(size);
+    }
   });
 });

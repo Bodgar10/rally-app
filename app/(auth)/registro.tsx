@@ -22,6 +22,7 @@ import { useRouter, Link } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
+import { inputFontSize } from '@/lib/web-layout';
 
 // ─── Validación ──────────────────────────────────────────────────────────
 
@@ -247,7 +248,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     paddingVertical: space[3],
     fontFamily: font.body,
-    fontSize: fontSize.body,
+    fontSize: inputFontSize(fontSize.body),
     color: color.text,
   },
   checkboxRow: {

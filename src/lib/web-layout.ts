@@ -17,6 +17,14 @@ import type { ViewStyle } from 'react-native';
 
 import { layout, space } from './design-tokens';
 
+/**
+ * Umbral por debajo del cual Safari en iOS hace zoom automático al enfocar
+ * un campo de texto. No es configurable ni se puede desactivar de forma fiable:
+ * `user-scalable=no` y `maximum-scale` se ignoran en Safari desde iOS 10, y
+ * bloquear el zoom violaría el criterio WCAG 2.1 SC 1.4.4.
+ */
+const NO_ZOOM_MIN_FONT_SIZE = 16;
+
 export interface WebLayoutValues {
   /**
    * Centra el contenido de un scroller en una columna de ancho máximo.
@@ -42,6 +50,25 @@ export interface WebLayoutValues {
    *                             tarjeta no quede pegada al borde de la ventana.
    */
   bottomInset: number;
+  /**
+   * Tamaño de fuente de un campo de texto (TextInput), dado su tamaño nativo.
+   *
+   * Nativo: es la identidad — devuelve exactamente lo que recibe, así que iOS y
+   * Android no cambian ni un píxel. Igual que `webContentColumn` vale `{}`, esto
+   * hace que "nativo no cambió" sea demostrable y no una promesa.
+   *
+   * Web: eleva a 16 los tamaños menores. Safari en iOS hace zoom automático
+   * sobre cualquier campo cuyo font-size sea menor a 16px, y ese zoom no se
+   * revierte al salir del campo: el reset de react-native-web deja
+   * `body { overflow: hidden }`, y sin documento scrolleable el navegador no
+   * tiene forma de reponer el viewport visual. El usuario acaba recolocando la
+   * página a mano. Subir el tamaño en web es el arreglo de raíz; bloquear el
+   * zoom no es una opción (ver NO_ZOOM_MIN_FONT_SIZE).
+   *
+   * Los tamaños que ya cumplen se respetan tal cual: el capturador de marcador
+   * de ScoreCapture usa 28 y sigue en 28.
+   */
+  inputFontSize: (nativeSize: number) => number;
 }
 
 /**
@@ -61,6 +88,9 @@ export function resolveWebLayout(os: string): WebLayoutValues {
       ? { maxWidth: layout.contentMaxWidth, alignSelf: 'center', width: '100%' }
       : {},
     bottomInset: isWeb ? space[6] : space[6] * 2,
+    inputFontSize: isWeb
+      ? (nativeSize: number): number => Math.max(nativeSize, NO_ZOOM_MIN_FONT_SIZE)
+      : (nativeSize: number): number => nativeSize,
   };
 }
 
@@ -71,3 +101,6 @@ export const webContentColumn: ViewStyle = resolved.webContentColumn;
 
 /** Ver WebLayoutValues.bottomInset */
 export const bottomInset: number = resolved.bottomInset;
+
+/** Ver WebLayoutValues.inputFontSize */
+export const inputFontSize: (nativeSize: number) => number = resolved.inputFontSize;
