@@ -5,9 +5,9 @@
  * Solo torneos activos del organizador al que pertenece el juez.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, SafeAreaView, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 
@@ -94,7 +94,8 @@ export default function JudgeIndexScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Al volver de capturar resultados, la lista debe reflejar el estado nuevo.
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>

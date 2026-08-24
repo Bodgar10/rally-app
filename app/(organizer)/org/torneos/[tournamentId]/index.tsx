@@ -15,12 +15,12 @@
  * configuración; editar llega en la fase 2.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase }               from '@/lib/supabase/client';
 import SettingRow                 from '@/components/organizer/SettingRow';
@@ -87,7 +87,7 @@ export default function OrgTournamentScreen() {
   const [updating, setUpdating]       = useState(false);
   const [finishState, setFinishState] = useState<FinishState>({ status: 'idle' });
 
-  async function load() {
+  const load = useCallback(async () => {
     // Una sola tanda: la pantalla necesita sede, conteos y el estado de Connect
     // del organizador para poder mostrar el valor de cada fila.
     const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }] = await Promise.all([
@@ -129,9 +129,15 @@ export default function OrgTournamentScreen() {
     setJudgeCount(jueces ?? 0);
     setPairCount(parejas ?? 0);
     setLoading(false);
-  }
+  }, [tournamentId]);
 
-  useEffect(() => { load(); }, [tournamentId]);
+  // useFocusEffect y no useEffect: al volver de una subpantalla (categorías,
+  // fechas, jueces…) el componente sigue MONTADO, así que un efecto de montaje
+  // no se vuelve a disparar y el panel enseña conteos viejos.
+  //
+  // El callback no puede ser async: useFocusEffect de expo-router lo detecta y
+  // avisa por consola. De ahí el `void load()`.
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   async function handleOpenRegistration() {
     setUpdating(true);
@@ -255,7 +261,7 @@ export default function OrgTournamentScreen() {
               ? [tournament.venues.name, tournament.venues.city].filter(Boolean).join(' · ')
               : 'Sin asignar'}
             iconColor={tieneSede ? undefined : color.alive}
-            disabled
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sede`)}
           />
           <SettingRow
             icon="grid"
@@ -269,7 +275,7 @@ export default function OrgTournamentScreen() {
             icon="money"
             title="Cuota de inscripción"
             value={valorCuota}
-            disabled
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cuota`)}
           />
           <SettingRow
             icon="clock"
@@ -285,7 +291,7 @@ export default function OrgTournamentScreen() {
               : 'Ninguno asignado'}
             badge={judgeCount > 0 ? String(judgeCount) : undefined}
             iconColor={judgeCount > 0 ? undefined : color.alive}
-            disabled
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/jueces`)}
           />
         </View>
 
@@ -299,7 +305,7 @@ export default function OrgTournamentScreen() {
               ? 'Ninguna todavía'
               : `${pairCount} ${pairCount === 1 ? 'pareja' : 'parejas'}`}
             badge={pairCount > 0 ? String(pairCount) : undefined}
-            disabled
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/parejas`)}
           />
           <SettingRow
             icon="userPlus"
@@ -388,11 +394,10 @@ export default function OrgTournamentScreen() {
           )}
 
           <Pressable
-            style={({ pressed }) => [s.btnPerfiladoPeligro, s.btnInerte, pressed && { opacity: 0.85 }]}
-            disabled
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/eliminar`)}
+            style={({ pressed }) => [s.btnPerfiladoPeligro, pressed && { opacity: 0.85 }]}
             accessibilityRole="button"
             accessibilityLabel="Eliminar torneo"
-            accessibilityState={{ disabled: true }}
           >
             <Text style={s.btnPerfiladoPeligroTexto}>Eliminar torneo</Text>
           </Pressable>

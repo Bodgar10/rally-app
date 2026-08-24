@@ -1,189 +1,452 @@
 /**
- * RALLY · Agregar categorías al torneo
- * El organizador elige división + género.
- * display_name se genera automáticamente.
- * Escribe en public.categories con status = 'open'.
+ * RALLY · Categorías del torneo
+ *
+ * Selección MÚLTIPLE con chips, en vez del alta de una en una que había antes.
+ * El organizador ve de un vistazo qué va a abrir y lo confirma en un guardado.
+ *
+ * SOLO MIXTO Y FEMENIL
+ *   El enum de la BD es ('male','female','mixed') y NO se toca: 'male' sigue
+ *   existiendo y las categorías varoniles ya creadas se respetan. Simplemente
+ *   no se ofrece, porque en el padel mexicano los hombres compiten en mixto y
+ *   ese grupo quedaría siempre vacío.
+ *
+ * BORRAR CATEGORÍAS
+ *   Deseleccionar una categoría la ELIMINA, y eso arrastra en cascada sus
+ *   parejas, grupos, partidos y registros de pago. Por eso, antes de borrar
+ *   nada, se cuenta qué hay dentro:
+ *     · sin parejas               → se borra sin preguntar
+ *     · con parejas, ninguna pagada en línea → confirmación con el conteo
+ *     · con alguna pagada en línea → NO se borra; se avisa y se conserva
+ *   La garantía de verdad está en el trigger de la migración 033; esto es la
+ *   cortesía que evita llegar hasta el error.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
-import { supabase }                             from '@/lib/supabase/client';
-import { Button, Card, SectionLabel }           from '@/components/ui';
-import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { supabase } from '@/lib/supabase/client';
+import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 
-const DIVISIONS = ['sexta','quinta','cuarta','tercera','segunda','primera'] as const;
-const GENDERS   = [
-  { value: 'male',   label: 'Varonil' },
-  { value: 'female', label: 'Femenil' },
-  { value: 'mixed',  label: 'Mixto' },
+// ── Modelo ──────────────────────────────────────────────────────────────────
+
+const DIVISIONES = [
+  { valor: 'sexta',   etiqueta: '6ª' },
+  { valor: 'quinta',  etiqueta: '5ª' },
+  { valor: 'cuarta',  etiqueta: '4ª' },
+  { valor: 'tercera', etiqueta: '3ª' },
+  { valor: 'segunda', etiqueta: '2ª' },
+  { valor: 'primera', etiqueta: '1ª' },
 ] as const;
 
-const DIVISION_LABELS: Record<string, string> = {
-  sexta: '6ª', quinta: '5ª', cuarta: '4ª',
-  tercera: '3ª', segunda: '2ª', primera: '1ª',
+/** 'male' existe en el enum pero no se ofrece. Ver cabecera. */
+const GRUPOS = [
+  { genero: 'mixed',  titulo: 'Mixto'   },
+  { genero: 'female', titulo: 'Femenil' },
+] as const;
+
+const NOMBRE_GENERO: Record<string, string> = {
+  male: 'Varonil', female: 'Femenil', mixed: 'Mixto',
 };
 
-function makeDisplayName(division: string, gender: string): string {
-  const div = DIVISION_LABELS[division] ?? division;
-  const gen = { male: 'Varonil', female: 'Femenil', mixed: 'Mixto' }[gender] ?? gender;
-  return `${div} ${gen}`;
+/** Clave estable de una categoría dentro del torneo. */
+const clave = (division: string, genero: string) => `${division}|${genero}`;
+
+function nombreVisible(division: string, genero: string): string {
+  const d = DIVISIONES.find((x) => x.valor === division)?.etiqueta ?? division;
+  return `${d} ${NOMBRE_GENERO[genero] ?? genero}`;
 }
 
-interface ExistingCategory { id: string; display_name: string }
+interface CategoriaExistente {
+  id:        string;
+  division:  string;
+  gender:    string;
+  parejas:   number;
+  pagadas:   number;
+}
+
+type Confirmacion = {
+  aBorrar:  CategoriaExistente[];
+  bloqueadas: CategoriaExistente[];
+};
+
+// ── Pantalla ────────────────────────────────────────────────────────────────
 
 export default function CategoriasScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
 
-  const [existing, setExisting] = useState<ExistingCategory[]>([]);
-  const [division, setDivision] = useState<string>('quinta');
-  const [gender, setGender]     = useState<string>('mixed');
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState<string | null>(null);
+  const [nombreTorneo, setNombreTorneo] = useState('');
+  const [existentes, setExistentes] = useState<CategoriaExistente[]>([]);
+  const [seleccion, setSeleccion]   = useState<Set<string>>(new Set());
+  const [cargando, setCargando]     = useState(true);
+  const [guardando, setGuardando]   = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [confirmacion, setConfirmacion] = useState<Confirmacion | null>(null);
 
-  async function loadExisting() {
-    const { data } = await supabase
-      .from('categories')
-      .select('id, display_name')
-      .eq('tournament_id', tournamentId)
-      .order('division');
-    if (data) setExisting(data as ExistingCategory[]);
-  }
+  const cargar = useCallback(async () => {
+    const [{ data: t }, { data: cats }] = await Promise.all([
+      supabase.from('tournaments').select('name').eq('id', tournamentId).single(),
+      supabase
+        .from('categories')
+        .select('id, division, gender')
+        .eq('tournament_id', tournamentId),
+    ]);
 
-  useEffect(() => { loadExisting(); }, [tournamentId]);
+    if (t) setNombreTorneo((t as { name: string }).name);
 
-  async function handleAdd() {
+    const filas = (cats ?? []) as Array<{ id: string; division: string; gender: string }>;
+
+    // Conteos por categoría: cuántas parejas y cuántas pagaron en línea.
+    // Se necesitan ANTES de guardar para decidir si se puede borrar.
+    const conConteos: CategoriaExistente[] = await Promise.all(
+      filas.map(async (c) => {
+        const [{ count: parejas }, { count: pagadas }] = await Promise.all([
+          supabase.from('pairs').select('id', { count: 'exact', head: true })
+            .eq('category_id', c.id),
+          supabase.from('pairs').select('id', { count: 'exact', head: true })
+            .eq('category_id', c.id).eq('payment_status', 'paid_online'),
+        ]);
+        return { ...c, parejas: parejas ?? 0, pagadas: pagadas ?? 0 };
+      }),
+    );
+
+    setExistentes(conConteos);
+    setSeleccion(new Set(conConteos.map((c) => clave(c.division, c.gender))));
+    setCargando(false);
+  }, [tournamentId]);
+
+  useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
+
+  function alternar(division: string, genero: string) {
     setError(null);
-    const displayName = makeDisplayName(division, gender);
-
-    // Verificar que no exista ya
-    const duplicate = existing.find(e => e.display_name === displayName);
-    if (duplicate) { setError(`${displayName} ya está agregada.`); return; }
-
-    setSaving(true);
-    const { error: insertError } = await supabase
-      .from('categories')
-      .insert({
-        tournament_id: tournamentId,
-        division,
-        gender,
-        display_name: displayName,
-        status:        'open',
-      });
-    setSaving(false);
-
-    if (insertError) { setError('No se pudo agregar. Intenta de nuevo.'); return; }
-    await loadExisting();
+    setSeleccion((prev) => {
+      const s = new Set(prev);
+      const k = clave(division, genero);
+      if (s.has(k)) s.delete(k); else s.add(k);
+      return s;
+    });
   }
 
-  async function handleDelete(id: string) {
-    await supabase.from('categories').delete().eq('id', id);
-    await loadExisting();
+  // Diferencia contra lo que hay en BD.
+  const { aCrear, aBorrar } = useMemo(() => {
+    const existentesPorClave = new Map(
+      existentes.map((c) => [clave(c.division, c.gender), c]),
+    );
+
+    const aCrear: Array<{ division: string; gender: string }> = [];
+    for (const k of seleccion) {
+      if (!existentesPorClave.has(k)) {
+        const [division, gender] = k.split('|');
+        aCrear.push({ division, gender });
+      }
+    }
+
+    const aBorrar = existentes.filter(
+      (c) => !seleccion.has(clave(c.division, c.gender)),
+    );
+
+    return { aCrear, aBorrar };
+  }, [seleccion, existentes]);
+
+  /** Categorías varoniles ya existentes: se conservan, no se editan. */
+  const varoniles = useMemo(
+    () => existentes.filter((c) => c.gender === 'male'),
+    [existentes],
+  );
+
+  const hayCambios = aCrear.length > 0 || aBorrar.length > 0;
+  const puedeGuardar = seleccion.size > 0 && hayCambios && !guardando;
+
+  /** Primer paso: si hay borrados con contenido, pedir confirmación. */
+  function intentarGuardar() {
+    setError(null);
+    if (!puedeGuardar) return;
+
+    const conParejas  = aBorrar.filter((c) => c.parejas > 0 && c.pagadas === 0);
+    const bloqueadas  = aBorrar.filter((c) => c.pagadas > 0);
+
+    if (conParejas.length > 0 || bloqueadas.length > 0) {
+      setConfirmacion({ aBorrar: conParejas, bloqueadas });
+      return;
+    }
+    void guardar([]);
+  }
+
+  /** `conservar`: categorías bloqueadas que NO se borran y vuelven a marcarse. */
+  async function guardar(conservar: CategoriaExistente[]) {
+    setConfirmacion(null);
+    setGuardando(true);
+    setError(null);
+
+    const idsConservados = new Set(conservar.map((c) => c.id));
+    const borrarDeVerdad = aBorrar.filter((c) => !idsConservados.has(c.id));
+
+    try {
+      if (aCrear.length > 0) {
+        const { error: e } = await supabase.from('categories').insert(
+          aCrear.map((c) => ({
+            tournament_id: tournamentId,
+            division:      c.division,
+            gender:        c.gender,
+            display_name:  nombreVisible(c.division, c.gender),
+          })),
+        );
+        if (e) throw e;
+      }
+
+      if (borrarDeVerdad.length > 0) {
+        const { error: e } = await supabase
+          .from('categories')
+          .delete()
+          .in('id', borrarDeVerdad.map((c) => c.id));
+        if (e) throw e;
+      }
+
+      router.back();
+    } catch (e: unknown) {
+      // El trigger de la migración 033 es la última línea de defensa: si la UI
+      // dejó pasar un borrado con pagos, aquí llega su código.
+      const mensaje = e instanceof Error ? e.message : '';
+      setError(
+        mensaje.includes('paid_registrations') || mensaje.includes('registration_is_paid')
+          ? 'No se puede quitar una categoría con inscripciones ya pagadas en línea.'
+          : 'No se pudieron guardar las categorías. Intenta de nuevo.',
+      );
+      setGuardando(false);
+      // Recargar para que la selección refleje lo que de verdad quedó en BD.
+      void cargar();
+    }
+  }
+
+  if (cargando) {
+    return <View style={s.cargando}><ActivityIndicator color={color.gold} /></View>;
   }
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back}>
-        <Text style={s.backText}>← Volver al torneo</Text>
+      <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
+        <Text style={s.backText} numberOfLines={1}>← {nombreTorneo || 'Torneo'}</Text>
       </Pressable>
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <Text style={s.eyebrow}>CATEGORÍAS</Text>
-        <Text style={s.title}>Agregar categoría</Text>
+        <Text style={s.eyebrow}>CONFIGURACIÓN</Text>
+        <Text style={s.title}>Categorías</Text>
+        <Text style={s.bajada}>
+          Toca las que vas a abrir. Cada una tendrá su propio cuadro y su propia
+          tabla.
+        </Text>
 
-        {/* División */}
-        <SectionLabel title="División" />
-        <View style={s.chipRow}>
-          {DIVISIONS.map(d => (
-            <Pressable
-              key={d}
-              style={[s.chip, division === d && s.chipActive]}
-              onPress={() => setDivision(d)}
-            >
-              <Text style={[s.chipLabel, division === d && s.chipLabelActive]}>
-                {DIVISION_LABELS[d]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Género */}
-        <SectionLabel title="Género" />
-        <View style={s.chipRow}>
-          {GENDERS.map(g => (
-            <Pressable
-              key={g.value}
-              style={[s.chip, gender === g.value && s.chipActive]}
-              onPress={() => setGender(g.value)}
-            >
-              <Text style={[s.chipLabel, gender === g.value && s.chipLabelActive]}>
-                {g.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Preview */}
-        <Card variant="feature">
-          <Text style={s.previewLabel}>Se agregará:</Text>
-          <Text style={s.previewName}>{makeDisplayName(division, gender)}</Text>
-        </Card>
-
-        {error && <Text style={s.errorText}>{error}</Text>}
-
-        <Button
-          label={saving ? 'Agregando…' : 'Agregar categoría'}
-          variant="primary"
-          loading={saving}
-          onPress={handleAdd}
-        />
-
-        {/* Categorías ya agregadas */}
-        {existing.length > 0 && (
-          <>
-            <SectionLabel title="Categorías en este torneo" />
-            {existing.map(cat => (
-              <Card key={cat.id} variant="standard">
-                <View style={s.existRow}>
-                  <Text style={s.existName}>{cat.display_name}</Text>
-                  <Pressable onPress={() => handleDelete(cat.id)} style={s.deleteBtn}>
-                    <Text style={s.deleteText}>Eliminar</Text>
+        {GRUPOS.map((grupo) => (
+          <View key={grupo.genero} style={s.grupo}>
+            <Text style={s.grupoTitulo}>{grupo.titulo.toUpperCase()}</Text>
+            <View style={s.chips}>
+              {DIVISIONES.map((d) => {
+                const activo = seleccion.has(clave(d.valor, grupo.genero));
+                return (
+                  <Pressable
+                    key={d.valor}
+                    onPress={() => alternar(d.valor, grupo.genero)}
+                    style={[s.chip, activo && s.chipActivo]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: activo }}
+                    accessibilityLabel={`${d.etiqueta} ${grupo.titulo}`}
+                  >
+                    <Text style={[s.chipTexto, activo && s.chipTextoActivo]}>
+                      {d.etiqueta}
+                    </Text>
                   </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+
+        {/* Varonil solo aparece si el torneo YA tiene alguna: no se ofrecen
+            nuevas, pero ocultar las existentes las dejaría contadas en el botón
+            sin que se vean por ningún lado. Son de solo lectura. */}
+        {varoniles.length > 0 && (
+          <View style={s.grupo}>
+            <Text style={s.grupoTitulo}>VARONIL</Text>
+            <View style={s.chips}>
+              {varoniles.map((c) => (
+                <View key={c.id} style={[s.chip, s.chipFijo]}>
+                  <Text style={s.chipTextoFijo}>
+                    {DIVISIONES.find((d) => d.valor === c.division)?.etiqueta ?? c.division}
+                  </Text>
                 </View>
-              </Card>
-            ))}
-          </>
+              ))}
+            </View>
+            <Text style={s.grupoNota}>
+              Ya no se abren categorías varoniles nuevas. Estas se conservan.
+            </Text>
+          </View>
         )}
 
-        <Button label="Listo" variant="secondary" onPress={() => router.back()} />
+        <Text style={s.ayuda}>
+          Podrás agregar o quitar categorías mientras las inscripciones sigan
+          abiertas.
+        </Text>
 
+        {error && <Text style={s.error}>{error}</Text>}
+
+        <Pressable
+          onPress={intentarGuardar}
+          disabled={!puedeGuardar}
+          style={({ pressed }) => [
+            s.btnDorado,
+            !puedeGuardar && s.btnInactivo,
+            pressed && { opacity: 0.85 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Guardar categorías"
+          accessibilityState={{ disabled: !puedeGuardar }}
+        >
+          {guardando
+            ? <ActivityIndicator color={color.onGold} />
+            : <Text style={[s.btnTexto, !puedeGuardar && s.btnTextoInactivo]}>
+                {seleccion.size === 0
+                  ? 'Elige al menos una'
+                  : hayCambios
+                    ? `Guardar ${seleccion.size} ${seleccion.size === 1 ? 'categoría' : 'categorías'}`
+                    : 'Sin cambios'}
+              </Text>
+          }
+        </Pressable>
       </ScrollView>
+
+      {/* ── Confirmación de borrado ─────────────────────────────── */}
+      {confirmacion && (
+        <View style={s.overlay}>
+          <View style={s.dialogo}>
+            <Text style={s.dialogoTitulo}>
+              {confirmacion.aBorrar.length > 0 ? 'Vas a quitar categorías con inscritos' : 'No se pueden quitar'}
+            </Text>
+
+            {confirmacion.aBorrar.map((c) => (
+              <Text key={c.id} style={s.dialogoLinea}>
+                · <Text style={s.dialogoNegrita}>{nombreVisible(c.division, c.gender)}</Text>
+                {' '}perderá {c.parejas} {c.parejas === 1 ? 'pareja inscrita' : 'parejas inscritas'}.
+              </Text>
+            ))}
+
+            {confirmacion.bloqueadas.length > 0 && (
+              <View style={s.bloqueo}>
+                <Text style={s.bloqueoTitulo}>Estas se conservan</Text>
+                {confirmacion.bloqueadas.map((c) => (
+                  <Text key={c.id} style={s.bloqueoLinea}>
+                    · <Text style={s.dialogoNegrita}>{nombreVisible(c.division, c.gender)}</Text>
+                    {' '}tiene {c.pagadas} {c.pagadas === 1 ? 'inscripción pagada' : 'inscripciones pagadas'} en
+                    línea. Quitarla borraría el registro del pago, pero el cargo
+                    seguiría cobrado en Stripe.
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            <View style={s.dialogoBotones}>
+              <Pressable
+                onPress={() => setConfirmacion(null)}
+                style={s.dialogoCancelar}
+                accessibilityRole="button"
+              >
+                <Text style={s.dialogoCancelarTexto}>Cancelar</Text>
+              </Pressable>
+
+              {confirmacion.aBorrar.length > 0 && (
+                <Pressable
+                  onPress={() => void guardar(confirmacion.bloqueadas)}
+                  style={s.dialogoConfirmar}
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirmar y guardar"
+                >
+                  <Text style={s.dialogoConfirmarTexto}>Quitar de todos modos</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: color.bg },
-  back:    { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText:{ fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
-  content: { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: space[6] * 2, gap: space[3] },
+  safe:     { flex: 1, backgroundColor: color.bg },
+  cargando: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
+  back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
+  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
+  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: space[6] * 2, gap: space[3] },
+
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  chip:    { borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: color.surface2 },
-  chipActive:      { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.12)' },
-  chipLabel:       { fontFamily: font.display, fontSize: 13, color: color.text },
-  chipLabelActive: { color: color.goldBright },
-  previewLabel:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginBottom: space[1] },
-  previewName:     { fontFamily: font.display, fontSize: fontSize.metric, color: color.goldBright },
-  errorText:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
-  existRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  existName:       { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  deleteBtn:       { padding: space[2] },
-  deleteText:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger },
+  bajada:  { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 20, marginBottom: space[2] },
+
+  grupo:       { gap: space[2], marginTop: space[2] },
+  grupoTitulo: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne, letterSpacing: 2 },
+
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  chip: {
+    minWidth:        56,
+    minHeight:       touchTarget,
+    paddingHorizontal: space[4],
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: color.surface,
+    borderWidth:     1,
+    borderColor:     color.lineSoft,
+    borderRadius:    radius.pill,
+  },
+  chipActivo:      { backgroundColor: 'rgba(212,175,55,0.12)', borderColor: color.gold },
+  chipFijo:        { opacity: 0.55 },
+  chipTextoFijo:   { fontFamily: font.display, fontSize: fontSize.cardName, color: color.muted },
+  chipTexto:       { fontFamily: font.display, fontSize: fontSize.cardName, color: color.muted },
+  chipTextoActivo: { color: color.gold },
+
+  grupoNota: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 17 },
+  ayuda: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[3] },
+  error: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
+
+  btnDorado: {
+    backgroundColor: color.gold,
+    borderWidth:     1,
+    borderColor:     color.goldBright,
+    borderRadius:    radius.sm,
+    minHeight:       touchTarget,
+    alignItems:      'center',
+    justifyContent:  'center',
+    marginTop:       space[2],
+  },
+  btnInactivo:      { backgroundColor: color.surface2, borderColor: color.line },
+  btnTexto:         { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold, letterSpacing: 0.3 },
+  btnTextoInactivo: { color: color.muted },
+
+  overlay: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(6,6,8,0.82)',
+    alignItems: 'center', justifyContent: 'center', padding: space[4.5],
+  },
+  dialogo: {
+    width: '100%', maxWidth: 420,
+    backgroundColor: color.surface,
+    borderWidth: 1, borderColor: color.alive,
+    borderRadius: radius.lg,
+    padding: space[4], gap: space[2],
+  },
+  dialogoTitulo:  { fontFamily: font.display, fontSize: fontSize.cardName, fontWeight: '600', color: color.alive },
+  dialogoLinea:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  dialogoNegrita: { color: color.text, fontWeight: '600' },
+
+  bloqueo:       { backgroundColor: 'rgba(224,114,111,0.10)', borderWidth: 1, borderColor: 'rgba(224,114,111,0.30)', borderRadius: radius.md, padding: space[3], gap: space[1], marginTop: space[1] },
+  bloqueoTitulo: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.danger, letterSpacing: 1.5 },
+  bloqueoLinea:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+
+  dialogoBotones:  { flexDirection: 'row', gap: space[2], marginTop: space[2] },
+  dialogoCancelar: { flex: 1, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.sm },
+  dialogoCancelarTexto: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
+  dialogoConfirmar: { flex: 2, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center', backgroundColor: color.alive, borderRadius: radius.sm },
+  dialogoConfirmarTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.onGold },
 });

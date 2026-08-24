@@ -3,12 +3,12 @@
  * Lista los torneos del organizador con acceso rápido a gestión.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
@@ -29,8 +29,7 @@ export default function OrgHomeScreen() {
   const [orgName, setOrgName]         = useState('');
   const [loading, setLoading]         = useState(true);
 
-  useEffect(() => {
-    async function load() {
+  const load = useCallback(async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -56,9 +55,11 @@ export default function OrgHomeScreen() {
 
       if (t) setTournaments(t as OrgTournament[]);
       setLoading(false);
-    }
-    load();
   }, []);
+
+  // Al volver del panel de un torneo, su nombre, fechas o estado pueden haber
+  // cambiado. Con useEffect de montaje la lista se quedaba con el dato viejo.
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const statusLabel = (s: string) => ({
     draft:                 { label: 'Borrador',               type: 'muted'  as const },
