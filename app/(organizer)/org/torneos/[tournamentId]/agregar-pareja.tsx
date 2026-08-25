@@ -1,654 +1,796 @@
-// app/(organizer)/org/torneos/[tournamentId]/agregar-pareja.tsx
-// Pantalla del organizador para registrar manualmente una pareja (paid_offline).
-// Flujo:
-//   1. Seleccionar categoría del torneo
-//   2. Buscar Jugador 1 por correo → confirmar
-//   3. Buscar Jugador 2 por correo → confirmar
-//   4. Confirmar e insertar la pareja con payment_status = 'paid_offline'
-//
-// IMPORTANTE: paid_offline es un DATO y MÉTRICA, NO un ingreso en la plataforma.
-// Aparece en el cuadro igual que cualquier otra pareja.
-//
-// Restricción: ambos jugadores DEBEN existir en public.users (tener cuenta).
-// El organizador los busca por correo. Como public.users está en RLS "solo tu fila",
-// la búsqueda usa el RPC find_user_by_email (SECURITY DEFINER, migración 012),
-// que resuelve por correo exacto y devuelve solo campos seguros (id, email, full_name).
-//
-// Guard: owner del organizador (pairs_insert ya lo exige a nivel RLS).
-// Stack: React Native + NativeWind + design-tokens.ts
+/**
+ * RALLY · Registrar pareja a mano (organizador)
+ *
+ * QUÉ CAMBIÓ RESPECTO A LA VERSIÓN ANTERIOR
+ *   Antes los dos jugadores TENÍAN que existir ya en public.users, y se
+ *   buscaban por correo exacto en dos pasos separados. Para un torneo de 12
+ *   parejas eso significaba pedirle a 24 personas que se registraran antes.
+ *   Ahora el organizador puede crear la cuenta él mismo.
+ *
+ * POR QUÉ LOS DOS JUGADORES EN UNA SOLA PANTALLA (3 pasos, no 4)
+ *   Con el alta de cuentas, cada jugador deja de ser "busca y selecciona" y
+ *   pasa a ser un mini-formulario. El caso más común es el MIXTO — uno ya
+ *   tiene cuenta y el otro no — y con pasos separados obligaba a ir y volver
+ *   para verlo entero. Lado a lado se lee de un vistazo.
+ *
+ * MENORES DE EDAD
+ *   Un chico de 15 años no gestiona su cuenta: va con su familia al club y el
+ *   padre resuelve con el organizador ahí mismo. Por eso al marcar "es menor"
+ *   el correo que se captura es el del TUTOR, y el nombre sigue siendo el del
+ *   jugador (es quien sale en el cuadro y en el ranking).
+ *
+ * TODO EL ALTA VA POR UNA EDGE FUNCTION
+ *   `pair-register-manual`. auth.users y public.pairs no comparten
+ *   transacción: si se creara la cuenta desde aquí y luego fallara el insert
+ *   de la pareja, quedarían cuentas fantasma. La función compensa borrando lo
+ *   que creó. Además, crear usuarios exige service_role, que nunca puede vivir
+ *   en el bundle.
+ */
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Keyboard,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { supabase } from "@/lib/supabase/client";
-import { color, radius, space } from "@/lib/design-tokens";
-import { webContentColumn, bottomInset } from '@/lib/web-layout';
+  View, Text, TextInput, ScrollView, Pressable,
+  ActivityIndicator, StyleSheet, SafeAreaView,
+} from 'react-native';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+
+import { supabase } from '@/lib/supabase/client';
+import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
+import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// ── Modelo ──────────────────────────────────────────────────────────────────
 
-interface UserProfile {
-  id: string;
-  email: string;
-  full_name: string | null;
-}
-
-interface CategoryOption {
-  id: string;
+interface Categoria {
+  id:           string;
   display_name: string;
-  division: string;
-  gender: string;
-  status: string;
 }
 
-type Step = "category" | "player1" | "player2" | "confirm" | "saving" | "done" | "error";
+/** Datos de una cuenta por crear. `nombre` es SIEMPRE el del jugador. */
+interface Nuevo {
+  nombre:   string;
+  /** Del tutor si esMenor; del jugador si no. */
+  correo:   string;
+  telefono: string;
+  esMenor:  boolean;
+}
 
-// ─── Componente principal ──────────────────────────────────────────────────────
+type Slot =
+  | { t: 'vacio' }
+  | { t: 'existente'; u: UsuarioEncontrado }
+  | { t: 'nuevo';     d: Nuevo };
+
+type Paso = 'categoria' | 'jugadores' | 'confirmar' | 'guardando' | 'listo';
+
+/** Estado de un correo en public.email_outbox. Ver migración 037. */
+interface FilaCorreo {
+  id:         string;
+  kind:       'account_created' | 'minor_account_created' | 'registered' | 'minor_registered';
+  to_email:   string;
+  status:     'pending' | 'sent' | 'failed';
+  last_error: string | null;
+}
+
+const NUEVO_VACIO: Nuevo = { nombre: '', correo: '', telefono: '', esMenor: false };
+
+const RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function nuevoValido(d: Nuevo): boolean {
+  return d.nombre.trim().length >= 3 && RE_CORREO.test(d.correo.trim());
+}
+
+function resuelto(s: Slot): boolean {
+  return s.t === 'existente' || (s.t === 'nuevo' && nuevoValido(s.d));
+}
+
+function nombreDe(s: Slot): string {
+  if (s.t === 'existente') return s.u.full_name;
+  if (s.t === 'nuevo')     return s.d.nombre.trim();
+  return '';
+}
+
+/** Códigos de la Edge Function traducidos. Nunca se enseña el código crudo. */
+const MENSAJE: Record<string, string> = {
+  unauthenticated:          'Tu sesión expiró. Vuelve a entrar.',
+  forbidden:                'No eres organizador de este torneo.',
+  tournament_not_found:     'El torneo ya no existe. Recarga la pantalla.',
+  category_not_found:       'La categoría ya no existe. Recarga la pantalla.',
+  category_closed:          'Esa categoría ya cerró inscripciones.',
+  invalid_name:             'El nombre debe tener al menos 3 caracteres.',
+  invalid_email:            'El correo no tiene un formato válido.',
+  same_player_twice:        'Los dos jugadores deben ser personas distintas.',
+  pair_duplicate:           'Uno de estos jugadores ya está inscrito en esta categoría.',
+  create_user_failed:       'No se pudo crear la cuenta. Intenta de nuevo.',
+  age_declaration_required: 'Falta declarar si el jugador es menor de edad.',
+};
+const MENSAJE_GENERICO = 'No se pudo registrar la pareja. Intenta de nuevo.';
+
+// ── Pantalla ────────────────────────────────────────────────────────────────
 
 export default function AgregarParejaScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
+  const router = useRouter();
 
-  const [step, setStep] = useState<Step>("category");
-  const [tournament, setTournament] = useState<{ name: string } | null>(null);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<CategoryOption | null>(null);
-  const [player1, setPlayer1] = useState<UserProfile | null>(null);
-  const [player2, setPlayer2] = useState<UserProfile | null>(null);
-  const [searchEmail, setSearchEmail] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<UserProfile | null | "not_found">(null);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [paso, setPaso]             = useState<Paso>('categoria');
+  const [nombreTorneo, setNombre]   = useState('');
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [categoria, setCategoria]   = useState<Categoria | null>(null);
+  const [slot1, setSlot1]           = useState<Slot>({ t: 'vacio' });
+  const [slot2, setSlot2]           = useState<Slot>({ t: 'vacio' });
+  const [error, setError]           = useState<string | null>(null);
+  const [correos, setCorreos]       = useState<FilaCorreo[]>([]);
+  // Los ids se guardan aparte y NO se derivan de `correos`: si la primera
+  // consulta llega vacía (los correos se escriben y envían en segundo plano),
+  // derivarlos dejaría a "Actualizar" preguntando por una lista vacía para
+  // siempre, sin forma de recuperarse.
+  const [outboxIds, setOutboxIds]   = useState<string[]>([]);
 
-  // ── Cargar datos iniciales ──
-  useEffect(() => {
-    if (!tournamentId) return;
-    loadInitialData();
+  const cargar = useCallback(async () => {
+    const [{ data: t }, { data: cats }] = await Promise.all([
+      supabase.from('tournaments').select('name').eq('id', tournamentId).single(),
+      supabase.from('categories')
+        .select('id, display_name')
+        .eq('tournament_id', tournamentId)
+        .eq('status', 'open')
+        .order('division'),
+    ]);
+    if (t) setNombre(t.name);
+    setCategorias(cats ?? []);
   }, [tournamentId]);
 
-  const loadInitialData = useCallback(async () => {
-    const { data: t } = await supabase
-      .from("tournaments")
-      .select("name")
-      .eq("id", tournamentId)
-      .single();
+  useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
-    if (t) setTournament(t);
+  function reiniciar() {
+    setPaso('categoria');
+    setCategoria(null);
+    setSlot1({ t: 'vacio' });
+    setSlot2({ t: 'vacio' });
+    setError(null);
+    setCorreos([]);
+    setOutboxIds([]);
+  }
 
-    // Solo categorías abiertas (status = 'open')
-    const { data: cats } = await supabase
-      .from("categories")
-      .select("id, display_name, division, gender, status")
-      .eq("tournament_id", tournamentId)
-      .eq("status", "open")
-      .order("division");
+  async function guardar() {
+    if (!categoria || !resuelto(slot1) || !resuelto(slot2)) return;
+    setError(null);
+    setPaso('guardando');
 
-    if (cats) setCategories(cats);
-  }, [tournamentId]);
+    const aCarga = (s: Slot) =>
+      s.t === 'existente'
+        ? { mode: 'existing' as const, user_id: s.u.id }
+        : {
+            mode:      'new' as const,
+            full_name: (s as { d: Nuevo }).d.nombre.trim(),
+            email:     (s as { d: Nuevo }).d.correo.trim().toLowerCase(),
+            phone:     (s as { d: Nuevo }).d.telefono.trim(),
+            is_minor:  (s as { d: Nuevo }).d.esMenor,
+          };
 
-  // ── Buscar usuario por correo (vía RPC SECURITY DEFINER; RLS de users es "solo tu fila") ──
-  const handleSearch = useCallback(async () => {
-    const email = searchEmail.trim().toLowerCase();
-    if (!email) return;
-    Keyboard.dismiss();
-    setSearching(true);
-    setSearchResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setError(MENSAJE.unauthenticated); setPaso('confirmar'); return; }
 
-    const { data, error } = await supabase
-      .rpc("find_user_by_email", { p_email: email })
-      .maybeSingle();
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/pair-register-manual`,
+        {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization:  `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            tournament_id: tournamentId,
+            category_id:   categoria.id,
+            players:       [aCarga(slot1), aCarga(slot2)],
+          }),
+        },
+      );
 
-    setSearching(false);
+      const json = await res.json().catch(() => null);
 
-    if (error || !data) {
-      setSearchResult("not_found");
-      return;
-    }
+      if (!res.ok || !json?.ok) {
+        const codigo = typeof json?.error === 'string' ? json.error : '';
 
-    setSearchResult(data as UserProfile);
-  }, [searchEmail]);
-
-  // ── Confirmar selección de jugador ──
-  const handleConfirmPlayer = useCallback(
-    (user: UserProfile) => {
-      if (step === "player1") {
-        setPlayer1(user);
-        setSearchEmail("");
-        setSearchResult(null);
-        setStep("player2");
-      } else if (step === "player2") {
-        if (user.id === player1?.id) {
-          Alert.alert("Error", "Los dos jugadores de la pareja deben ser personas distintas.");
+        // Un correo ya usado NO es un error del organizador: es que se
+        // equivocó de rama. Se le ofrece la persona encontrada.
+        if (codigo === 'email_already_exists' && json?.existing_user) {
+          setError(
+            `Ya hay una cuenta con ese correo: ${json.existing_user.full_name}. ` +
+            'Búscala por su nombre y selecciónala en vez de crear una cuenta nueva.',
+          );
+          setPaso('jugadores');
           return;
         }
-        setPlayer2(user);
-        setSearchEmail("");
-        setSearchResult(null);
-        setStep("confirm");
+
+        console.error('[agregar-pareja] fallo:', { status: res.status, json });
+        setError(MENSAJE[codigo] ?? MENSAJE_GENERICO);
+        setPaso('confirmar');
+        return;
       }
-    },
-    [step, player1]
-  );
 
-  // ── Guardar la pareja ──
-  const handleSave = useCallback(async () => {
-    if (!selectedCategory || !player1 || !player2) return;
-    setStep("saving");
-
-    // Insertar la pareja con payment_status = 'paid_offline'.
-    // RLS pairs_insert permite al owner del organizador insertar directamente.
-    const { error } = await supabase.from("pairs").insert({
-      tournament_id: tournamentId,
-      category_id: selectedCategory.id,
-      player1_id: player1.id,
-      player2_id: player2.id,
-      payment_status: "paid_offline",
-      // schedule_preference no se captura aquí; default 'any'
-    });
-
-    if (error) {
-      // Manejar el caso de pareja duplicada en la misma categoría
-      if (error.code === "23505") {
-        setErrorMsg(
-          "Uno de estos jugadores ya está inscrito en esta categoría. No se puede duplicar."
-        );
-      } else {
-        setErrorMsg(error.message);
+      setPaso('listo');
+      // Los correos salen en segundo plano, así que al responder están en
+      // 'pending'. Se consultan un momento después para enseñar el resultado.
+      if (Array.isArray(json.outbox_ids) && json.outbox_ids.length > 0) {
+        setOutboxIds(json.outbox_ids as string[]);
+        void refrescarCorreos(json.outbox_ids as string[]);
       }
-      setStep("error");
-      return;
+    } catch {
+      setError('Sin conexión con el servidor. Revisa tu internet.');
+      setPaso('confirmar');
     }
+  }
 
-    setStep("done");
-  }, [selectedCategory, player1, player2, tournamentId]);
+  const refrescarCorreos = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    // `email_outbox` es de la migración 037 y todavía no está en los tipos
+    // generados. Se acota a FilaCorreo aquí para que de aquí en adelante sí
+    // haya tipos. Al correr `npm run types:db` el cast sobra.
+    const { data } = await (supabase as unknown as {
+      from: (t: string) => {
+        select: (c: string) => {
+          in: (c: string, v: string[]) => Promise<{ data: FilaCorreo[] | null }>;
+        };
+      };
+    })
+      .from('email_outbox')
+      .select('id, kind, to_email, status, last_error')
+      .in('id', ids);
 
-  // ─────────────────────────────── RENDERS ───────────────────────────────────────
+    setCorreos(data ?? []);
+  }, []);
 
-  if (step === "saving") {
+  async function reenviar(outboxId: string) {
+    // Optimista: el botón desaparece en cuanto se pulsa. Si el reenvío vuelve
+    // a fallar, el refresco de abajo lo devuelve a 'failed'.
+    setCorreos((prev) => prev.map((c) => c.id === outboxId ? { ...c, status: 'pending' } : c));
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/email-resend`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body:    JSON.stringify({ outbox_id: outboxId }),
+    }).catch(() => {});
+
+    await refrescarCorreos(outboxIds);
+  }
+
+  // ── Guardando ─────────────────────────────────────────────────────────────
+  if (paso === 'guardando') {
     return (
-      <View style={{ flex: 1, backgroundColor: color.bg, alignItems: "center", justifyContent: "center", gap: space[4] }}>
+      <View style={s.centro}>
         <ActivityIndicator color={color.gold} size="large" />
-        <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 14 }}>
-          Guardando pareja…
-        </Text>
+        <Text style={s.centroTexto}>Registrando la pareja…</Text>
       </View>
     );
   }
 
-  if (step === "done") {
+  // ── Listo ─────────────────────────────────────────────────────────────────
+  if (paso === 'listo') {
     return (
-      <View style={{ flex: 1, backgroundColor: color.bg, padding: space[5], alignItems: "center", justifyContent: "center", gap: space[4] }}>
-        <Text style={{ color: color.live, fontFamily: "Oswald", fontSize: 28, fontWeight: "600" }}>
-          ¡Pareja agregada!
-        </Text>
-        <Text style={{ color: color.text, fontFamily: "Inter", fontSize: 14, textAlign: "center" }}>
-          {player1?.full_name ?? player1?.email} y {player2?.full_name ?? player2?.email}
-          {"\n"}ya están inscritos en {selectedCategory?.display_name}.
-        </Text>
-        <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12, textAlign: "center" }}>
-          Esta inscripción es un dato de seguimiento. No registra ingreso en la plataforma.
-        </Text>
-        <View style={{ flexDirection: "row", gap: space[3], marginTop: space[2] }}>
-          <Pressable
-            onPress={() => {
-              // Reiniciar para agregar otra pareja
-              setStep("category");
-              setSelectedCategory(null);
-              setPlayer1(null);
-              setPlayer2(null);
-              setSearchEmail("");
-              setSearchResult(null);
-            }}
-            style={{
-              borderWidth: 1,
-              borderColor: color.line,
-              paddingHorizontal: space[4],
-              paddingVertical: space[3],
-              borderRadius: radius.sm,
-            }}
-          >
-            <Text style={{ color: color.gold, fontFamily: "Inter", fontSize: 13, fontWeight: "600" }}>
-              Agregar otra
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.back()}
-            style={{
-              backgroundColor: color.gold,
-              paddingHorizontal: space[4],
-              paddingVertical: space[3],
-              borderRadius: radius.sm,
-            }}
-          >
-            <Text style={{ color: color.onGold, fontFamily: "Inter", fontSize: 13, fontWeight: "600" }}>
-              Volver al panel
-            </Text>
-          </Pressable>
-        </View>
-      </View>
+      <SafeAreaView style={s.safe}>
+        <ScrollView contentContainerStyle={s.contenido}>
+          <Text style={s.exitoTitulo}>Pareja inscrita</Text>
+          <Text style={s.exitoCuerpo}>
+            {nombreDe(slot1)} y {nombreDe(slot2)} ya están en {categoria?.display_name}.
+          </Text>
+
+          <EstadoCorreos
+            filas={correos}
+            onRefrescar={() => refrescarCorreos(outboxIds)}
+            onReenviar={reenviar}
+          />
+
+          <View style={s.botonera}>
+            <Pressable style={s.btnPerfilado} onPress={reiniciar} accessibilityRole="button">
+              <Text style={s.btnPerfiladoTexto}>Agregar otra</Text>
+            </Pressable>
+            <Pressable style={s.btnDorado} onPress={() => router.back()} accessibilityRole="button">
+              <Text style={s.btnDoradoTexto}>Volver al panel</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
-  if (step === "error") {
-    return (
-      <View style={{ flex: 1, backgroundColor: color.bg, padding: space[5], alignItems: "center", justifyContent: "center", gap: space[4] }}>
-        <Text style={{ color: color.danger, fontFamily: "Oswald", fontSize: 20 }}>Error</Text>
-        <Text style={{ color: color.text, fontFamily: "Inter", fontSize: 14, textAlign: "center" }}>
-          {errorMsg}
-        </Text>
-        <Pressable
-          onPress={() => {
-            setErrorMsg("");
-            setStep("confirm");
-          }}
-          style={{ backgroundColor: color.surface2, paddingHorizontal: space[5], paddingVertical: space[3], borderRadius: radius.sm }}
-        >
-          <Text style={{ color: color.gold, fontFamily: "Inter", fontWeight: "600" }}>Volver</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
+  // ── Pasos 1–3 ─────────────────────────────────────────────────────────────
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: color.bg }}
-      contentContainerStyle={{ padding: space[5], gap: space[4], paddingBottom: bottomInset, ...webContentColumn }}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Header */}
-      <View style={{ marginBottom: space[2] }}>
+    <SafeAreaView style={s.safe}>
+      <ScrollView contentContainerStyle={s.contenido} keyboardShouldPersistTaps="handled">
+
         <BotonVolver texto="Atrás" enScroller />
-        <Text style={{ color: color.champagne, fontFamily: "Oswald", fontSize: 11,
-          textTransform: "uppercase", letterSpacing: 2 }}>
-          {tournament?.name}
-        </Text>
-        <Text style={{ color: color.text, fontFamily: "Oswald", fontSize: 22, fontWeight: "600" }}>
-          Agregar pareja manual
-        </Text>
-        <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 13, marginTop: 4 }}>
-          El pago se recibió fuera de la plataforma.
-        </Text>
-      </View>
 
-      {/* Indicador de pasos */}
-      <StepIndicator currentStep={step} />
+        <Text style={s.eyebrow}>{nombreTorneo.toUpperCase()}</Text>
+        <Text style={s.titulo}>Registrar pareja</Text>
+        <Text style={s.subtitulo}>
+          El pago se recibió fuera de la plataforma. Si algún jugador no tiene
+          cuenta, se la creas aquí mismo.
+        </Text>
 
-      {/* ── PASO 1: Elegir categoría ── */}
-      {step === "category" && (
-        <View style={{ gap: space[3] }}>
-          <SectionLabel text="1. Selecciona la categoría" />
-          {categories.length === 0 ? (
-            <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 13 }}>
-              No hay categorías abiertas en este torneo.
-            </Text>
-          ) : (
-            categories.map((cat) => (
+        <Pasos actual={paso} />
+
+        {error && (
+          <View style={s.errorCaja}>
+            <Text style={s.errorTexto}>{error}</Text>
+          </View>
+        )}
+
+        {/* ── 1. Categoría ── */}
+        {paso === 'categoria' && (
+          <View style={s.bloque}>
+            <Text style={s.seccion}>1 · CATEGORÍA</Text>
+            {categorias.length === 0 ? (
+              <Text style={s.vacio}>No hay categorías abiertas en este torneo.</Text>
+            ) : categorias.map((c) => (
               <Pressable
-                key={cat.id}
-                onPress={() => {
-                  setSelectedCategory(cat);
-                  setStep("player1");
-                }}
-                style={{
-                  backgroundColor: color.surface,
-                  borderRadius: radius.xl,
-                  padding: space[4],
-                  borderWidth: 1,
-                  borderColor: color.lineSoft,
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
+                key={c.id}
+                onPress={() => { setCategoria(c); setPaso('jugadores'); }}
+                style={({ pressed }) => [s.filaCategoria, pressed && s.filaPulsada]}
+                accessibilityRole="button"
+                accessibilityLabel={c.display_name}
               >
-                <Text style={{ color: color.text, fontFamily: "Oswald", fontSize: 16 }}>
-                  {cat.display_name}
-                </Text>
-                <Text style={{ color: color.gold, fontFamily: "Inter", fontSize: 13 }}>
-                  Elegir →
-                </Text>
+                <Text style={s.filaCategoriaTexto}>{c.display_name}</Text>
+                <Text style={s.chevron}>›</Text>
               </Pressable>
-            ))
-          )}
-        </View>
-      )}
-
-      {/* ── PASO 2: Buscar Jugador 1 ── */}
-      {step === "player1" && (
-        <PlayerSearchStep
-          stepLabel="2. Jugador 1 (primer titular)"
-          searchEmail={searchEmail}
-          onChangeEmail={setSearchEmail}
-          onSearch={handleSearch}
-          searching={searching}
-          searchResult={searchResult}
-          onConfirm={handleConfirmPlayer}
-          hint="Busca por correo electrónico. El jugador debe tener cuenta en RALLY."
-        />
-      )}
-
-      {/* ── PASO 3: Buscar Jugador 2 ── */}
-      {step === "player2" && (
-        <>
-          {/* Resumen del jugador 1 ya elegido */}
-          <SelectedPlayerCard
-            label="Jugador 1"
-            user={player1!}
-            onClear={() => {
-              setPlayer1(null);
-              setSearchEmail("");
-              setSearchResult(null);
-              setStep("player1");
-            }}
-          />
-          <PlayerSearchStep
-            stepLabel="3. Jugador 2 (pareja)"
-            searchEmail={searchEmail}
-            onChangeEmail={setSearchEmail}
-            onSearch={handleSearch}
-            searching={searching}
-            searchResult={searchResult}
-            onConfirm={handleConfirmPlayer}
-            hint="Busca al segundo jugador de la pareja."
-          />
-        </>
-      )}
-
-      {/* ── PASO 4: Confirmar e insertar ── */}
-      {step === "confirm" && selectedCategory && player1 && player2 && (
-        <View style={{ gap: space[3] }}>
-          <SectionLabel text="4. Confirmar inscripción" />
-
-          {/* Resumen */}
-          <View style={{
-            backgroundColor: color.surface,
-            borderRadius: radius.xl,
-            padding: space[4],
-            borderWidth: 1,
-            borderColor: color.line,
-            gap: space[3],
-          }}>
-            <ConfirmRow label="Categoría" value={selectedCategory.display_name} />
-            <ConfirmRow label="Jugador 1" value={player1.full_name ?? player1.email} />
-            <ConfirmRow label="Jugador 2" value={player2.full_name ?? player2.email} />
-            <ConfirmRow label="Pago" value="Recibido fuera de la plataforma" />
+            ))}
           </View>
+        )}
 
-          <View style={{
-            backgroundColor: color.surface2,
-            borderRadius: radius.lg,
-            padding: space[3],
-          }}>
-            <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12, lineHeight: 18 }}>
-              Esta inscripción es un dato de seguimiento y métrica. No registra ingreso económico en RALLY.
-              La pareja participará en el cuadro igual que cualquier otra.
+        {/* ── 2. Los dos jugadores ── */}
+        {paso === 'jugadores' && (
+          <View style={s.bloque}>
+            <Text style={s.seccion}>2 · JUGADORES</Text>
+            <Text style={s.categoriaElegida}>
+              {categoria?.display_name}
+              {'  '}
+              <Text style={s.cambiar} onPress={() => setPaso('categoria')}>Cambiar</Text>
             </Text>
+
+            <BloqueJugador
+              etiqueta="Jugador 1"
+              slot={slot1}
+              otroId={slot2.t === 'existente' ? slot2.u.id : undefined}
+              onCambio={setSlot1}
+            />
+            <BloqueJugador
+              etiqueta="Jugador 2"
+              slot={slot2}
+              otroId={slot1.t === 'existente' ? slot1.u.id : undefined}
+              onCambio={setSlot2}
+            />
+
+            <Pressable
+              onPress={() => { setError(null); setPaso('confirmar'); }}
+              disabled={!resuelto(slot1) || !resuelto(slot2)}
+              style={({ pressed }) => [
+                s.btnDorado,
+                (!resuelto(slot1) || !resuelto(slot2)) && s.btnInactivo,
+                pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={[
+                s.btnDoradoTexto,
+                (!resuelto(slot1) || !resuelto(slot2)) && s.btnTextoInactivo,
+              ]}>
+                Continuar
+              </Text>
+            </Pressable>
           </View>
+        )}
 
-          <Pressable
-            onPress={handleSave}
-            style={{
-              backgroundColor: color.gold,
-              padding: space[4],
-              borderRadius: radius.sm,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: color.onGold, fontFamily: "Inter", fontSize: 15, fontWeight: "600" }}>
-              Confirmar e inscribir
-            </Text>
-          </Pressable>
+        {/* ── 3. Confirmar ── */}
+        {paso === 'confirmar' && categoria && (
+          <View style={s.bloque}>
+            <Text style={s.seccion}>3 · CONFIRMAR</Text>
 
-          <Pressable
-            onPress={() => {
-              setStep("category");
-              setSelectedCategory(null);
-              setPlayer1(null);
-              setPlayer2(null);
-              setSearchEmail("");
-              setSearchResult(null);
-            }}
-            style={{ alignItems: "center", paddingVertical: space[2] }}
-          >
-            <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 13 }}>
-              Cancelar y empezar de nuevo
-            </Text>
-          </Pressable>
-        </View>
-      )}
-    </ScrollView>
+            <View style={s.resumen}>
+              <FilaResumen etiqueta="Categoría" valor={categoria.display_name} />
+              <FilaResumen etiqueta="Jugador 1" valor={nombreDe(slot1)} nota={notaSlot(slot1)} />
+              <FilaResumen etiqueta="Jugador 2" valor={nombreDe(slot2)} nota={notaSlot(slot2)} />
+              <FilaResumen etiqueta="Pago" valor="Recibido fuera de la plataforma" />
+            </View>
+
+            <View style={s.avisoCorreos}>
+              <Text style={s.avisoTitulo}>Al confirmar se enviarán 2 correos</Text>
+              {[slot1, slot2].map((sl, i) => (
+                <Text key={i} style={s.avisoLinea}>
+                  · <Text style={s.avisoNegrita}>{nombreDe(sl)}</Text>
+                  {' — '}
+                  {sl.t === 'nuevo'
+                    ? (sl.d.esMenor
+                        ? `activación de cuenta al tutor (${sl.d.correo.trim()})`
+                        : 'alta de cuenta e inscripción')
+                    : 'aviso de inscripción'}
+                </Text>
+              ))}
+            </View>
+
+            <View style={s.nota}>
+              <Text style={s.notaTexto}>
+                Esta inscripción es un dato de seguimiento. No registra ingreso
+                económico en RALLY. La pareja participa en el cuadro igual que
+                cualquier otra.
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={guardar}
+              style={({ pressed }) => [s.btnDorado, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Confirmar e inscribir"
+            >
+              <Text style={s.btnDoradoTexto}>Confirmar e inscribir</Text>
+            </Pressable>
+
+            <Pressable onPress={() => setPaso('jugadores')} style={s.volverPaso} accessibilityRole="button">
+              <Text style={s.volverPasoTexto}>Volver a los jugadores</Text>
+            </Pressable>
+          </View>
+        )}
+
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
-// ─── Subcomponentes ──────────────────────────────────────────────────────────────
+function notaSlot(s: Slot): string | undefined {
+  if (s.t === 'existente') return 'ya tenía cuenta';
+  if (s.t === 'nuevo')     return s.d.esMenor ? 'CUENTA NUEVA · menor de edad' : 'CUENTA NUEVA';
+  return undefined;
+}
 
-function StepIndicator({ currentStep }: { currentStep: Step }) {
-  const steps: Step[] = ["category", "player1", "player2", "confirm"];
-  const currentIndex = steps.indexOf(currentStep);
+// ── Bloque de un jugador ────────────────────────────────────────────────────
 
-  return (
-    <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: space[2] }}>
-      {steps.map((s, i) => (
-        <React.Fragment key={s}>
-          <View style={{
-            width: 24,
-            height: 24,
-            borderRadius: 12,
-            backgroundColor: i <= currentIndex ? color.gold : color.surface2,
-            alignItems: "center",
-            justifyContent: "center",
-          }}>
-            <Text style={{
-              color: i <= currentIndex ? color.onGold : color.muted,
-              fontFamily: "Inter",
-              fontSize: 11,
-              fontWeight: "600",
-            }}>
-              {i + 1}
-            </Text>
+function BloqueJugador({
+  etiqueta, slot, otroId, onCambio,
+}: {
+  etiqueta: string;
+  slot:     Slot;
+  /** Para no dejar elegir dos veces a la misma persona. */
+  otroId?:  string;
+  onCambio: (s: Slot) => void;
+}) {
+  // Ya elegido: tarjeta compacta con salida.
+  if (slot.t === 'existente') {
+    return (
+      <View style={s.jugadorCaja}>
+        <Text style={s.jugadorEtiqueta}>{etiqueta.toUpperCase()}</Text>
+        <View style={s.elegidoFila}>
+          <View style={s.elegidoTextos}>
+            <Text style={s.elegidoNombre} numberOfLines={1}>{slot.u.full_name}</Text>
+            <Text style={s.elegidoCorreo} numberOfLines={1}>{slot.u.email}</Text>
           </View>
-          {i < steps.length - 1 && (
-            <View style={{ flex: 1, height: 1, backgroundColor: i < currentIndex ? color.gold : color.lineSoft }} />
-          )}
-        </React.Fragment>
+          <Pressable onPress={() => onCambio({ t: 'vacio' })} accessibilityRole="button" style={s.quitar}>
+            <Text style={s.quitarTexto}>Cambiar</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // Formulario de cuenta nueva.
+  if (slot.t === 'nuevo') {
+    const d = slot.d;
+    const set = (parche: Partial<Nuevo>) => onCambio({ t: 'nuevo', d: { ...d, ...parche } });
+
+    return (
+      <View style={s.jugadorCaja}>
+        <View style={s.jugadorCabecera}>
+          <Text style={s.jugadorEtiqueta}>{etiqueta.toUpperCase()} · CUENTA NUEVA</Text>
+          <Pressable onPress={() => onCambio({ t: 'vacio' })} accessibilityRole="button" style={s.quitar}>
+            <Text style={s.quitarTexto}>Cancelar</Text>
+          </Pressable>
+        </View>
+
+        {/* El aviso va ANTES de los campos: si apareciera después, el
+            organizador ya habría escrito el correo del chico. */}
+        <View style={s.avisoMenor}>
+          <Text style={s.avisoMenorTexto}>
+            Si el jugador es menor de 18 años, usa el correo del padre, madre o
+            tutor. Ellos activarán la cuenta y verán los partidos.
+          </Text>
+        </View>
+
+        <Pressable
+          style={s.checkRow}
+          onPress={() => set({ esMenor: !d.esMenor })}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: d.esMenor }}
+        >
+          <View style={[s.check, d.esMenor && s.checkMarcado]}>
+            {d.esMenor && <Text style={s.checkPalomita}>✓</Text>}
+          </View>
+          <Text style={s.checkLabel}>Es menor de edad</Text>
+        </Pressable>
+
+        <Campo
+          etiqueta="Nombre completo del jugador"
+          valor={d.nombre}
+          onCambio={(v) => set({ nombre: v })}
+          placeholder="Juan Pérez"
+          autoCapitalize="words"
+          ayuda={d.esMenor ? 'El nombre del chico, no el del tutor: es quien aparece en el cuadro.' : undefined}
+        />
+        <Campo
+          etiqueta={d.esMenor ? 'Correo del padre, madre o tutor' : 'Correo'}
+          valor={d.correo}
+          onCambio={(v) => set({ correo: v })}
+          placeholder="correo@ejemplo.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        <Campo
+          etiqueta="Teléfono (opcional)"
+          valor={d.telefono}
+          onCambio={(v) => set({ telefono: v })}
+          placeholder="81 1234 5678"
+          keyboardType="phone-pad"
+          autoCapitalize="none"
+        />
+      </View>
+    );
+  }
+
+  // Vacío: buscador con la salida a "crear cuenta" siempre visible.
+  return (
+    <View style={s.jugadorCaja}>
+      <BuscadorDeUsuario
+        label={etiqueta}
+        placeholder="Nombre o correo"
+        ayuda="Escribe al menos 3 letras. Si no aparece, créale la cuenta."
+        yaElegidos={otroId ? [otroId] : []}
+        textoYaElegido="Ya es el otro jugador"
+        onElegir={(u) => onCambio({ t: 'existente', u })}
+        accionSecundaria={(consulta) => (
+          <Pressable
+            onPress={() => onCambio({
+              t: 'nuevo',
+              // Lo tecleado se aprovecha: si parece correo va al campo de
+              // correo, y si no, al de nombre. Ahorra volver a escribirlo.
+              d: RE_CORREO.test(consulta)
+                ? { ...NUEVO_VACIO, correo: consulta }
+                : { ...NUEVO_VACIO, nombre: consulta },
+            })}
+            style={({ pressed }) => [s.crearCuenta, pressed && s.filaPulsada]}
+            accessibilityRole="button"
+            accessibilityLabel="Crearle cuenta en RALLY"
+          >
+            <Text style={s.crearCuentaTexto}>+  Crearle cuenta en RALLY</Text>
+          </Pressable>
+        )}
+      />
+    </View>
+  );
+}
+
+// ── Piezas ──────────────────────────────────────────────────────────────────
+
+function Campo({
+  etiqueta, valor, onCambio, placeholder, ayuda,
+  keyboardType, autoCapitalize,
+}: {
+  etiqueta:        string;
+  valor:           string;
+  onCambio:        (v: string) => void;
+  placeholder:     string;
+  ayuda?:          string;
+  keyboardType?:   'email-address' | 'phone-pad';
+  autoCapitalize?: 'none' | 'words';
+}) {
+  return (
+    <View style={s.campo}>
+      <Text style={s.campoEtiqueta}>{etiqueta}</Text>
+      <TextInput
+        style={s.input}
+        value={valor}
+        onChangeText={onCambio}
+        placeholder={placeholder}
+        placeholderTextColor={color.muted}
+        keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={false}
+        selectionColor={color.gold}
+        accessibilityLabel={etiqueta}
+      />
+      {ayuda ? <Text style={s.campoAyuda}>{ayuda}</Text> : null}
+    </View>
+  );
+}
+
+function Pasos({ actual }: { actual: Paso }) {
+  const orden: Paso[] = ['categoria', 'jugadores', 'confirmar'];
+  const i = orden.indexOf(actual);
+  return (
+    <View style={s.pasos}>
+      {orden.map((p, n) => (
+        <View key={p} style={[s.pasoPunto, n <= i && s.pasoPuntoActivo]} />
       ))}
     </View>
   );
 }
 
-function SectionLabel({ text }: { text: string }) {
+function FilaResumen({ etiqueta, valor, nota }: { etiqueta: string; valor: string; nota?: string }) {
   return (
-    <Text style={{
-      color: color.champagne,
-      fontFamily: "Oswald",
-      fontSize: 11,
-      textTransform: "uppercase",
-      letterSpacing: 1.4,
-      marginBottom: 2,
-    }}>
-      {text}
-    </Text>
+    <View style={s.resumenFila}>
+      <Text style={s.resumenEtiqueta}>{etiqueta}</Text>
+      <View style={s.resumenDerecha}>
+        <Text style={s.resumenValor}>{valor}</Text>
+        {nota ? <Text style={s.resumenNota}>{nota}</Text> : null}
+      </View>
+    </View>
   );
 }
 
-function PlayerSearchStep({
-  stepLabel,
-  searchEmail,
-  onChangeEmail,
-  onSearch,
-  searching,
-  searchResult,
-  onConfirm,
-  hint,
+/**
+ * Estado de los correos.
+ *
+ * Se enseña aunque todo haya salido bien: si el organizador no ve nunca esta
+ * caja, cuando aparezca un fallo no sabrá qué es. Y un fallo aquí NO significa
+ * que la inscripción no valga — por eso el título lo dice.
+ */
+function EstadoCorreos({
+  filas, onRefrescar, onReenviar,
 }: {
-  stepLabel: string;
-  searchEmail: string;
-  onChangeEmail: (v: string) => void;
-  onSearch: () => void;
-  searching: boolean;
-  searchResult: UserProfile | "not_found" | null;
-  onConfirm: (u: UserProfile) => void;
-  hint: string;
+  filas:       FilaCorreo[];
+  onRefrescar: () => void;
+  onReenviar:  (id: string) => void;
 }) {
-  return (
-    <View style={{ gap: space[3] }}>
-      <SectionLabel text={stepLabel} />
-      <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12 }}>{hint}</Text>
+  if (filas.length === 0) {
+    return (
+      <View style={s.correosCaja}>
+        <View style={s.correosCabecera}>
+          <Text style={s.correosTitulo}>Enviando correos…</Text>
+          <Pressable onPress={onRefrescar} accessibilityRole="button">
+            <Text style={s.correosActualizar}>Actualizar</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
-      {/* Input de búsqueda */}
-      <View style={{ gap: space[2] }}>
-        <TextInput
-          value={searchEmail}
-          onChangeText={onChangeEmail}
-          placeholder="correo@ejemplo.com"
-          placeholderTextColor={color.muted}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-          onSubmitEditing={onSearch}
-          style={{
-            backgroundColor: color.surface2,
-            borderRadius: radius.sm,
-            padding: space[4],
-            color: color.text,
-            fontFamily: "Inter",
-            fontSize: 14,
-            borderWidth: 1,
-            borderColor: color.lineSoft,
-          }}
-        />
-        <Pressable
-          onPress={onSearch}
-          disabled={searching || !searchEmail.trim()}
-          style={{
-            backgroundColor: searching || !searchEmail.trim() ? color.surface2 : color.gold,
-            padding: space[3],
-            borderRadius: radius.sm,
-            alignItems: "center",
-          }}
-        >
-          {searching ? (
-            <ActivityIndicator color={color.gold} size="small" />
-          ) : (
-            <Text style={{
-              color: !searchEmail.trim() ? color.muted : color.onGold,
-              fontFamily: "Inter",
-              fontSize: 14,
-              fontWeight: "600",
-            }}>
-              Buscar jugador
-            </Text>
-          )}
+  return (
+    <View style={s.correosCaja}>
+      <View style={s.correosCabecera}>
+        <Text style={s.correosTitulo}>Correos</Text>
+        <Pressable onPress={onRefrescar} accessibilityRole="button">
+          <Text style={s.correosActualizar}>Actualizar</Text>
         </Pressable>
       </View>
 
-      {/* Resultado de búsqueda */}
-      {searchResult === "not_found" && (
-        <View style={{
-          backgroundColor: color.surface,
-          borderRadius: radius.lg,
-          padding: space[4],
-          borderWidth: 1,
-          borderColor: color.danger,
-          gap: space[2],
-        }}>
-          <Text style={{ color: color.danger, fontFamily: "Inter", fontSize: 14, fontWeight: "600" }}>
-            Jugador no encontrado
-          </Text>
-          <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12 }}>
-            El correo no tiene cuenta en RALLY. El jugador debe registrarse primero.
-          </Text>
-        </View>
-      )}
-
-      {searchResult && searchResult !== "not_found" && (
-        <View style={{
-          backgroundColor: color.surface,
-          borderRadius: radius.xl,
-          padding: space[4],
-          borderWidth: 1,
-          borderColor: color.live,
-          gap: space[3],
-        }}>
-          <View>
-            <Text style={{ color: color.text, fontFamily: "Oswald", fontSize: 16 }}>
-              {searchResult.full_name ?? "Sin nombre"}
-            </Text>
-            <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12 }}>
-              {searchResult.email}
+      {filas.map((f) => (
+        <View key={f.id} style={s.correoFila}>
+          <View style={s.correoTextos}>
+            <Text style={s.correoDestino} numberOfLines={1}>{f.to_email}</Text>
+            <Text style={[
+              s.correoEstado,
+              f.status === 'sent'   && s.correoOk,
+              f.status === 'failed' && s.correoMal,
+            ]}>
+              {f.status === 'sent'    ? 'Enviado'
+               : f.status === 'failed' ? `No salió — ${f.last_error ?? 'error desconocido'}`
+               : 'En cola…'}
             </Text>
           </View>
-          <Pressable
-            onPress={() => onConfirm(searchResult as UserProfile)}
-            style={{
-              backgroundColor: color.gold,
-              padding: space[3],
-              borderRadius: radius.sm,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: color.onGold, fontFamily: "Inter", fontSize: 14, fontWeight: "600" }}>
-              Seleccionar
-            </Text>
-          </Pressable>
+          {f.status === 'failed' && (
+            <Pressable onPress={() => onReenviar(f.id)} style={s.quitar} accessibilityRole="button">
+              <Text style={s.reenviarTexto}>Reenviar</Text>
+            </Pressable>
+          )}
         </View>
-      )}
-    </View>
-  );
-}
+      ))}
 
-function SelectedPlayerCard({
-  label,
-  user,
-  onClear,
-}: {
-  label: string;
-  user: UserProfile;
-  onClear: () => void;
-}) {
-  return (
-    <View style={{
-      backgroundColor: color.surface,
-      borderRadius: radius.lg,
-      padding: space[3],
-      borderWidth: 1,
-      borderColor: color.line,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    }}>
-      <View>
-        <Text style={{ color: color.champagne, fontFamily: "Oswald", fontSize: 10,
-          textTransform: "uppercase", letterSpacing: 1 }}>
-          {label}
-        </Text>
-        <Text style={{ color: color.text, fontFamily: "Inter", fontSize: 13, marginTop: 2 }}>
-          {user.full_name ?? user.email}
-        </Text>
-      </View>
-      <Pressable onPress={onClear} style={{ padding: space[2] }}>
-        <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12 }}>Cambiar</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function ConfirmRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-      <Text style={{ color: color.muted, fontFamily: "Inter", fontSize: 12, flex: 1 }}>{label}</Text>
-      <Text style={{ color: color.text, fontFamily: "Inter", fontSize: 13, fontWeight: "500",
-        flex: 2, textAlign: "right" }}>
-        {value}
+      <Text style={s.correosNota}>
+        La inscripción es válida aunque un correo falle. Puedes reenviarlo
+        cuando quieras.
       </Text>
     </View>
   );
 }
+
+// ── Estilos ─────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  safe:      { flex: 1, backgroundColor: color.bg },
+  contenido: { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
+
+  centro:      { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center', gap: space[4] },
+  centroTexto: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
+
+  eyebrow:   { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne, letterSpacing: 2 },
+  titulo:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
+  subtitulo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginBottom: space[1] },
+
+  pasos:           { flexDirection: 'row', gap: space[1], marginBottom: space[2] },
+  pasoPunto:       { flex: 1, height: 2, borderRadius: 1, backgroundColor: color.lineSoft },
+  pasoPuntoActivo: { backgroundColor: color.gold },
+
+  seccion: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne, letterSpacing: 1.6 },
+  bloque:  { gap: space[3] },
+  vacio:   { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
+
+  filaCategoria:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: touchTarget + 8, paddingHorizontal: space[4], backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md },
+  filaCategoriaTexto: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  filaPulsada:        { backgroundColor: color.surface2 },
+  chevron:            { fontFamily: font.body, fontSize: 22, color: color.gold },
+
+  categoriaElegida: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  cambiar:          { color: color.gold },
+
+  jugadorCaja:     { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.lg, padding: space[4], gap: space[3] },
+  jugadorCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  jugadorEtiqueta: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne, letterSpacing: 1.4 },
+
+  elegidoFila:   { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  elegidoTextos: { flex: 1, minWidth: 0, gap: 2 },
+  elegidoNombre: { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
+  elegidoCorreo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+
+  quitar:      { paddingHorizontal: space[3], paddingVertical: space[2], borderRadius: radius.sm, borderWidth: 1, borderColor: color.lineSoft, flexShrink: 0 },
+  quitarTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+
+  crearCuenta:      { minHeight: touchTarget, justifyContent: 'center', paddingHorizontal: space[3], borderWidth: 1, borderColor: color.line, borderStyle: 'dashed', borderRadius: radius.md, marginTop: space[1] },
+  crearCuentaTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.gold },
+
+  avisoMenor:      { backgroundColor: color.surface2, borderRadius: radius.md, padding: space[3] },
+  avisoMenorTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 17 },
+
+  checkRow:      { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: touchTarget },
+  check:         { width: 20, height: 20, borderRadius: radius.xs, borderWidth: 1, borderColor: color.gold, backgroundColor: color.surface2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  checkMarcado:  { backgroundColor: color.gold },
+  checkPalomita: { fontSize: 12, color: color.onGold, fontWeight: '700' },
+  checkLabel:    { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
+
+  campo:         { gap: space[1] },
+  campoEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, letterSpacing: 0.3 },
+  campoAyuda:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 16 },
+  input:         { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, minHeight: touchTarget, paddingHorizontal: space[4], paddingVertical: space[3], fontFamily: font.body, fontSize: inputFontSize(fontSize.body), color: color.text },
+
+  resumen:         { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[3] },
+  resumenFila:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: space[3] },
+  resumenEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, flex: 1 },
+  resumenDerecha:  { flex: 2, alignItems: 'flex-end', gap: 2 },
+  resumenValor:    { fontFamily: font.body, fontSize: fontSize.body, color: color.text, textAlign: 'right' },
+  resumenNota:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, textAlign: 'right' },
+
+  avisoCorreos:  { backgroundColor: color.surface2, borderRadius: radius.md, padding: space[3], gap: space[1] },
+  avisoTitulo:   { fontFamily: font.display, fontSize: fontSize.caption, color: color.champagne, marginBottom: 2 },
+  avisoLinea:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  avisoNegrita:  { color: color.text, fontWeight: '600' },
+
+  nota:      { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3] },
+  notaTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+
+  errorCaja:  { backgroundColor: 'rgba(224,114,111,0.10)', borderWidth: 1, borderColor: color.danger, borderRadius: radius.md, padding: space[3] },
+  errorTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 18 },
+
+  exitoTitulo: { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.live, marginTop: space[5] },
+  exitoCuerpo: { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
+
+  correosCaja:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.lg, padding: space[4], gap: space[3], marginTop: space[2] },
+  correosCabecera:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  correosTitulo:     { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  correosActualizar: { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },
+  correoFila:        { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  correoTextos:      { flex: 1, minWidth: 0, gap: 2 },
+  correoDestino:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
+  correoEstado:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+  correoOk:          { color: color.live },
+  correoMal:         { color: color.danger },
+  reenviarTexto:     { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.gold },
+  correosNota:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 16 },
+
+  botonera:          { gap: space[2], marginTop: space[4] },
+  btnDorado:         { backgroundColor: color.gold, borderWidth: 1, borderColor: color.goldBright, borderRadius: radius.sm, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },
+  btnDoradoTexto:    { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold, letterSpacing: 0.3 },
+  btnInactivo:       { backgroundColor: color.surface2, borderColor: color.line },
+  btnTextoInactivo:  { color: color.muted },
+  btnPerfilado:      { borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.sm, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },
+  btnPerfiladoTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.gold },
+
+  volverPaso:      { alignItems: 'center', paddingVertical: space[2] },
+  volverPasoTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+});

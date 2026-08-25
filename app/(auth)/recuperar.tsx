@@ -1,11 +1,22 @@
 /**
  * RALLY · Recuperar contraseña
  * Envía el magic link / recovery email vía Supabase Auth.
+ *
+ * PRELLENADO POR QUERY (?email=…)
+ *   Es la pantalla a la que apuntan los correos de alta que manda el
+ *   organizador. Se eligió mandar aquí en vez de un enlace con token porque un
+ *   token de recuperación caduca en una hora: si el organizador da de alta a 24
+ *   personas el miércoles para un torneo del sábado, la mitad de esos enlaces
+ *   estarían muertos al abrirlos.
+ *
+ *   Efecto secundario bueno: cada jugador dispara SU propio correo al hacer
+ *   clic, así que los 24 envíos de Supabase se reparten en el tiempo en vez de
+ *   salir de golpe contra el límite del SMTP.
  */
 
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
@@ -13,7 +24,13 @@ import { webContentColumn, inputFontSize } from '@/lib/web-layout';
 
 export default function RecuperarScreen() {
   const router = useRouter();
-  const [email, setEmail]   = useState('');
+  // El correo llega del enlace del correo de alta. useState con valor inicial
+  // (no useEffect): el parámetro está disponible en el primer render y así el
+  // campo nunca parpadea vacío.
+  const { email: emailQuery } = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail]   = useState(
+    typeof emailQuery === 'string' ? emailQuery.trim().toLowerCase() : '',
+  );
   const [loading, setLoading] = useState(false);
   const [sent, setSent]     = useState(false);
   const [error, setError]   = useState<string | null>(null);

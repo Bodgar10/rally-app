@@ -20,7 +20,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import Icon from '@/components/ui/Icon';
-import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/organizer/BuscadorDeUsuario';
+import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { bottomInset, webContentColumn } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';

@@ -8,9 +8,14 @@
  * El correo que llega ya viene ENMASCARADO del servidor ('ern***@correo.com').
  * No es un recorte de presentación: el valor real nunca sale de la base.
  *
- * Está en components/organizer/ porque hoy solo lo usa la asignación de jueces.
- * Si se unifica con el flujo de inscripción de parejas (anotado como lote
- * aparte), conviene moverlo a components/ui/.
+ * Vive en components/ui/ desde que lo usan dos flujos: la asignación de jueces
+ * y el registro manual de parejas.
+ *
+ * `accionSecundaria` es lo que hizo falta para el segundo: se pinta SIEMPRE
+ * bajo la lista, no solo cuando no hay coincidencias. Buscar "Juan" devuelve
+ * ocho Juanes que no son el que se busca, y si la salida ("crearle cuenta")
+ * solo apareciera con la lista vacía, el organizador se quedaría atascado
+ * mirando gente que no le sirve.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,6 +34,12 @@ export interface UsuarioEncontrado {
   email:     string;   // enmascarado
   full_name: string;
   photo_url: string | null;
+  /**
+   * La consulta era el correo COMPLETO de esta persona (migración 037).
+   * Con el correo enmascarado, es lo único que le confirma al organizador que
+   * la fila que ve corresponde al correo que le dieron.
+   */
+  exact_email_match: boolean;
 }
 
 interface Props {
@@ -41,6 +52,11 @@ interface Props {
   onElegir:    (u: UsuarioEncontrado) => void;
   /** Se pinta bajo la lista cuando no hay coincidencias. */
   renderSinResultados?: (consulta: string) => React.ReactNode;
+  /**
+   * Se pinta SIEMPRE bajo la lista, haya o no coincidencias. Recibe lo tecleado
+   * para poder prellenar un formulario con ello. Ver cabecera.
+   */
+  accionSecundaria?: (consulta: string) => React.ReactNode;
 }
 
 /** Iniciales para el avatar cuando no hay foto. */
@@ -57,7 +73,7 @@ function iniciales(nombre: string): string {
 export default function BuscadorDeUsuario({
   label, placeholder = 'Nombre o correo', ayuda,
   yaElegidos = [], textoYaElegido = 'Ya agregado',
-  onElegir, renderSinResultados,
+  onElegir, renderSinResultados, accionSecundaria,
 }: Props) {
   const [consulta, setConsulta]     = useState('');
   const [resultados, setResultados] = useState<UsuarioEncontrado[]>([]);
@@ -150,6 +166,9 @@ export default function BuscadorDeUsuario({
                   {/* El correo enmascarado es lo único que desempata homónimos:
                       `users` no tiene ciudad ni ningún otro dato distintivo. */}
                   <Text style={s.correo} numberOfLines={1}>{u.email}</Text>
+                  {u.exact_email_match && (
+                    <Text style={s.exacto}>Coincide con el correo que escribiste</Text>
+                  )}
                 </View>
 
                 {elegido && <Text style={s.yaElegido}>{textoYaElegido}</Text>}
@@ -164,6 +183,9 @@ export default function BuscadorDeUsuario({
       {sinResultados && (renderSinResultados
         ? renderSinResultados(consultaDebounced.trim())
         : <Text style={s.vacio}>Nadie con ese nombre o correo.</Text>)}
+
+      {/* Salida alternativa. Siempre visible: ver cabecera. */}
+      {accionSecundaria?.(consultaDebounced.trim())}
     </View>
   );
 }
@@ -223,5 +245,6 @@ const s = StyleSheet.create({
   filaTextos: { flex: 1, minWidth: 0, gap: 2 },
   nombre:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
   correo:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  exacto:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.live },
   yaElegido:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, flexShrink: 0 },
 });
