@@ -117,6 +117,33 @@ export function dentroDeRango(d: Date, inicio: Date, fin: Date): boolean {
   return compararPorDia(d, inicio) >= 0 && compararPorDia(d, fin) <= 0;
 }
 
+/**
+ * Días de calendario que faltan hasta `iso`. Negativo si ya pasó, 0 si es hoy.
+ * `null` si la fecha no es válida.
+ *
+ * Cuenta DÍAS, no horas: "empieza en 1 día" tiene que significar mañana, sea la
+ * hora que sea. Por eso se normaliza a medianoche local antes de restar, igual
+ * que hace compararPorDia.
+ */
+export function diasHasta(iso: string | null | undefined): number | null {
+  const d = parseFechaISO(iso);
+  if (!d) return null;
+  const MS_DIA = 86_400_000;
+  // Math.round, no floor: el cambio de horario deja días de 23 o 25 horas y
+  // sin redondear una fecha a 3 días saldría como 2.
+  return Math.round((d.getTime() - hoy().getTime()) / MS_DIA);
+}
+
+/** 'Hoy' | 'Mañana' | 'En 4 días' | 'Ya empezó'. Cadena vacía si no hay fecha. */
+export function cuentaAtras(iso: string | null | undefined): string {
+  const d = diasHasta(iso);
+  if (d === null) return '';
+  if (d < 0)  return 'Ya empezó';
+  if (d === 0) return 'Empieza hoy';
+  if (d === 1) return 'Empieza mañana';
+  return `Empieza en ${d} días`;
+}
+
 // ── Formateo ────────────────────────────────────────────────────────────────
 
 /** '12 de julio de 2026'. Cadena vacía si la fecha no es válida. */

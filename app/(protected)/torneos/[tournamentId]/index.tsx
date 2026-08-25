@@ -34,6 +34,14 @@ import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 
+/** Una inscripción del propio usuario en este torneo. */
+interface MiInscripcion {
+  categoriaId: string;
+  categoria:   string;
+  companero:   string;
+  pagada:      boolean;
+}
+
 interface Tournament {
   id:               string;
   name:             string;
@@ -70,11 +78,14 @@ export default function TorneoDetailScreen() {
   const router           = useRouter();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [categorias, setCategorias] = useState<CategoriaVista[]>([]);
+  const [misInscripciones, setMisInscripciones] = useState<MiInscripcion[]>([]);
   const [loading, setLoading]       = useState(true);
 
   const cargar = useCallback(async () => {
-    // Las dos en paralelo: ninguna depende del resultado de otra.
-    const [{ data: t }, { data: cats }] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // Las tres en paralelo: ninguna depende del resultado de otra.
+    const [{ data: t }, { data: cats }, { data: mias }] = await Promise.all([
       supabase
         .from('tournaments')
         .select('id, name, start_date, end_date, status, registration_fee, venues(name, address, city)')
@@ -86,9 +97,33 @@ export default function TorneoDetailScreen() {
         .eq('tournament_id', tournamentId)
         .order('gender')
         .order('division'),
+      // Cast hasta que se aplique la 042 y se corra `npm run types:db`.
+      user
+        ? (supabase.from as unknown as (v: string) => {
+            select: (c: string) => { eq: (c: string, v: string) => Promise<{ data: Array<{
+              category_id: string; payment_status: string;
+              player1_id: string; player2_id: string;
+              player1_name: string; player2_name: string;
+            }> | null }> };
+          })('my_pairs')
+            .select('category_id, payment_status, player1_id, player2_id, player1_name, player2_name')
+            .eq('tournament_id', tournamentId)
+        : Promise.resolve({ data: null }),
     ]);
 
     if (t) setTournament(t as unknown as Tournament);
+
+    const nombreCat = new Map((cats ?? []).map((c) => [c.id, c.display_name]));
+
+    setMisInscripciones(
+      (mias ?? []).map((m) => ({
+        categoriaId: m.category_id,
+        categoria:   nombreCat.get(m.category_id) ?? '—',
+        // El compañero es el OTRO, quienquiera que sea de los dos.
+        companero:   m.player1_id === user?.id ? m.player2_name : m.player1_name,
+        pagada:      m.payment_status !== 'pending',
+      })),
+    );
 
     setCategorias(
       (cats ?? []).map((c) => ({
@@ -154,11 +189,44 @@ export default function TorneoDetailScreen() {
           </View>
         </View>
 
+        {/* ── Ya estás inscrito ──────────────────────────────────────────
+             Va ANTES del bloque de inscripción: lo primero que el jugador
+             tiene que ver al abrir un torneo suyo es que ya está dentro, no
+             un botón para volver a entrar. */}
+        {misInscripciones.length > 0 && (
+          <>
+            <SectionLabel title="Tu inscripción" />
+            <View style={s.listaCategorias}>
+              {misInscripciones.map((m) => (
+                <View key={m.categoriaId} style={s.miInscripcion}>
+                  <View style={s.categoriaFila}>
+                    <Text style={s.miCategoria}>{m.categoria}</Text>
+                    <Badge
+                      label={m.pagada ? 'Inscrito' : 'Falta pagar'}
+                      type={m.pagada ? 'live' : 'alive'}
+                      dot={m.pagada}
+                    />
+                  </View>
+                  <Text style={s.miCompanero}>Juegas con {m.companero}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Inscripción */}
         {abierto && (
           <>
-            <SectionLabel title="Inscripción" />
+            <SectionLabel title={misInscripciones.length > 0 ? 'Otra categoría' : 'Inscripción'} />
             <Card variant="standard">
+              {misInscripciones.length > 0 && (
+                // Inscribirse en otra categoría sigue siendo posible; lo que no
+                // puede es parecer que no estás en ninguna.
+                <Text style={s.otraNota}>
+                  Ya estás en {misInscripciones.length === 1 ? 'una categoría' : `${misInscripciones.length} categorías`}.
+                  Puedes entrar a otra distinta con la misma o con otra pareja.
+                </Text>
+              )}
               <View style={s.feeRow}>
                 <Text style={s.feeLabel}>Cuota por pareja</Text>
                 <Text style={s.feeAmount}>
@@ -172,7 +240,7 @@ export default function TorneoDetailScreen() {
               </Text>
               <View style={{ marginTop: space[3] }}>
                 <Button
-                  label="Inscribirme a este torneo"
+                  label={misInscripciones.length > 0 ? 'Inscribirme a otra categoría' : 'Inscribirme a este torneo'}
                   variant="primary"
                   onPress={() => router.push(`/(protected)/inscripcion/${tournament.id}`)}
                 />
@@ -278,6 +346,18 @@ const s = StyleSheet.create({
   feeNote:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
 
   listaCategorias: { gap: space[2] },
+  miInscripcion: {
+    backgroundColor:   color.surface,
+    borderWidth:       1,
+    borderColor:       color.line,
+    borderRadius:      radius.md,
+    paddingHorizontal: space[4],
+    paddingVertical:   space[3],
+    gap:               space[1],
+  },
+  miCategoria: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text, flex: 1 },
+  miCompanero: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
+  otraNota:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17, marginBottom: space[3] },
   categoria: {
     backgroundColor:   color.surface,
     borderWidth:       1,

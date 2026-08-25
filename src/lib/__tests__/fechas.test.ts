@@ -24,6 +24,8 @@ import {
   rejillaMes,
   sumarMeses,
   INICIALES_SEMANA,
+  diasHasta,
+  cuentaAtras,
 } from '../fechas';
 
 describe('entorno de los tests', () => {
@@ -267,5 +269,54 @@ describe('sumarMeses', () => {
   it('cruza el año en ambos sentidos', () => {
     expect(sumarMeses(2026, 11, 1)).toEqual({ anio: 2027, mes: 0 });
     expect(sumarMeses(2026, 0, -1)).toEqual({ anio: 2025, mes: 11 });
+  });
+});
+
+// ── diasHasta / cuentaAtras ─────────────────────────────────────────────────
+
+describe('diasHasta', () => {
+  function isoRelativo(dias: number): string {
+    const h = hoy();
+    return aFechaISO(new Date(h.getFullYear(), h.getMonth(), h.getDate() + dias));
+  }
+
+  it('devuelve 0 para hoy', () => {
+    expect(diasHasta(isoRelativo(0))).toBe(0);
+  });
+
+  it('cuenta días futuros', () => {
+    expect(diasHasta(isoRelativo(1))).toBe(1);
+    expect(diasHasta(isoRelativo(4))).toBe(4);
+    expect(diasHasta(isoRelativo(30))).toBe(30);
+  });
+
+  it('devuelve negativo si ya pasó', () => {
+    expect(diasHasta(isoRelativo(-3))).toBe(-3);
+  });
+
+  it('devuelve null con fecha inválida', () => {
+    expect(diasHasta(null)).toBeNull();
+    expect(diasHasta('no-es-fecha')).toBeNull();
+  });
+});
+
+describe('cuentaAtras', () => {
+  function isoRelativo(dias: number): string {
+    const h = hoy();
+    return aFechaISO(new Date(h.getFullYear(), h.getMonth(), h.getDate() + dias));
+  }
+
+  it('distingue hoy, mañana y plural', () => {
+    expect(cuentaAtras(isoRelativo(0))).toBe('Empieza hoy');
+    expect(cuentaAtras(isoRelativo(1))).toBe('Empieza mañana');
+    expect(cuentaAtras(isoRelativo(4))).toBe('Empieza en 4 días');
+  });
+
+  it('avisa si ya empezó', () => {
+    expect(cuentaAtras(isoRelativo(-1))).toBe('Ya empezó');
+  });
+
+  it('cadena vacía sin fecha', () => {
+    expect(cuentaAtras(undefined)).toBe('');
   });
 });

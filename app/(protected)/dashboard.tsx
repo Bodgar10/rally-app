@@ -26,6 +26,7 @@ import type { User } from '@supabase/supabase-js';
 
 import { supabase } from '@/lib/supabase/client';
 import MyNextMatch from '@/components/realtime/MyNextMatch';
+import TorneoPorEmpezar, { type TorneoInscrito } from '@/components/realtime/TorneoPorEmpezar';
 import { ProBenefitsSheet } from '@/components/checkout/ProBenefitsSheet';
 import { ProActivatedModal } from '@/components/checkout/ProActivatedModal';
 import { getFeatureFlags } from '@/lib/feature-flags';
@@ -43,6 +44,7 @@ export default function DashboardScreen() {
   const [user, setUser]           = useState<User | null>(null);
   const isOwner                   = useIsOrganizerOwner();
   const [loading, setLoading]     = useState(true);
+  const [torneoProximo, setTorneoProximo] = useState<TorneoInscrito | null>(null);
   const [pairIds, setPairIds]     = useState<string[]>([]);
   const [subscription, setSubscription] = useState<{ status: string | null; billing_cycle: string | null } | null>(null);
   const [proSheetOpen, setProSheetOpen] = useState(false);
@@ -61,6 +63,44 @@ export default function DashboardScreen() {
         .select('id')
         .or(`player1_id.eq.${data.user.id},player2_id.eq.${data.user.id}`);
       if (pairs) setPairIds(pairs.map((p: { id: string }) => p.id));
+
+      // Torneo inscrito más próximo, para cuando todavía no hay partido.
+      // Cast hasta que se aplique la 042 y se corra `npm run types:db`.
+      const { data: mias } = await (supabase.from as unknown as (v: string) => {
+        select: (c: string) => Promise<{ data: Array<{
+          tournament_id: string; category_id: string;
+        }> | null }>;
+      })('my_pairs').select('tournament_id, category_id');
+
+      const idsTorneo = [...new Set((mias ?? []).map((m) => m.tournament_id))];
+      if (idsTorneo.length > 0) {
+        const [{ data: ts }, { data: cats }] = await Promise.all([
+          supabase
+            .from('tournaments')
+            .select('id, name, start_date, end_date, status')
+            .in('id', idsTorneo)
+            // El que antes empiece: es el que le va a tocar.
+            .order('start_date', { ascending: true }),
+          supabase.from('categories').select('id, display_name').in('id',
+            [...new Set((mias ?? []).map((m) => m.category_id))]),
+        ]);
+
+        // Un torneo terminado ya no "está por empezar".
+        const vivo = (ts ?? []).find((t) => t.status !== 'finished');
+        if (vivo) {
+          const nombreCat = new Map((cats ?? []).map((c) => [c.id, c.display_name]));
+          setTorneoProximo({
+            id:     vivo.id,
+            nombre: vivo.name,
+            inicio: vivo.start_date,
+            fin:    vivo.end_date,
+            categorias: (mias ?? [])
+              .filter((m) => m.tournament_id === vivo.id)
+              .map((m) => nombreCat.get(m.category_id) ?? '')
+              .filter(Boolean),
+          });
+        }
+      }
 
       // Suscripción del usuario (para el banner Pro): active o trialing
       const { data: sub } = await supabase
@@ -168,8 +208,14 @@ export default function DashboardScreen() {
         </View>
 
         {pairIds.length > 0 ? (
-          // En vivo via Realtime cuando el usuario tiene parejas inscritas
-          <MyNextMatch pairIds={pairIds} />
+          // En vivo via Realtime cuando el usuario tiene parejas inscritas.
+          // Si aún no hay partido programado, en vez de "no tienes partidos"
+          // se enseña el torneo que le espera: los partidos no existen hasta
+          // que el organizador cierra la categoría y arma el cuadro.
+          <MyNextMatch
+            pairIds={pairIds}
+            sinPartidoAun={torneoProximo ? <TorneoPorEmpezar torneo={torneoProximo} /> : undefined}
+          />
         ) : (
           <View style={styles.heroCard}>
             <View style={styles.accentBar} />

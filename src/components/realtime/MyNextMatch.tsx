@@ -41,6 +41,14 @@ interface NextMatch {
 interface MyNextMatchProps {
   /** IDs de todas las parejas del usuario autenticado (en todos sus torneos activos). */
   pairIds: string[];
+  /**
+   * Qué pintar cuando el usuario TIENE parejas pero todavía no hay partido
+   * programado. Sin esto el componente decía "No tienes partidos próximos" a
+   * alguien inscrito en un torneo que empieza en días: cierto y a la vez
+   * inútil. Quien lo monta sabe de qué torneo se trata, así que aporta el
+   * bloque; aquí solo se sabe que no hay partido.
+   */
+  sinPartidoAun?: React.ReactNode;
 }
 
 // ───────────────────────────────────────────
@@ -191,7 +199,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
 // Componente
 // ───────────────────────────────────────────
 
-export default function MyNextMatch({ pairIds }: MyNextMatchProps) {
+export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps) {
   const [match, setMatch] = useState<NextMatch | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -238,6 +246,7 @@ export default function MyNextMatch({ pairIds }: MyNextMatchProps) {
   }
 
   if (!match) {
+    if (sinPartidoAun) return <>{sinPartidoAun}</>;
     return (
       <View
         style={{
