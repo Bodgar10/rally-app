@@ -26,6 +26,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { color, radius, font } from '@/lib/design-tokens';
+import Icon from '@/components/ui/Icon';
 import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 import { PayBreakdown, computeTotal } from '@/components/checkout/PayBreakdown';
@@ -319,14 +320,20 @@ export default function PagoScreen() {
             {tournament?.name ?? '—'}
           </Text>
 
+          {/* Íconos de trazo en vez de 📅 y 📍: el emoji lo dibuja cada
+              plataforma con su propio color y relleno, así que ignora
+              `color.muted` — en web se veía a todo color junto a texto gris. */}
           <View style={{ flexDirection: 'row', gap: 14, marginBottom: 12 }}>
-            {[
-              { icon: '📅', text: tournament ? formatDate(tournament.date) : '—' },
-              { icon: '📍', text: tournament?.venue ?? '—' },
-            ].map((item, i) => (
-              <Text key={i} style={{ fontFamily: font.body, fontSize: 11.5, color: color.muted }}>
-                {item.icon} {item.text}
-              </Text>
+            {([
+              { icon: 'calendar' as const, text: tournament ? formatDate(tournament.date) : '—' },
+              { icon: 'pin' as const,      text: tournament?.venue ?? '—' },
+            ]).map((item, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Icon name={item.icon} size={13} color={color.muted} />
+                <Text style={{ fontFamily: font.body, fontSize: 11.5, color: color.muted }}>
+                  {item.text}
+                </Text>
+              </View>
             ))}
           </View>
 

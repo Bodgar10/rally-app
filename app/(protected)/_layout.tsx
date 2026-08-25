@@ -108,7 +108,8 @@ export default function ProtectedLayout() {
 
       {/* --- Rutas navegables que NO son pestañas (href: null las oculta del tab bar) --- */}
       <Tabs.Screen name="onboarding" options={{ href: null }} />
-      <Tabs.Screen name="torneos/[tournamentId]" options={{ href: null }} />
+      <Tabs.Screen name="torneos/[tournamentId]/index" options={{ href: null }} />
+      <Tabs.Screen name="torneos/[tournamentId]/[categoryId]" options={{ href: null }} />
       <Tabs.Screen name="inscripcion/[tournamentId]/index" options={{ href: null }} />
       <Tabs.Screen name="inscripcion/[tournamentId]/pago" options={{ href: null }} />
       <Tabs.Screen name="inscripcion/[tournamentId]/patrocinadores" options={{ href: null }} />

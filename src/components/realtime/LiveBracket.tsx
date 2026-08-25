@@ -21,6 +21,7 @@ import {
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
+import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -84,16 +85,11 @@ const STAGE_LABEL: Record<BracketStage, string> = {
 async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> {
   const { data, error } = await supabase
     .from('matches')
+    // Sin embed de `pairs → users`: users_select_own solo deja leer la propia
+    // fila, así que devolvía null para todos los rivales. Los nombres van por
+    // bracket_pairs_public. Ver src/lib/parejas-publicas.ts.
     .select(
-      `id, stage, round_label, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at,
-       pair_a:pair_a_id (
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       ),
-       pair_b:pair_b_id (
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       )`
+      `id, stage, round_label, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at`
     )
     .eq('category_id', categoryId)
     .neq('stage', 'group')
@@ -101,30 +97,26 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
 
   if (error) throw error;
 
-  return ((data ?? []) as unknown as Array<{
-    id: string;
-    stage: BracketStage;
-    round_label: string | null;
-    status: MatchStatus;
-    pair_a_id: string | null;
-    pair_b_id: string | null;
-    winner_pair_id: string | null;
-    scheduled_at: string | null;
-    pair_a: { player1: { full_name: string }; player2: { full_name: string } } | null;
-    pair_b: { player1: { full_name: string }; player2: { full_name: string } } | null;
-  }>).map((row) => ({
+  const filas = data ?? [];
+
+  // Una sola consulta para los dos lados de todos los partidos: el helper
+  // deduplica, y una pareja aparece en varias rondas del mismo cuadro.
+  const parejas = await fetchParejasPublicas(
+    filas.flatMap((r) => [r.pair_a_id, r.pair_b_id]),
+  );
+
+  return filas.map((row) => ({
     id: row.id,
-    stage: row.stage,
+    stage: row.stage as BracketStage,
     roundLabel: row.round_label,
-    status: row.status,
+    status: row.status as MatchStatus,
     pairAId: row.pair_a_id,
     pairBId: row.pair_b_id,
-    pairAName: row.pair_a
-      ? `${row.pair_a.player1?.full_name ?? '?'} / ${row.pair_a.player2?.full_name ?? '?'}`
-      : null,
-    pairBName: row.pair_b
-      ? `${row.pair_b.player1?.full_name ?? '?'} / ${row.pair_b.player2?.full_name ?? '?'}`
-      : null,
+    // null, no '—': un hueco del cuadro sin rival asignado todavía NO es lo
+    // mismo que un nombre que no se pudo resolver, y MatchCard los pinta
+    // distinto (`isPending` mira los ids).
+    pairAName: row.pair_a_id ? nombreDePareja(parejas.get(row.pair_a_id)) : null,
+    pairBName: row.pair_b_id ? nombreDePareja(parejas.get(row.pair_b_id)) : null,
     winnerPairId: row.winner_pair_id,
     scheduledAt: row.scheduled_at,
   }));

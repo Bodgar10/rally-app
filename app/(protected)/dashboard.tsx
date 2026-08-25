@@ -159,7 +159,10 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {/* ── Mi próximo partido — STUB (Sprint 3) ─────────────── */}
+        {/* ── Mi próximo partido ──────────────────────────────────
+             Ya no es stub: MyNextMatch lee de matches por Realtime. Sus
+             nombres de rival salen de bracket_pairs_public (migración 039)
+             desde que se quitó el embed roto contra users_select_own. */}
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>MI PRÓXIMO PARTIDO</Text>
         </View>

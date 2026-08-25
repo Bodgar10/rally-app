@@ -188,6 +188,83 @@ export type Database = {
           },
         ]
       }
+      email_outbox: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          kind: string
+          last_error: string | null
+          pair_id: string | null
+          payload: Json
+          provider_message_id: string | null
+          sent_at: string | null
+          status: string
+          to_email: string
+          to_user_id: string | null
+          tournament_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          kind: string
+          last_error?: string | null
+          pair_id?: string | null
+          payload?: Json
+          provider_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          to_email: string
+          to_user_id?: string | null
+          tournament_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          pair_id?: string | null
+          payload?: Json
+          provider_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          to_email?: string
+          to_user_id?: string | null
+          tournament_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_outbox_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "pairs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_to_user_id_fkey"
+            columns: ["to_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       feedback: {
         Row: {
           context: Json | null
@@ -285,6 +362,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "groups"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_standings_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
           },
           {
             foreignKeyName: "group_standings_pair_id_fkey"
@@ -436,8 +520,22 @@ export type Database = {
             foreignKeyName: "matches_pair_a_id_fkey"
             columns: ["pair_a_id"]
             isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "matches_pair_a_id_fkey"
+            columns: ["pair_a_id"]
+            isOneToOne: false
             referencedRelation: "pairs"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_pair_b_id_fkey"
+            columns: ["pair_b_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
           },
           {
             foreignKeyName: "matches_pair_b_id_fkey"
@@ -452,6 +550,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "tournaments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_winner_pair_id_fkey"
+            columns: ["winner_pair_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
           },
           {
             foreignKeyName: "matches_winner_pair_id_fkey"
@@ -611,6 +716,61 @@ export type Database = {
             columns: ["tournament_id"]
             isOneToOne: false
             referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      player_age_declarations: {
+        Row: {
+          created_at: string
+          declared_by: string | null
+          declared_by_email: string
+          declared_minor: boolean
+          id: string
+          statement: string
+          tournament_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          declared_by?: string | null
+          declared_by_email: string
+          declared_minor: boolean
+          id?: string
+          statement: string
+          tournament_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          declared_by?: string | null
+          declared_by_email?: string
+          declared_minor?: boolean
+          id?: string
+          statement?: string
+          tournament_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_age_declarations_declared_by_fkey"
+            columns: ["declared_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_age_declarations_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_age_declarations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -845,6 +1005,13 @@ export type Database = {
           tournament_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "registrations_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
           {
             foreignKeyName: "registrations_pair_id_fkey"
             columns: ["pair_id"]
@@ -1484,6 +1651,49 @@ export type Database = {
       }
     }
     Views: {
+      bracket_pairs_public: {
+        Row: {
+          category_id: string | null
+          pair_id: string | null
+          player1_id: string | null
+          player1_name: string | null
+          player1_photo: string | null
+          player2_id: string | null
+          player2_name: string | null
+          player2_photo: string | null
+          tournament_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pairs_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pairs_player1_id_fkey"
+            columns: ["player1_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pairs_player2_id_fkey"
+            columns: ["player2_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pairs_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizers_public: {
         Row: {
           can_charge_online: boolean | null
@@ -1529,6 +1739,13 @@ export type Database = {
       }
     }
     Functions: {
+      accept_terms_on_activation: {
+        Args: { p_parent_name?: string; p_tos_version: string }
+        Returns: {
+          consent_recorded: boolean
+          is_minor_account: boolean
+        }[]
+      }
       advance_bracket_round: {
         Args: { p_actor: string; p_category_id: string; p_next: Json }
         Returns: Json
@@ -1541,6 +1758,7 @@ export type Database = {
         Args: { p_tournament_id: string }
         Returns: boolean
       }
+      category_tournament: { Args: { c_id: string }; Returns: string }
       close_registration_for_category: {
         Args: {
           p_actor: string
@@ -1604,6 +1822,7 @@ export type Database = {
         Args: { p_query: string }
         Returns: {
           email: string
+          exact_email_match: boolean
           full_name: string
           id: string
           photo_url: string
@@ -1614,6 +1833,13 @@ export type Database = {
         Returns: Json
       }
       slugify: { Args: { p_text: string }; Returns: string }
+      tournament_category_counts: {
+        Args: { p_tournament_id: string }
+        Returns: {
+          category_id: string
+          pair_count: number
+        }[]
+      }
       tournament_org: { Args: { t_id: string }; Returns: string }
       tournament_status: { Args: { t_id: string }; Returns: string }
       unaccent_lower: { Args: { t: string }; Returns: string }

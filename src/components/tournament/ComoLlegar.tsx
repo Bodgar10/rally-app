@@ -15,8 +15,9 @@
  * expo-linking se usa solo para PARSEAR deep links entrantes.
  */
 
-import { Linking, Platform, Pressable, Text, StyleSheet } from 'react-native';
+import { Linking, Platform, Pressable, Text, View, StyleSheet } from 'react-native';
 
+import Icon from '@/components/ui/Icon';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 
 export interface VenueParaMapa {
@@ -71,7 +72,13 @@ export default function ComoLlegar({ venue, variant = 'default' }: Props) {
       accessibilityRole="link"
       accessibilityLabel={`Cómo llegar a ${venue?.name ?? 'la sede'}`}
     >
-      <Text style={[s.texto, compacto && s.textoCompacto]}>📍 Cómo llegar</Text>
+      {/* Ícono de trazo, no el emoji 📍: el emoji lo dibuja cada plataforma a
+          su manera (relleno, color propio, tamaño distinto) y rompía el
+          sistema de líneas finas del Doc D. Icon hereda el color del texto. */}
+      <View style={s.fila}>
+        <Icon name="pin" size={compacto ? 14 : 16} color={color.champagne} />
+        <Text style={[s.texto, compacto && s.textoCompacto]}>Cómo llegar</Text>
+      </View>
     </Pressable>
   );
 }
@@ -93,6 +100,7 @@ const s = StyleSheet.create({
     paddingHorizontal: space[3],
     borderRadius:      radius.pill,
   },
+  fila:          { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
   texto:         { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.champagne },
   textoCompacto: { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.champagne },
 });

@@ -16,6 +16,7 @@ import { ActivityIndicator, View, Text, Pressable } from 'react-native';
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, groupChannel } from '@/lib/realtime/channels';
+import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 
 // ───────────────────────────────────────────
 // Tipos locales (sin reimportar el engine)
@@ -38,6 +39,9 @@ interface StandingRow {
   points: number;
   position: number;
   clinch_status: ClinchStatus;
+  /** Para resaltar TU fila. Null si la vista no resolvió la pareja. */
+  player1_id: string | null;
+  player2_id: string | null;
 }
 
 interface LiveStandingsProps {
@@ -69,49 +73,29 @@ const CLINCH_BG: Record<ClinchStatus, string> = {
 // ───────────────────────────────────────────
 
 async function fetchStandings(groupId: string): Promise<StandingRow[]> {
+  // Sin embed de `pairs → users`: users_select_own solo deja leer la propia
+  // fila, así que ese embed devolvía null para todos los rivales. Los nombres
+  // van por bracket_pairs_public. Ver src/lib/parejas-publicas.ts.
   const { data, error } = await supabase
     .from('group_standings')
     .select(
       `id, pair_id, played, won, lost,
        sets_won, sets_lost, games_won, games_lost,
-       points, position, clinch_status,
-       pairs:pair_id (
-         player1_id,
-         player2_id,
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       )`
+       points, position, clinch_status`
     )
     .eq('group_id', groupId)
     .order('position', { ascending: true });
 
   if (error) throw error;
 
-  // Cast via unknown para los embeds de Supabase
-  return ((data ?? []) as unknown as Array<{
-    id: string;
-    pair_id: string;
-    played: number;
-    won: number;
-    lost: number;
-    sets_won: number;
-    sets_lost: number;
-    games_won: number;
-    games_lost: number;
-    points: number;
-    position: number;
-    clinch_status: ClinchStatus;
-    pairs: {
-      player1_id: string;
-      player2_id: string;
-      player1: { full_name: string };
-      player2: { full_name: string };
-    };
-  }>).map((row) => ({
+  const filas = data ?? [];
+  const parejas = await fetchParejasPublicas(filas.map((f) => f.pair_id));
+
+  return filas.map((row) => ({
     id: row.id,
     pair_id: row.pair_id,
-    player1_name: row.pairs?.player1?.full_name ?? '—',
-    player2_name: row.pairs?.player2?.full_name ?? '—',
+    player1_name: parejas.get(row.pair_id)?.player1_name ?? '—',
+    player2_name: parejas.get(row.pair_id)?.player2_name ?? '—',
     played: row.played,
     won: row.won,
     lost: row.lost,
@@ -121,7 +105,10 @@ async function fetchStandings(groupId: string): Promise<StandingRow[]> {
     games_lost: row.games_lost,
     points: row.points,
     position: row.position,
-    clinch_status: row.clinch_status ?? 'alive',
+    clinch_status: (row.clinch_status ?? 'alive') as ClinchStatus,
+    /** Los ids viajan para poder resaltar TU fila sin comparar por nombre. */
+    player1_id: parejas.get(row.pair_id)?.player1_id ?? null,
+    player2_id: parejas.get(row.pair_id)?.player2_id ?? null,
   }));
 }
 
@@ -229,9 +216,11 @@ export default function LiveStandings({
 
       {/* Filas */}
       {rows.map((row, idx) => {
-        const isMe = currentUserId
-          ? row.player1_name !== '—' // placeholder — en componente real, cotejar pair_id con pairs del usuario
-          : false;
+        // Antes era `row.player1_name !== '—'`, un placeholder que resaltaba
+        // TODAS las filas con nombre. Ahora se compara por id, que además no
+        // falla con homónimos.
+        const isMe = !!currentUserId
+          && (row.player1_id === currentUserId || row.player2_id === currentUserId);
         const isCutoff = idx === advanceCount - 1;
         const clinchColor = CLINCH_COLORS[row.clinch_status];
         const clinchBg = CLINCH_BG[row.clinch_status];

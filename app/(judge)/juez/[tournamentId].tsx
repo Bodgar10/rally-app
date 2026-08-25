@@ -19,6 +19,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import ScoreCapture from '@/components/judge/ScoreCapture';
+import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ───────────────────────────────────────────
@@ -55,17 +56,16 @@ const STAGE_LABEL: Record<string, string> = {
 async function fetchPendingMatches(tournamentId: string): Promise<PendingMatch[]> {
   const { data, error } = await supabase
     .from('matches')
+    // Sin embed de `pairs → users`: users_select_own solo deja leer la propia
+    // fila, así que el juez veía '?' en el nombre de TODOS los jugadores de
+    // todos los partidos que iba a arbitrar. Los nombres van por
+    // bracket_pairs_public. Ver src/lib/parejas-publicas.ts.
+    //
+    // El embed de `categories` SÍ se queda: categories_select deja leerlo a
+    // cualquier autenticado.
     .select(
       `id, stage, round_label, status, pair_a_id, pair_b_id, scheduled_at,
-       categories:category_id ( display_name ),
-       pair_a:pair_a_id (
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       ),
-       pair_b:pair_b_id (
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       )`
+       categories:category_id ( display_name )`
     )
     .eq('tournament_id', tournamentId)
     .neq('status', 'finished')
@@ -76,22 +76,28 @@ async function fetchPendingMatches(tournamentId: string): Promise<PendingMatch[]
     return [];
   }
 
-  return ((data ?? []) as unknown as Array<{
+  const filas = (data ?? []) as unknown as Array<{
     id: string; stage: string; round_label: string | null;
     status: string; pair_a_id: string; pair_b_id: string;
     scheduled_at: string | null;
     categories: { display_name: string };
-    pair_a: { player1: { full_name: string }; player2: { full_name: string } };
-    pair_b: { player1: { full_name: string }; player2: { full_name: string } };
-  }>).map((row) => ({
+  }>;
+
+  // Una consulta para los dos lados de todos los partidos: el helper deduplica,
+  // y una misma pareja juega varios partidos del mismo torneo.
+  const parejas = await fetchParejasPublicas(
+    filas.flatMap((r) => [r.pair_a_id, r.pair_b_id]),
+  );
+
+  return filas.map((row) => ({
     id: row.id,
     stage: row.stage,
     roundLabel: row.round_label,
     status: row.status,
     pairAId: row.pair_a_id,
     pairBId: row.pair_b_id,
-    pairAName: `${row.pair_a?.player1?.full_name ?? '?'} / ${row.pair_a?.player2?.full_name ?? '?'}`,
-    pairBName: `${row.pair_b?.player1?.full_name ?? '?'} / ${row.pair_b?.player2?.full_name ?? '?'}`,
+    pairAName: nombreDePareja(parejas.get(row.pair_a_id)),
+    pairBName: nombreDePareja(parejas.get(row.pair_b_id)),
     categoryName: row.categories?.display_name ?? '—',
     scheduledAt: row.scheduled_at,
   }));

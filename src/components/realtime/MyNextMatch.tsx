@@ -13,9 +13,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
 import ComoLlegar from '@/components/tournament/ComoLlegar';
+import Icon from '@/components/ui/Icon';
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
+import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -79,16 +81,18 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
 
   // Buscar el próximo partido NO terminado donde el usuario es pair_a o pair_b.
   // NOTA: matches no tiene court_id ni tabla courts; la cancha es court_label (texto libre).
+  //
+  // Los embeds de `tournaments` y `categories` SÍ se quedan: sus RLS
+  // (tournaments_select, categories_select) dejan leerlos a cualquier
+  // autenticado. El que se fue es el de la pareja rival, que pasaba por
+  // users_select_own y devolvía null. Ver src/lib/parejas-publicas.ts.
   const { data: asA, error: errA } = await supabase
     .from('matches')
     .select(
       `id, stage, round_label, scheduled_at, status, court_label,
+       pair_b_id,
        tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
-       categories:category_id ( display_name ),
-       pair_b:pair_b_id (
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       )`
+       categories:category_id ( display_name )`
     )
     .in('pair_a_id', pairIds)
     .neq('status', 'finished')
@@ -99,12 +103,9 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     .from('matches')
     .select(
       `id, stage, round_label, scheduled_at, status, court_label,
+       pair_a_id,
        tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
-       categories:category_id ( display_name ),
-       pair_a:pair_a_id (
-         player1:player1_id ( full_name ),
-         player2:player2_id ( full_name )
-       )`
+       categories:category_id ( display_name )`
     )
     .in('pair_b_id', pairIds)
     .neq('status', 'finished')
@@ -119,14 +120,22 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   // Elegir el más próximo entre los dos resultados
   const candidates: NextMatch[] = [];
 
+  // Los dos rivales posibles se resuelven de una vez, antes de decidir cuál
+  // de los dos partidos es el más próximo.
+  const rivales = await fetchParejasPublicas([
+    (asA?.[0] as { pair_b_id?: string } | undefined)?.pair_b_id,
+    (asB?.[0] as { pair_a_id?: string } | undefined)?.pair_a_id,
+  ]);
+
   if (asA && asA.length > 0) {
     const row = asA[0] as unknown as {
       id: string; stage: string; round_label: string | null;
       scheduled_at: string | null; status: string; court_label: string | null;
+      pair_b_id: string | null;
       tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
       categories: { display_name: string };
-      pair_b: { player1: { full_name: string }; player2: { full_name: string } };
     };
+    const rival = row.pair_b_id ? rivales.get(row.pair_b_id) : undefined;
     candidates.push({
       matchId: row.id,
       tournamentName: row.tournaments?.name ?? '—',
@@ -134,8 +143,8 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       roundLabel: row.round_label,
       stage: row.stage,
       scheduledAt: row.scheduled_at,
-      rivalPlayer1: row.pair_b?.player1?.full_name ?? '—',
-      rivalPlayer2: row.pair_b?.player2?.full_name ?? '—',
+      rivalPlayer1: rival?.player1_name ?? '—',
+      rivalPlayer2: rival?.player2_name ?? '—',
       courtName: row.court_label ?? null,
       venue: row.tournaments?.venues ?? null,
       status: row.status as NextMatch['status'],
@@ -146,10 +155,11 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     const row = asB[0] as unknown as {
       id: string; stage: string; round_label: string | null;
       scheduled_at: string | null; status: string; court_label: string | null;
+      pair_a_id: string | null;
       tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
       categories: { display_name: string };
-      pair_a: { player1: { full_name: string }; player2: { full_name: string } };
     };
+    const rival = row.pair_a_id ? rivales.get(row.pair_a_id) : undefined;
     candidates.push({
       matchId: row.id,
       tournamentName: row.tournaments?.name ?? '—',
@@ -157,8 +167,8 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       roundLabel: row.round_label,
       stage: row.stage,
       scheduledAt: row.scheduled_at,
-      rivalPlayer1: row.pair_a?.player1?.full_name ?? '—',
-      rivalPlayer2: row.pair_a?.player2?.full_name ?? '—',
+      rivalPlayer1: rival?.player1_name ?? '—',
+      rivalPlayer2: rival?.player2_name ?? '—',
       courtName: row.court_label ?? null,
       venue: row.tournaments?.venues ?? null,
       status: row.status as NextMatch['status'],
@@ -347,10 +357,16 @@ export default function MyNextMatch({ pairIds }: MyNextMatchProps) {
             borderRadius: radius.sm,
             paddingHorizontal: 10,
             paddingVertical: 5,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
           }}
         >
+          {/* Ícono de trazo en vez de 🕐: el emoji lo dibuja cada plataforma
+              con su color, así que ignoraba color.text. */}
+          <Icon name="clock" size={13} color={color.text} />
           <Text style={{ fontFamily: font.body, fontSize: 12, color: color.text }}>
-            🕐 {formatScheduledAt(match.scheduledAt)}
+            {formatScheduledAt(match.scheduledAt)}
           </Text>
         </View>
         {match.courtName && (
