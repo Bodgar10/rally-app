@@ -25,6 +25,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -265,7 +266,7 @@ export default function OnboardingConnectScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: color.bg }}>
         <ScrollView
-          contentContainerStyle={{ padding: 18, paddingTop: 32 }}
+          contentContainerStyle={{ padding: 18, paddingTop: 32, paddingBottom: bottomInset, ...webContentColumn }}
           showsVerticalScrollIndicator={false}
         >
           {/* Eyebrow */}
@@ -472,7 +473,7 @@ export default function OnboardingConnectScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: color.bg }}>
       <ScrollView
-        contentContainerStyle={{ padding: 18, paddingTop: 32 }}
+        contentContainerStyle={{ padding: 18, paddingTop: 32, paddingBottom: bottomInset, ...webContentColumn }}
         showsVerticalScrollIndicator={false}
       >
         {/* Eyebrow */}

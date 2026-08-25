@@ -19,6 +19,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import ScoreCapture from '@/components/judge/ScoreCapture';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -165,7 +166,7 @@ export default function JudgeTournamentScreen() {
         <FlatList
           data={matches}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 18, gap: 10 }}
+          contentContainerStyle={{ padding: 18, gap: 10, paddingBottom: bottomInset, ...webContentColumn }}
           renderItem={({ item }) => {
             const isDone = successId === item.id;
             return (

@@ -18,6 +18,7 @@ import VenuePicker, { type Venue }              from '@/components/organizer/Ven
 import CalendarioRango                          from '@/components/ui/CalendarioRango';
 import { rangoCompleto, type RangoSeleccion }   from '@/lib/rango-fechas';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 export default function NuevoTorneoScreen() {
   const router = useRouter();
@@ -166,7 +167,7 @@ const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: color.bg },
   back:    { paddingHorizontal: space[4.5], paddingTop: space[4] },
   backText:{ fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
-  content: { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: space[6] * 2, gap: space[3] },
+  content: { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
   input: {

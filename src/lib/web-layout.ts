@@ -2,6 +2,26 @@
  * RALLY · Layout de web
  * Decisiones de layout que SOLO aplican en web, resueltas en un único lugar.
  *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ TODA PANTALLA NUEVA NACE CON ESTO. Sin excepciones.                      │
+ * │                                                                          │
+ * │   content: {                                                             │
+ * │     paddingHorizontal: space[4.5],                                       │
+ * │     paddingTop:        space[3],                                         │
+ * │     paddingBottom:     bottomInset,   // NUNCA space[6] * 2              │
+ * │     gap:               space[3],                                         │
+ * │     ...webContentColumn,              // SIEMPRE el último              │
+ * │   }                                                                      │
+ * │                                                                          │
+ * │ Va en el `contentContainerStyle` del scroller VERTICAL. Si la pantalla   │
+ * │ no tiene scroller, va en el View de contenido (ver (auth)/recuperar).    │
+ * │                                                                          │
+ * │ Olvidarlo no rompe nada visible en móvil, y por eso se cuela: el fallo   │
+ * │ solo aparece en escritorio, como rueda del mouse muerta en los márgenes  │
+ * │ negros. Ya pasó dos veces — con los grupos (organizer)/(public)/(auth)/  │
+ * │ (judge), y otra vez con cada pantalla creada después de aquel arreglo.   │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
  * Regla de oro: en nativo (iOS/Android) todo lo que sale de aquí es inerte.
  * `webContentColumn` es literalmente `{}`, así que spreadearlo en un objeto
  * de estilos no añade ni una clave y no puede cambiar ni un píxel.

@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
-import { inputFontSize } from '@/lib/web-layout';
+import { webContentColumn, inputFontSize } from '@/lib/web-layout';
 
 export default function NuevaContrasenaScreen() {
   const router = useRouter();
@@ -86,7 +86,11 @@ export default function NuevaContrasenaScreen() {
 
 const styles = StyleSheet.create({
   flex:   { flex: 1, backgroundColor: color.bg },
-  center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: space[4.5] },
+  // Sin ScrollView: el helper va aquí, en el View de contenido. Limita el
+  // ancho del formulario en monitores anchos ahora que CenteredContainer
+  // soltó su maxWidth. El fondo de alrededor lo cubre el propio
+  // CenteredContainer, que usa el mismo color.
+  center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: space[4.5], ...webContentColumn },
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 4, marginBottom: space[2] },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, letterSpacing: 0.4, marginBottom: space[5], textAlign: 'center' },
   form:    { width: '100%', gap: space[3] },

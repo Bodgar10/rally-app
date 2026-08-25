@@ -10,6 +10,7 @@ import { ActivityIndicator, FlatList, Pressable, SafeAreaView, Text, View } from
 import { router, useFocusEffect } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 interface AssignedTournament {
   id: string;
@@ -140,7 +141,7 @@ export default function JudgeIndexScreen() {
         <FlatList
           data={tournaments}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 18, gap: 12 }}
+          contentContainerStyle={{ padding: 18, gap: 12, paddingBottom: bottomInset, ...webContentColumn }}
           renderItem={({ item }) => (
             <Pressable
               onPress={() => router.push(`/(judge)/juez/${item.id}`)}

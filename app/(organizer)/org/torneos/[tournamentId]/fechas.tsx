@@ -22,6 +22,7 @@ import CalendarioRango     from '@/components/ui/CalendarioRango';
 import { rangoCompleto, type RangoSeleccion } from '@/lib/rango-fechas';
 import { formatearRango }  from '@/lib/fechas';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 export default function FechasTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
@@ -141,7 +142,7 @@ const s = StyleSheet.create({
   cargando: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
   back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
   backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
-  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: space[6] * 2, gap: space[3] },
+  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },

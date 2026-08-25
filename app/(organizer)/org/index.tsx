@@ -14,6 +14,7 @@ import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
 import { formatearLargo }                      from '@/lib/fechas';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 interface OrgTournament {
   id:         string;
@@ -135,7 +136,7 @@ export default function OrgHomeScreen() {
 const s = StyleSheet.create({
   safe:             { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: space[6] * 2, gap: space[3] },
+  content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
   header:           { marginBottom: space[2] },
   backRow:          { marginBottom: space[3] },
   backText:         { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },

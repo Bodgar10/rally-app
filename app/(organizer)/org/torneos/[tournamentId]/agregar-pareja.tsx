@@ -31,6 +31,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase/client";
 import { color, radius, space } from "@/lib/design-tokens";
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -258,7 +259,7 @@ export default function AgregarParejaScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: color.bg }}
-      contentContainerStyle={{ padding: space[5], gap: space[4] }}
+      contentContainerStyle={{ padding: space[5], gap: space[4], paddingBottom: bottomInset, ...webContentColumn }}
       keyboardShouldPersistTaps="handled"
     >
       {/* Header */}

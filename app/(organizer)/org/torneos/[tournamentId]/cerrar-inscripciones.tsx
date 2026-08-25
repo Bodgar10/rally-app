@@ -18,6 +18,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase/client";
 import { color, radius, space } from "@/lib/design-tokens";
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ─── Tipos locales ───────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ export default function CerrarInscripcionesScreen() {
     return (
       <ScrollView
         style={{ flex: 1, backgroundColor: color.bg }}
-        contentContainerStyle={{ padding: space[5], gap: space[4] }}
+        contentContainerStyle={{ padding: space[5], gap: space[4], paddingBottom: bottomInset, ...webContentColumn }}
       >
         {/* Header */}
         <View style={{ marginBottom: space[2] }}>
@@ -444,7 +445,7 @@ export default function CerrarInscripcionesScreen() {
     return (
       <ScrollView
         style={{ flex: 1, backgroundColor: color.bg }}
-        contentContainerStyle={{ padding: space[5], gap: space[4] }}
+        contentContainerStyle={{ padding: space[5], gap: space[4], paddingBottom: bottomInset, ...webContentColumn }}
       >
         <Pressable
           onPress={() => setScreen("overview")}
@@ -518,7 +519,7 @@ export default function CerrarInscripcionesScreen() {
     return (
       <ScrollView
         style={{ flex: 1, backgroundColor: color.bg }}
-        contentContainerStyle={{ padding: space[5], gap: space[4] }}
+        contentContainerStyle={{ padding: space[5], gap: space[4], paddingBottom: bottomInset, ...webContentColumn }}
       >
         <Pressable
           onPress={() => setScreen("overview")}

@@ -21,7 +21,7 @@ import { useRouter, Link } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
-import { inputFontSize } from '@/lib/web-layout';
+import { inputFontSize, webContentColumn } from '@/lib/web-layout';
 
 // ─── Validación (lógica de Pasas, portada) ──────────────────────────────────
 
@@ -181,6 +181,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: space[4.5],  // 18px — Doc D §4
     paddingVertical: space[6],
+    ...webContentColumn,
   },
   header: {
     alignItems: 'center',
