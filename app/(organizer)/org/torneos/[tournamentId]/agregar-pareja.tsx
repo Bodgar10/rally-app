@@ -76,6 +76,11 @@ const NUEVO_VACIO: Nuevo = { nombre: '', correo: '', telefono: '', esMenor: fals
 
 const RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+/** Sin https:// ni barra final: es una dirección que se dicta en voz alta. */
+const SITIO = (process.env.EXPO_PUBLIC_SITE_URL ?? 'rally-app-theta-three.vercel.app')
+  .replace(/^https?:\/\//, '')
+  .replace(/\/+$/, '');
+
 function nuevoValido(d: Nuevo): boolean {
   return d.nombre.trim().length >= 3 && RE_CORREO.test(d.correo.trim());
 }
@@ -626,11 +631,19 @@ function FilaResumen({ etiqueta, valor, nota }: { etiqueta: string; valor: strin
 }
 
 /**
- * Estado de los correos.
+ * Qué decirle al organizador sobre los correos.
  *
- * Se enseña aunque todo haya salido bien: si el organizador no ve nunca esta
- * caja, cuando aparezca un fallo no sabrá qué es. Y un fallo aquí NO significa
- * que la inscripción no valga — por eso el título lo dice.
+ * ANTES SALÍA EL ERROR CRUDO — "No salió — missing_RESEND_API_KEY" — y eso no
+ * le sirve de nada: no lo puede arreglar, no sabe qué significa y lo único que
+ * consigue es hacerle dudar de si la inscripción quedó bien.
+ *
+ * Lo que sí necesita es una frase que pueda repetir de memoria en la cancha,
+ * porque ese es el escenario real: tiene a la pareja delante y quiere decirles
+ * cómo entrar. Y funciona haya salido el correo o no — desde el login en dos
+ * pasos (migración 043), escribir el correo basta: la app reconoce la cuenta y
+ * les pide crear su contraseña.
+ *
+ * El detalle técnico del fallo se queda en email_outbox, que es para nosotros.
  */
 function EstadoCorreos({
   filas, onRefrescar, onReenviar,
@@ -639,54 +652,40 @@ function EstadoCorreos({
   onRefrescar: () => void;
   onReenviar:  (id: string) => void;
 }) {
-  if (filas.length === 0) {
-    return (
-      <View style={s.correosCaja}>
-        <View style={s.correosCabecera}>
-          <Text style={s.correosTitulo}>Enviando correos…</Text>
+  const fallidos = filas.filter((f) => f.status === 'failed');
+
+  return (
+    <View style={s.correosCaja}>
+      <Text style={s.correosTitulo}>Diles cómo entrar</Text>
+
+      <Text style={s.instruccion}>
+        Que entren a <Text style={s.instruccionFuerte}>{SITIO}</Text> y pongan su
+        correo. La app los reconoce y les pide crear su contraseña. Nada más.
+      </Text>
+
+      <Text style={s.correosNota}>
+        {fallidos.length === 0
+          ? 'También les mandamos un correo con estos datos.'
+          : 'Les mandamos un correo, pero por si no les llega, es más rápido decírselo tú.'}
+      </Text>
+
+      {/* Discreto y sin el error crudo: reenviar es útil, pero no es lo que
+          resuelve el momento. */}
+      {fallidos.length > 0 && (
+        <View style={s.reenvios}>
+          {fallidos.map((f) => (
+            <View key={f.id} style={s.correoFila}>
+              <Text style={s.correoDestino} numberOfLines={1}>{f.to_email}</Text>
+              <Pressable onPress={() => onReenviar(f.id)} style={s.quitar} accessibilityRole="button">
+                <Text style={s.reenviarTexto}>Reenviar</Text>
+              </Pressable>
+            </View>
+          ))}
           <Pressable onPress={onRefrescar} accessibilityRole="button">
             <Text style={s.correosActualizar}>Actualizar</Text>
           </Pressable>
         </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={s.correosCaja}>
-      <View style={s.correosCabecera}>
-        <Text style={s.correosTitulo}>Correos</Text>
-        <Pressable onPress={onRefrescar} accessibilityRole="button">
-          <Text style={s.correosActualizar}>Actualizar</Text>
-        </Pressable>
-      </View>
-
-      {filas.map((f) => (
-        <View key={f.id} style={s.correoFila}>
-          <View style={s.correoTextos}>
-            <Text style={s.correoDestino} numberOfLines={1}>{f.to_email}</Text>
-            <Text style={[
-              s.correoEstado,
-              f.status === 'sent'   && s.correoOk,
-              f.status === 'failed' && s.correoMal,
-            ]}>
-              {f.status === 'sent'    ? 'Enviado'
-               : f.status === 'failed' ? `No salió — ${f.last_error ?? 'error desconocido'}`
-               : 'En cola…'}
-            </Text>
-          </View>
-          {f.status === 'failed' && (
-            <Pressable onPress={() => onReenviar(f.id)} style={s.quitar} accessibilityRole="button">
-              <Text style={s.reenviarTexto}>Reenviar</Text>
-            </Pressable>
-          )}
-        </View>
-      ))}
-
-      <Text style={s.correosNota}>
-        La inscripción es válida aunque un correo falle. Puedes reenviarlo
-        cuando quieras.
-      </Text>
+      )}
     </View>
   );
 }
@@ -770,18 +769,16 @@ const s = StyleSheet.create({
   exitoTitulo: { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.live, marginTop: space[5] },
   exitoCuerpo: { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
 
-  correosCaja:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.lg, padding: space[4], gap: space[3], marginTop: space[2] },
-  correosCabecera:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  correosTitulo:     { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  correosCaja:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[2], marginTop: space[2] },
+  correosTitulo:     { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne },
+  instruccion:       { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 22 },
+  instruccionFuerte: { color: color.goldBright, fontWeight: '600' },
   correosActualizar: { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },
+  reenvios:          { gap: space[2], marginTop: space[2], paddingTop: space[2], borderTopWidth: 1, borderTopColor: color.lineSoft },
   correoFila:        { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  correoTextos:      { flex: 1, minWidth: 0, gap: 2 },
-  correoDestino:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
-  correoEstado:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
-  correoOk:          { color: color.live },
-  correoMal:         { color: color.danger },
+  correoDestino:     { flex: 1, minWidth: 0, fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
   reenviarTexto:     { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.gold },
-  correosNota:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 16 },
+  correosNota:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
 
   botonera:          { gap: space[2], marginTop: space[4] },
   btnDorado:         { backgroundColor: color.gold, borderWidth: 1, borderColor: color.goldBright, borderRadius: radius.sm, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },

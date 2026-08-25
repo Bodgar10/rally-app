@@ -18,7 +18,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import { useRouter, Link } from 'expo-router';
+import { useRouter, Link, useLocalSearchParams } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
@@ -53,7 +53,12 @@ export default function RegistroScreen() {
   const router = useRouter();
 
   const [fullName, setFullName] = useState('');
-  const [email, setEmail]       = useState('');
+  // Llega prellenado desde el paso 1 del login cuando el correo no existía:
+  // no tiene sentido hacérselo escribir dos veces.
+  const { email: emailQuery } = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail]       = useState(
+    typeof emailQuery === 'string' ? emailQuery.trim().toLowerCase() : '',
+  );
   const [password, setPassword] = useState('');
   const [tosAccepted, setTosAccepted] = useState(false);
   const [loading, setLoading]   = useState(false);

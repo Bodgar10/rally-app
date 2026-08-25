@@ -27,7 +27,12 @@ export default function RecuperarScreen() {
   // El correo llega del enlace del correo de alta. useState con valor inicial
   // (no useEffect): el parámetro está disponible en el primer render y así el
   // campo nunca parpadea vacío.
-  const { email: emailQuery } = useLocalSearchParams<{ email?: string }>();
+  // `activar=1` lo manda el paso 1 del login cuando la cuenta existe pero
+  // nunca tuvo contraseña (alta por organizador). Cambia solo la copia: el
+  // mecanismo es el mismo correo de recuperación, pero llamarlo "recuperar"
+  // a quien nunca tuvo contraseña lo confundiría.
+  const { email: emailQuery, activar } = useLocalSearchParams<{ email?: string; activar?: string }>();
+  const esActivacion = activar === '1';
   const [email, setEmail]   = useState(
     typeof emailQuery === 'string' ? emailQuery.trim().toLowerCase() : '',
   );
@@ -60,7 +65,9 @@ export default function RecuperarScreen() {
         <Text style={styles.eyebrow}>RALLY</Text>
         <Text style={styles.title}>Revisa tu correo</Text>
         <Text style={styles.subtitle}>
-          Te enviamos un link para restablecer tu contraseña. Puede tardar unos minutos.
+          {esActivacion
+            ? 'Te enviamos un link para crear tu contraseña y entrar. Puede tardar unos minutos; mira también en spam.'
+            : 'Te enviamos un link para restablecer tu contraseña. Puede tardar unos minutos.'}
         </Text>
         <Pressable style={styles.btnPrimary} onPress={() => router.replace('/(auth)/login')}>
           <Text style={styles.btnPrimaryText}>Volver al inicio</Text>
@@ -72,8 +79,14 @@ export default function RecuperarScreen() {
   return (
     <View style={[styles.flex, styles.center]}>
       <Text style={styles.eyebrow}>RALLY</Text>
-      <Text style={styles.title}>Recuperar contraseña</Text>
-      <Text style={styles.subtitle}>Ingresa tu correo y te enviamos un link para cambiarla.</Text>
+      <Text style={styles.title}>
+        {esActivacion ? 'Crea tu contraseña' : 'Recuperar contraseña'}
+      </Text>
+      <Text style={styles.subtitle}>
+        {esActivacion
+          ? 'Tu cuenta ya existe: un organizador te inscribió. Te mandamos un link para que pongas tu contraseña y entres.'
+          : 'Ingresa tu correo y te enviamos un link para cambiarla.'}
+      </Text>
 
       <View style={styles.form}>
         <TextInput
@@ -94,7 +107,9 @@ export default function RecuperarScreen() {
         >
           {loading
             ? <ActivityIndicator color={color.onGold} />
-            : <Text style={styles.btnPrimaryText}>Enviar link</Text>
+            : <Text style={styles.btnPrimaryText}>
+                {esActivacion ? 'Mandarme el link' : 'Enviar link'}
+              </Text>
           }
         </Pressable>
         <Pressable onPress={() => router.back()} style={styles.linkWrapper}>
