@@ -7,8 +7,13 @@
  *   · Lo secundario, gris perfilado. Lo irreversible, en danger y con confirmación.
  *
  * Antes había tres bloques dorados compitiendo (abrir, cerrar y asignar juez) y
- * "Cerrar inscripciones" se veía incluso en borrador. Ahora la acción dorada
- * existe solo en `draft` (abrir), y cerrar aparece en rojo solo cuando toca.
+ * "Cerrar inscripciones" se veía incluso en borrador. Ahora hay exactamente UNA
+ * acción dorada y depende del estado: abrir en `draft`, cerrar en
+ * `registration_open`. Nunca las dos a la vez.
+ *
+ * El rojo se reserva para lo que DESTRUYE: eliminar torneo, terminar torneo,
+ * quitar categoría. Cerrar inscripciones no destruye nada — genera los grupos y
+ * los partidos — así que pintarlo de rojo desalentaba el camino feliz.
  *
  * FASE 1: las filas cuya pantalla de destino aún no existe quedan visibles pero
  * deshabilitadas, mostrando su valor real. Se ve el diseño entero y se lee la
@@ -316,21 +321,23 @@ export default function OrgTournamentScreen() {
         </View>
 
         {/* ── Cerrar inscripciones: solo con inscripciones abiertas ─
-             En ROJO, no dorado: dispara el motor de formato y no tiene
-             marcha atrás. Es destacada, pero por peligro, no por ser el
-             camino feliz. */}
+             DORADA, igual que "Abrir inscripciones" en draft: es la acción
+             principal del torneo en este estado y no destruye nada. Esta
+             tarjeta solo NAVEGA; el cierre real se elige y se confirma
+             categoría por categoría en la pantalla de destino. */}
         {esAbierto && (
           <>
             <Text style={s.seccion}>SIGUIENTE PASO</Text>
             <Pressable
               onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`)}
-              style={({ pressed }) => [s.btnPeligro, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [s.btnSiguientePaso, pressed && { opacity: 0.85 }]}
               accessibilityRole="button"
               accessibilityLabel="Cerrar inscripciones"
             >
-              <Text style={s.btnPeligroTexto}>Cerrar inscripciones</Text>
-              <Text style={s.btnPeligroSub}>
-                Genera los grupos y el cuadro de cada categoría. No se puede deshacer.
+              <Text style={s.btnSiguientePasoTexto}>Cerrar inscripciones</Text>
+              <Text style={s.btnSiguientePasoSub}>
+                Eliges qué categorías cerrar y ves la vista previa de grupos y
+                cuadro de cada una antes de confirmar.
               </Text>
             </Pressable>
           </>
@@ -452,18 +459,22 @@ const s = StyleSheet.create({
   btnDoradoTexto:        { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold, letterSpacing: 0.3 },
   btnDoradoTextoInactivo:{ color: color.muted },
 
-  // Acción destacada pero peligrosa (cerrar inscripciones)
-  btnPeligro: {
-    backgroundColor:   'rgba(224,114,111,0.10)',
+  // Acción principal del estado, en oro macizo como btnDorado. Se separa de
+  // btnDorado solo porque lleva subtítulo: necesita alinear a la izquierda y
+  // padding propio en vez de centrar una línea única.
+  btnSiguientePaso: {
+    backgroundColor:   color.gold,
     borderWidth:       1,
-    borderColor:       color.danger,
+    borderColor:       color.goldBright,
     borderRadius:      radius.md,
     paddingHorizontal: space[4],
     paddingVertical:   space[3],
     gap:               3,
   },
-  btnPeligroTexto: { fontFamily: font.display, fontSize: fontSize.cardName, fontWeight: '600', color: color.danger },
-  btnPeligroSub:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+  btnSiguientePasoTexto: { fontFamily: font.display, fontSize: fontSize.cardName, fontWeight: '600', color: color.onGold },
+  // onGold (#1A1407) al 78% sobre oro sigue muy por encima del 4.5:1 de WCAG;
+  // color.muted es para fondos oscuros y aquí se volvería ilegible.
+  btnSiguientePasoSub:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.onGold, opacity: 0.78, lineHeight: 17 },
 
   // Perfilado gris con texto danger — irreversible, bajo perfil
   btnPerfiladoPeligro: {
