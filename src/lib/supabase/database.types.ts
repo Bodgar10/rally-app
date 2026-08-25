@@ -246,6 +246,13 @@ export type Database = {
             foreignKeyName: "email_outbox_pair_id_fkey"
             columns: ["pair_id"]
             isOneToOne: false
+            referencedRelation: "my_pairs"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
             referencedRelation: "organizer_pairs_admin"
             referencedColumns: ["pair_id"]
           },
@@ -375,6 +382,13 @@ export type Database = {
             columns: ["pair_id"]
             isOneToOne: false
             referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "group_standings_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "my_pairs"
             referencedColumns: ["pair_id"]
           },
           {
@@ -541,6 +555,13 @@ export type Database = {
             foreignKeyName: "matches_pair_a_id_fkey"
             columns: ["pair_a_id"]
             isOneToOne: false
+            referencedRelation: "my_pairs"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "matches_pair_a_id_fkey"
+            columns: ["pair_a_id"]
+            isOneToOne: false
             referencedRelation: "organizer_pairs_admin"
             referencedColumns: ["pair_id"]
           },
@@ -556,6 +577,13 @@ export type Database = {
             columns: ["pair_b_id"]
             isOneToOne: false
             referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "matches_pair_b_id_fkey"
+            columns: ["pair_b_id"]
+            isOneToOne: false
+            referencedRelation: "my_pairs"
             referencedColumns: ["pair_id"]
           },
           {
@@ -584,6 +612,13 @@ export type Database = {
             columns: ["winner_pair_id"]
             isOneToOne: false
             referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "matches_winner_pair_id_fkey"
+            columns: ["winner_pair_id"]
+            isOneToOne: false
+            referencedRelation: "my_pairs"
             referencedColumns: ["pair_id"]
           },
           {
@@ -1045,6 +1080,13 @@ export type Database = {
             columns: ["pair_id"]
             isOneToOne: false
             referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "registrations_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "my_pairs"
             referencedColumns: ["pair_id"]
           },
           {
@@ -1736,6 +1778,49 @@ export type Database = {
           },
         ]
       }
+      my_pairs: {
+        Row: {
+          category_id: string | null
+          created_at: string | null
+          pair_id: string | null
+          payment_status: Database["public"]["Enums"]["payment_status"] | null
+          player1_id: string | null
+          player1_name: string | null
+          player2_id: string | null
+          player2_name: string | null
+          tournament_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pairs_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pairs_player1_id_fkey"
+            columns: ["player1_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pairs_player2_id_fkey"
+            columns: ["player2_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pairs_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizer_judges_admin: {
         Row: {
           created_at: string | null
@@ -1865,6 +1950,7 @@ export type Database = {
         Args: { p_actor: string; p_ledger: Json; p_tournament_id: string }
         Returns: Json
       }
+      auth_email_status: { Args: { p_email: string }; Returns: string }
       can_capture_tournament: {
         Args: { p_tournament_id: string }
         Returns: boolean
