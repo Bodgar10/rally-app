@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase/client';
 import { invalidateOrganizerOwnerCache } from '@/hooks/useIsOrganizerOwner';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 /**
  * Códigos de la Edge Function / RPC traducidos a algo que un humano entienda.
@@ -121,9 +122,7 @@ export default function NuevoOrganizadorScreen() {
     <SafeAreaView style={s.safe}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
 
-        <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
-          <Text style={s.backText}>← Volver</Text>
-        </Pressable>
+        <BotonVolver texto="Volver" enScroller />
 
         <Text style={s.eyebrow}>ORGANIZADOR</Text>
         <Text style={s.title}>Crea tu marca de torneos</Text>
@@ -225,9 +224,6 @@ export default function NuevoOrganizadorScreen() {
 const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: color.bg },
   content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
-
-  back:     { marginBottom: space[1] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
 
   eyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, letterSpacing: 0.4 },

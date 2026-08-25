@@ -7,6 +7,7 @@ import { ScrollView, View, Text, Pressable, StyleSheet, SafeAreaView } from 'rea
 import { useRouter } from 'expo-router';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 function Section({ title, children }: { title: string; children: string }) {
   return (
@@ -21,9 +22,7 @@ export default function ReembolsoScreen() {
   const router = useRouter();
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back}>
-        <Text style={s.backText}>← Volver</Text>
-      </Pressable>
+      <BotonVolver texto="Volver" />
       <ScrollView contentContainerStyle={s.content}>
         <Text style={s.eyebrow}>RALLY</Text>
         <Text style={s.title}>Política de Reembolso</Text>
@@ -51,8 +50,6 @@ export default function ReembolsoScreen() {
 
 const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: color.bg },
-  back:    { paddingHorizontal: space[4.5], paddingTop: space[4], paddingBottom: space[2] },
-  backText:{ fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content: { paddingHorizontal: space[4.5], paddingBottom: bottomInset, ...webContentColumn },
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[1] },

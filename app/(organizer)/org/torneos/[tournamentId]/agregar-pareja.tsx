@@ -32,6 +32,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase/client";
 import { color, radius, space } from "@/lib/design-tokens";
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -264,9 +265,7 @@ export default function AgregarParejaScreen() {
     >
       {/* Header */}
       <View style={{ marginBottom: space[2] }}>
-        <Pressable onPress={() => router.back()} style={{ marginBottom: space[3] }}>
-          <Text style={{ color: color.gold, fontFamily: "Inter", fontSize: 13 }}>← Atrás</Text>
-        </Pressable>
+        <BotonVolver texto="Atrás" enScroller />
         <Text style={{ color: color.champagne, fontFamily: "Oswald", fontSize: 11,
           textTransform: "uppercase", letterSpacing: 2 }}>
           {tournament?.name}

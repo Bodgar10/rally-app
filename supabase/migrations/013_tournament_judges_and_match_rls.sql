@@ -2,6 +2,35 @@
 -- Reusa helpers SECURITY DEFINER del 008: is_admin(), is_org_owner(), tournament_org().
 -- NOTA: numerada 013 (no 012) porque 012_find_user_rpc.sql ya existe.
 
+-- ⚠️ ESTE ARCHIVO NO REFLEJA LA BASE REAL (verificado 2026-08-25)
+--
+-- La tabla `tournament_judges` que existe hoy en producción tiene SOLO estas
+-- cinco columnas:
+--     id, tournament_id, user_id, assigned_by, created_at
+--
+-- Es decir:
+--   · `organizer_id` (línea ~10)  NO existe en la base.
+--   · `assigned_at`  (línea ~12)  NO existe en la base; la columna de tiempo
+--                                 real se llama `created_at`.
+--   · `assigned_by`  y `created_at` existen en la base pero NO se declaran aquí.
+--   · El índice `tournament_judges_org_idx` sobre organizer_id tampoco existe.
+--
+-- Presumiblemente la tabla se creó a mano en el editor de Supabase antes de
+-- que se escribiera esta migración, y el `create table IF NOT EXISTS` la
+-- encontró ya presente y no hizo nada. La divergencia pasó inadvertida hasta
+-- que la pantalla de asignación de jueces (2026) intentó insertar
+-- `organizer_id` y PostgREST devolvió PGRST204 / 42703.
+--
+-- Lo que SÍ existe en la base y esta migración no menciona:
+--     tournament_judges_tournament_id_user_id_key  UNIQUE (tournament_id, user_id)
+--
+-- NO "arregles" esto añadiendo las columnas: el código ya está alineado con la
+-- base real (jueces.tsx inserta assigned_by y ordena por created_at). Si algún
+-- día se quiere reconciliar, hazlo en una migración nueva, nunca editando ésta.
+--
+-- El resto del archivo (RLS de matches, group_standings, Realtime) sí se aplicó
+-- correctamente. La divergencia se limita al bloque 1.
+
 -- 1) Tabla de asignación juez → torneo ------------------------------------------------
 create table if not exists public.tournament_judges (
   id            uuid primary key default gen_random_uuid(),

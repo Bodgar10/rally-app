@@ -126,7 +126,10 @@ export default function JudgeTournamentScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
       {/* Header */}
-      <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      {/* Cabecera fuera del FlatList: no hereda la columna centrada del
+          contentContainerStyle, así que la aporta ella misma. Sin esto, el
+          "← Volver" y el título se pegan al borde izquierdo en escritorio. */}
+      <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 12, ...webContentColumn }}>
         <Pressable
           onPress={() => router.back()}
           style={{ padding: 8 }}

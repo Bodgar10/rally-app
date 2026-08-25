@@ -26,6 +26,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { bottomInset, inputFontSize, webContentColumn } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 export default function EliminarTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
@@ -89,9 +90,7 @@ export default function EliminarTorneoScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
-        <Text style={s.backText} numberOfLines={1}>← {nombre || 'Torneo'}</Text>
-      </Pressable>
+      <BotonVolver texto={nombre || 'Torneo'} />
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.eyebrow}>ZONA DE RIESGO</Text>
@@ -197,8 +196,6 @@ export default function EliminarTorneoScreen() {
 const s = StyleSheet.create({
   safe:     { flex: 1, backgroundColor: color.bg },
   cargando: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.danger, letterSpacing: 3 },

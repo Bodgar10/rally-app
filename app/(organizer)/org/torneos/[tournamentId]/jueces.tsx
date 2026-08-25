@@ -23,6 +23,7 @@ import Icon from '@/components/ui/Icon';
 import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/organizer/BuscadorDeUsuario';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { bottomInset, webContentColumn } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL ?? 'https://rallypadel.mx';
 
@@ -31,6 +32,24 @@ interface Juez {
   userId: string;
   name:   string;
   email:  string;
+}
+
+/**
+ * Traduce el error de Postgres SIN inventar causas. Si el código no se
+ * reconoce, se dice que no se sabe y se remite a la consola — que es donde
+ * está el error completo. Adivinar la causa fue justo lo que hizo perder
+ * tiempo la vez anterior.
+ */
+function mensajeDeError(e: { code?: string; message?: string }): string {
+  switch (e.code) {
+    case '23505': return 'Esa persona ya es juez de este torneo.';
+    case '42501': return 'No tienes permiso para asignar jueces en este torneo.';
+    case '23503': return 'La persona o el torneo ya no existen. Recarga la pantalla.';
+    case 'PGRST204':
+    case '42703': return 'Error de configuración de la app. Avísanos: la tabla no tiene la forma esperada.';
+    default:
+      return `No se pudo asignar${e.code ? ` (${e.code})` : ''}. El detalle está en la consola.`;
+  }
 }
 
 export default function JuecesTorneoScreen() {
@@ -51,7 +70,7 @@ export default function JuecesTorneoScreen() {
         .from('tournament_judges')
         .select(`id, user_id, users:user_id ( full_name, email )`)
         .eq('tournament_id', tournamentId)
-        .order('assigned_at', { ascending: true }),
+        .order('created_at', { ascending: true }),
     ]);
 
     if (t) setNombre((t as { name: string }).name);
@@ -83,31 +102,28 @@ export default function JuecesTorneoScreen() {
     setAsignando(true);
 
     try {
-      const { data: tData } = await supabase
-        .from('tournaments')
-        .select('organizer_id')
-        .eq('id', tournamentId)
-        .single();
+      const { data: { user } } = await supabase.auth.getUser();
 
-      if (!tData) {
-        setError('No se pudo leer el torneo. Intenta de nuevo.');
-        return;
-      }
-
+      // Solo tournament_id, user_id y assigned_by: `organizer_id` NO existe en
+      // la tabla. La migración 013 del repo lo declara, pero nunca llegó a la
+      // base — mandarlo daba PGRST204 y la asignación fallaba siempre.
+      // `assigned_by` es nullable, pero llenarlo deja rastro de quién asignó.
       const { error: insertErr } = await supabase
         .from('tournament_judges')
         .insert({
           tournament_id: tournamentId,
           user_id:       u.id,
-          organizer_id:  (tData as { organizer_id: string }).organizer_id,
+          assigned_by:   user?.id ?? null,
         });
 
       if (insertErr) {
-        console.error('[jueces] insert', insertErr);
-        // El único fallo realista aquí es el unique(tournament_id, user_id):
-        // la política tj_write solo comprueba que TÚ seas owner del torneo,
-        // no exige nada del usuario asignado.
-        setError('No se pudo asignar. Puede que ya sea juez de este torneo.');
+        // SIEMPRE el error crudo de Postgres: la vez anterior el mensaje de la
+        // UI inventó una causa ("ya es juez") y ocultó la real.
+        console.error('[jueces] insert fallo:', {
+          code: insertErr.code, message: insertErr.message,
+          details: insertErr.details, hint: insertErr.hint,
+        });
+        setError(mensajeDeError(insertErr));
         return;
       }
 
@@ -125,8 +141,11 @@ export default function JuecesTorneoScreen() {
       .eq('id', filaId);
 
     if (dbError) {
-      console.error('[jueces] delete', dbError);
-      setError('No se pudo quitar al juez. Intenta de nuevo.');
+      console.error('[jueces] delete fallo:', {
+        code: dbError.code, message: dbError.message,
+        details: dbError.details, hint: dbError.hint,
+      });
+      setError(mensajeDeError(dbError));
       return;
     }
     setExito(`${nombreJuez} ya no es juez de este torneo.`);
@@ -139,9 +158,7 @@ export default function JuecesTorneoScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
-        <Text style={s.backText} numberOfLines={1}>← {nombre || 'Torneo'}</Text>
-      </Pressable>
+      <BotonVolver texto={nombre || 'Torneo'} />
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.eyebrow}>CONFIGURACIÓN</Text>
@@ -226,8 +243,6 @@ export default function JuecesTorneoScreen() {
 const s = StyleSheet.create({
   safe:     { flex: 1, backgroundColor: color.bg },
   cargando: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },

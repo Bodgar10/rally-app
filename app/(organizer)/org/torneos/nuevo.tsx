@@ -19,6 +19,7 @@ import CalendarioRango                          from '@/components/ui/Calendario
 import { rangoCompleto, type RangoSeleccion }   from '@/lib/rango-fechas';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 export default function NuevoTorneoScreen() {
   const router = useRouter();
@@ -93,9 +94,7 @@ export default function NuevoTorneoScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back}>
-        <Text style={s.backText}>← Volver</Text>
-      </Pressable>
+      <BotonVolver texto="Volver" />
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.eyebrow}>ORGANIZADOR</Text>
@@ -165,8 +164,6 @@ export default function NuevoTorneoScreen() {
 
 const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: color.bg },
-  back:    { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText:{ fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content: { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },

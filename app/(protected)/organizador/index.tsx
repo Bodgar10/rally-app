@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { useIsOrganizerOwner } from '@/hooks/useIsOrganizerOwner';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 /** Dolor → cómo se resuelve. Nada de listas de features. */
 const ARGUMENTOS = [
@@ -70,9 +71,7 @@ export default function OrganizadorLandingScreen() {
     <SafeAreaView style={s.safe}>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
-        <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
-          <Text style={s.backText}>← Volver</Text>
-        </Pressable>
+        <BotonVolver texto="Volver" enScroller />
 
         <Text style={s.eyebrow}>ORGANIZADOR</Text>
         <Text style={s.title}>Deja de armar torneos en Excel</Text>
@@ -118,9 +117,6 @@ const s = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: color.bg },
   loading: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
   content: { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
-
-  back:     { marginBottom: space[1] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, letterSpacing: 0.4, marginBottom: space[2] },

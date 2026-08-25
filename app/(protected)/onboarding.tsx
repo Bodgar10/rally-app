@@ -14,22 +14,31 @@ import {
 import { useRouter } from 'expo-router';
 
 import { supabase }                             from '@/lib/supabase/client';
+import type { Database } from '@/lib/supabase/database.types';
 import { Button, Card, SectionLabel }           from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 // ─── Opciones ──────────────────────────────────────────────────────────────
 
+/**
+ * Los valores son los del enum de la base, no cadenas sueltas: si el enum
+ * cambia y se regeneran los tipos, estas listas dejan de compilar.
+ */
+type Genero   = Database['public']['Enums']['player_gender'];
+type Lado     = Database['public']['Enums']['preferred_side'];
+type Division = Database['public']['Enums']['division'];
+
 const GENDER_OPTIONS = [
   { value: 'male',   label: 'Hombre' },
   { value: 'female', label: 'Mujer' },
-];
+] as const satisfies ReadonlyArray<{ value: Genero; label: string }>;
 
 const SIDE_OPTIONS = [
   { value: 'drive', label: 'Drive', sub: 'Lado derecho' },
   { value: 'reves', label: 'Revés', sub: 'Lado izquierdo' },
   { value: 'ambos', label: 'Ambos lados', sub: 'Juego en los dos' },
-];
+] as const satisfies ReadonlyArray<{ value: Lado; label: string; sub: string }>;
 
 const DIVISION_OPTIONS = [
   { value: 'sexta',    label: '6ª División', sub: 'Iniciando en el padel' },
@@ -38,7 +47,7 @@ const DIVISION_OPTIONS = [
   { value: 'tercera',  label: '3ª División', sub: 'Competidor avanzado' },
   { value: 'segunda',  label: '2ª División', sub: 'Nivel alto' },
   { value: 'primera',  label: '1ª División', sub: 'Nivel élite / profesional' },
-];
+] as const satisfies ReadonlyArray<{ value: Division; label: string; sub: string }>;
 
 // ─── Componente de opción seleccionable ────────────────────────────────────
 
@@ -68,9 +77,9 @@ function OptionButton({
 export default function OnboardingScreen() {
   const router = useRouter();
 
-  const [gender, setGender]     = useState<string | null>(null);
-  const [side, setSide]         = useState<string | null>(null);
-  const [division, setDivision] = useState<string | null>(null);
+  const [gender, setGender]     = useState<Genero | null>(null);
+  const [side, setSide]         = useState<Lado | null>(null);
+  const [division, setDivision] = useState<Division | null>(null);
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState<string | null>(null);
 
@@ -82,7 +91,9 @@ export default function OnboardingScreen() {
     if (!user) { setSaving(false); return; }
 
     if (!skip) {
-      const updates: Record<string, string> = {};
+      // El tipo sale del esquema (`Update` de la tabla users), no de un
+      // Record<string,string>: una columna mal escrita ya no compila.
+      const updates: Database['public']['Tables']['users']['Update'] = {};
       if (gender)   updates.gender          = gender;
       if (side)     updates.preferred_side  = side;
 

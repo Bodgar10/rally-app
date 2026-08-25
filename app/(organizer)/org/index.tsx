@@ -15,6 +15,7 @@ import { Button, Card, Badge, SectionLabel }    from '@/components/ui';
 import { formatearLargo }                      from '@/lib/fechas';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 interface OrgTournament {
   id:         string;
@@ -80,9 +81,7 @@ export default function OrgHomeScreen() {
 
         {/* Header */}
         <View style={s.header}>
-          <Pressable onPress={() => router.replace('/(protected)/dashboard')} style={s.backRow}>
-            <Text style={s.backText}>← Modo Jugador</Text>
-          </Pressable>
+          <BotonVolver texto="Modo Jugador" onPress={() => router.replace('/(protected)/dashboard')} enScroller />
           <Text style={s.eyebrow}>ORGANIZADOR</Text>
           <Text style={s.title}>{orgName || 'Mi organización'}</Text>
         </View>
@@ -138,8 +137,6 @@ const s = StyleSheet.create({
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
   content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
   header:           { marginBottom: space[2] },
-  backRow:          { marginBottom: space[3] },
-  backText:         { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   eyebrow:          { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:            { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
   emptyText:        { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center', paddingVertical: space[3] },

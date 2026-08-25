@@ -44,11 +44,17 @@ import Icon from '@/components/ui/Icon';
 import { computeFormat, type FormatPlan } from '@/lib/engine/format';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
-/** Los tres estados que SÍ cuentan para el cuadro. Espejo de close-registration. */
-const PAGADAS = ['paid_online', 'paid_offline', 'comp'];
+/**
+ * Los tres estados que SÍ cuentan para el cuadro. Espejo de close-registration.
+ *
+ * `as const` no es cosmético: sin él TS lo infiere como string[] y el .in() del
+ * cliente tipado lo rechaza — espera los valores del enum payment_status.
+ */
+const PAGADAS = ['paid_online', 'paid_offline', 'comp'] as const;
 
 type EstadoCategoria =
   | 'lista'        // >= 2 pagadas, plan no ambiguo
@@ -358,9 +364,7 @@ export default function CerrarInscripcionesScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
-        <Text style={s.backText} numberOfLines={1}>← {nombre || 'Torneo'}</Text>
-      </Pressable>
+      <BotonVolver texto={nombre || 'Torneo'} />
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <Text style={s.eyebrow}>SIGUIENTE PASO</Text>
@@ -550,9 +554,6 @@ const s = StyleSheet.create({
   safe:     { flex: 1, backgroundColor: color.bg },
   cargando: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center', gap: space[4], padding: space[5] },
   cerrandoTexto: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center', lineHeight: 20 },
-
-  back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },

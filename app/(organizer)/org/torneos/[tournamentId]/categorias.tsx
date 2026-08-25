@@ -29,10 +29,20 @@ import {
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import type { Database } from '@/lib/supabase/database.types';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
+
+/**
+ * Los enums salen del esquema generado, no de literales escritos a mano. Si
+ * alguien añade una división en la base y regenera los tipos, la lista de abajo
+ * deja de compilar hasta que se actualice — que es exactamente lo que queremos.
+ */
+type Division = Database['public']['Enums']['division'];
+type Genero   = Database['public']['Enums']['category_gender'];
 
 const DIVISIONES = [
   { valor: 'sexta',   etiqueta: '6ª' },
@@ -41,30 +51,38 @@ const DIVISIONES = [
   { valor: 'tercera', etiqueta: '3ª' },
   { valor: 'segunda', etiqueta: '2ª' },
   { valor: 'primera', etiqueta: '1ª' },
-] as const;
+] as const satisfies ReadonlyArray<{ valor: Division; etiqueta: string }>;
 
 /** 'male' existe en el enum pero no se ofrece. Ver cabecera. */
 const GRUPOS = [
   { genero: 'mixed',  titulo: 'Mixto'   },
   { genero: 'female', titulo: 'Femenil' },
-] as const;
+] as const satisfies ReadonlyArray<{ genero: Genero; titulo: string }>;
 
-const NOMBRE_GENERO: Record<string, string> = {
+const NOMBRE_GENERO: Record<Genero, string> = {
   male: 'Varonil', female: 'Femenil', mixed: 'Mixto',
 };
 
-/** Clave estable de una categoría dentro del torneo. */
-const clave = (division: string, genero: string) => `${division}|${genero}`;
+/**
+ * Clave estable de una categoría dentro del torneo.
+ *
+ * El tipo plantilla no es adorno: hace que un `Set<Clave>` solo pueda contener
+ * combinaciones que existen en el esquema. Antes era `string` y cualquier cosa
+ * entraba.
+ */
+type Clave = `${Division}|${Genero}`;
 
-function nombreVisible(division: string, genero: string): string {
+const clave = (division: Division, genero: Genero): Clave => `${division}|${genero}`;
+
+function nombreVisible(division: Division, genero: Genero): string {
   const d = DIVISIONES.find((x) => x.valor === division)?.etiqueta ?? division;
   return `${d} ${NOMBRE_GENERO[genero] ?? genero}`;
 }
 
 interface CategoriaExistente {
   id:        string;
-  division:  string;
-  gender:    string;
+  division:  Division;
+  gender:    Genero;
   parejas:   number;
   pagadas:   number;
 }
@@ -82,7 +100,7 @@ export default function CategoriasScreen() {
 
   const [nombreTorneo, setNombreTorneo] = useState('');
   const [existentes, setExistentes] = useState<CategoriaExistente[]>([]);
-  const [seleccion, setSeleccion]   = useState<Set<string>>(new Set());
+  const [seleccion, setSeleccion]   = useState<Set<Clave>>(new Set());
   const [cargando, setCargando]     = useState(true);
   const [guardando, setGuardando]   = useState(false);
   const [error, setError]           = useState<string | null>(null);
@@ -99,7 +117,8 @@ export default function CategoriasScreen() {
 
     if (t) setNombreTorneo((t as { name: string }).name);
 
-    const filas = (cats ?? []) as Array<{ id: string; division: string; gender: string }>;
+    // Sin cast: con el cliente tipado, `division` y `gender` ya llegan como enums.
+    const filas = cats ?? [];
 
     // Conteos por categoría: cuántas parejas y cuántas pagaron en línea.
     // Se necesitan ANTES de guardar para decidir si se puede borrar.
@@ -122,7 +141,7 @@ export default function CategoriasScreen() {
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
-  function alternar(division: string, genero: string) {
+  function alternar(division: Division, genero: Genero) {
     setError(null);
     setSeleccion((prev) => {
       const s = new Set(prev);
@@ -138,11 +157,17 @@ export default function CategoriasScreen() {
       existentes.map((c) => [clave(c.division, c.gender), c]),
     );
 
-    const aCrear: Array<{ division: string; gender: string }> = [];
-    for (const k of seleccion) {
-      if (!existentesPorClave.has(k)) {
-        const [division, gender] = k.split('|');
-        aCrear.push({ division, gender });
+    // Se recorre la rejilla que la UI ofrece en vez de partir la clave con
+    // split('|'): split devuelve string[] y obligaría a un cast para volver a
+    // los enums. Aquí los tipos salen solos de DIVISIONES/GRUPOS, y de paso una
+    // clave vieja que ya no corresponda a ninguna opción no puede colarse.
+    const aCrear: Array<{ division: Division; gender: Genero }> = [];
+    for (const d of DIVISIONES) {
+      for (const g of GRUPOS) {
+        const k = clave(d.valor, g.genero);
+        if (seleccion.has(k) && !existentesPorClave.has(k)) {
+          aCrear.push({ division: d.valor, gender: g.genero });
+        }
       }
     }
 
@@ -229,9 +254,7 @@ export default function CategoriasScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back} accessibilityRole="button">
-        <Text style={s.backText} numberOfLines={1}>← {nombreTorneo || 'Torneo'}</Text>
-      </Pressable>
+      <BotonVolver texto={nombreTorneo || 'Torneo'} />
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <Text style={s.eyebrow}>CONFIGURACIÓN</Text>
@@ -378,8 +401,6 @@ export default function CategoriasScreen() {
 const s = StyleSheet.create({
   safe:     { flex: 1, backgroundColor: color.bg },
   cargando: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },

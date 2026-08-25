@@ -17,6 +17,7 @@ import ComoLlegar                            from '@/components/tournament/ComoL
 import { formatearRango }                    from '@/lib/fechas';
 import { color, font, fontSize, space }      from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 interface Tournament {
   id:               string;
@@ -62,9 +63,7 @@ export default function TorneoDetailScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       {/* Back */}
-      <Pressable onPress={() => router.back()} style={styles.back}>
-        <Text style={styles.backText}>← Torneos</Text>
-      </Pressable>
+      <BotonVolver texto="Torneos" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Hero info */}
@@ -152,9 +151,6 @@ const styles = StyleSheet.create({
   safe:             { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
   errorText:        { fontFamily: font.body, fontSize: fontSize.body, color: color.danger },
-
-  back:     { paddingHorizontal: space[4.5], paddingTop: space[4], paddingBottom: space[2] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
 
   content: { paddingHorizontal: space[4.5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
 

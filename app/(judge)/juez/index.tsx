@@ -38,7 +38,9 @@ async function fetchAssignedTournaments(): Promise<AssignedTournament[]> {
        )`
     )
     .eq('user_id', user.id)
-    .order('assigned_at', { ascending: true });
+    // 'assigned_at' no existe en la tabla real (la migración 013 lo declara pero
+    // nunca llegó a la base). La columna de tiempo es created_at.
+    .order('created_at', { ascending: true });
 
   if (aErr || !assignments || assignments.length === 0) return [];
 
@@ -108,7 +110,8 @@ export default function JudgeIndexScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
       {/* Header */}
-      <View style={{ paddingHorizontal: 18, paddingTop: 20, paddingBottom: 8 }}>
+      {/* Fuera del FlatList: no hereda la columna del contentContainerStyle. */}
+      <View style={{ paddingHorizontal: 18, paddingTop: 20, paddingBottom: 8, ...webContentColumn }}>
         <Text
           style={{
             fontFamily: font.display,

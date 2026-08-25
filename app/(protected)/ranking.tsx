@@ -23,6 +23,7 @@ import { useRouter } from 'expo-router';
 import { color, radius, space, font } from '@/lib/design-tokens';
 import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
+import type { Database } from '@/lib/supabase/database.types';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -44,9 +45,18 @@ type MyRankSummary = {
   tournaments_played: number;
 };
 
+/**
+ * Del esquema, no escrito a mano. `ranking_public` es una VISTA, y Postgres no
+ * propaga NOT NULL a través de una vista: por eso sus columnas llegan como
+ * `| null` aunque en la práctica nunca lo sean. Se normaliza con `?? 0` en el
+ * punto de uso — nunca con `!`, que le mentiría al compilador y reventaría el
+ * día que la vista sí devuelva un hueco.
+ */
+type Division = Database['public']['Enums']['division'];
+
 type DivisionOption = {
   label: string;
-  value: string; // ej. "primera", "quinta"
+  value: Division; // ej. "primera", "quinta"
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -81,7 +91,7 @@ export default function RankingScreen() {
 
   const [userId, setUserId] = useState<string | null>(null);
   const [divisions, setDivisions] = useState<DivisionOption[]>([]);
-  const [selectedDivision, setSelectedDivision] = useState<string | null>(null);
+  const [selectedDivision, setSelectedDivision] = useState<Division | null>(null);
   const [summary, setSummary] = useState<MyRankSummary | null>(null);
   const [leaderboard, setLeaderboard] = useState<RankRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,11 +116,13 @@ export default function RankingScreen() {
 
       if (err) return;
 
-      // Deduplica divisiones del jugador y construye opciones
-      const seen = new Set<string>();
+      // Deduplica divisiones del jugador y construye opciones.
+      // `division` llega nullable por ser columna de vista: las filas sin
+      // división no representan ninguna opción y se descartan.
+      const seen = new Set<Division>();
       const opts: DivisionOption[] = [];
-      (data ?? []).forEach((row: { division: string }) => {
-        if (!seen.has(row.division)) {
+      (data ?? []).forEach((row) => {
+        if (row.division && !seen.has(row.division)) {
           seen.add(row.division);
           opts.push({ label: labelForDivision(row.division), value: row.division });
         }
@@ -184,21 +196,27 @@ export default function RankingScreen() {
         tournaments_played: stats?.tournaments_played ?? 0,
       });
 
-      const rows: RankRow[] = (board ?? []).map((r: any) => ({
-        player_id: r.player_id,
-        full_name: r.full_name ?? null,
-        points: r.points,
-        position: r.position,
-        is_me: r.player_id === userId,
-      }));
+      // Sin `: any`: el cliente tipado ya describe la vista. Los `?? 0` cubren
+      // la nullabilidad que la vista arrastra (ver nota en `Division`), y las
+      // filas sin player_id se descartan porque no se pueden comparar ni usar
+      // como key de lista.
+      const rows: RankRow[] = (board ?? [])
+        .filter((r): r is typeof r & { player_id: string } => r.player_id !== null)
+        .map((r) => ({
+          player_id: r.player_id,
+          full_name: r.full_name ?? null,
+          points: r.points ?? 0,
+          position: r.position ?? 0,
+          is_me: r.player_id === userId,
+        }));
 
       // Si el jugador autenticado no está en el top 50, agregar su fila al final
       if (myRow && !rows.some((r) => r.player_id === userId)) {
         rows.push({
           player_id: userId,
           full_name: null,
-          points: myRow.points,
-          position: myRow.position,
+          points: myRow.points ?? 0,
+          position: myRow.position ?? 0,
           is_me: true,
         });
       }
@@ -342,7 +360,7 @@ function HeroCard({
   division,
 }: {
   summary: MyRankSummary;
-  division: string | null;
+  division: Division | null;
 }) {
   const pct = fmtPercentile(summary.position, summary.total_players);
   return (
@@ -653,32 +671,20 @@ function EmptyRanking() {
 /** Convierte el valor de división del enum a etiqueta legible.
  *  Enum real public.division = primera..sexta (solo tier). Se mantienen también
  *  las claves con sufijo de género por compatibilidad futura. */
-function labelForDivision(value: string): string {
-  const map: Record<string, string> = {
+/**
+ * Etiqueta corta de una división. El parámetro es el enum del esquema, así que
+ * el mapa solo puede tener las seis claves que existen — las variantes
+ * `*_varonil` / `*_femenil` / `*_mixto` que vivían aquí eran de un esquema
+ * anterior y ninguna llamada podía alcanzarlas.
+ */
+function labelForDivision(value: Division): string {
+  const map: Record<Division, string> = {
     primera: '1ª',
     segunda: '2ª',
     tercera: '3ª',
     cuarta: '4ª',
     quinta: '5ª',
     sexta: '6ª',
-    primera_varonil: '1ª Varonil',
-    segunda_varonil: '2ª Varonil',
-    tercera_varonil: '3ª Varonil',
-    cuarta_varonil: '4ª Varonil',
-    quinta_varonil: '5ª Varonil',
-    sexta_varonil: '6ª Varonil',
-    primera_femenil: '1ª Femenil',
-    segunda_femenil: '2ª Femenil',
-    tercera_femenil: '3ª Femenil',
-    cuarta_femenil: '4ª Femenil',
-    quinta_femenil: '5ª Femenil',
-    sexta_femenil: '6ª Femenil',
-    primera_mixto: '1ª Mixto',
-    segunda_mixto: '2ª Mixto',
-    tercera_mixto: '3ª Mixto',
-    cuarta_mixto: '4ª Mixto',
-    quinta_mixto: '5ª Mixto',
-    sexta_mixto: '6ª Mixto',
   };
   return map[value] ?? value;
 }

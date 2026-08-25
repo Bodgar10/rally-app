@@ -9,6 +9,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+
+import type { Database } from './database.types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
@@ -21,7 +23,21 @@ if (!supabaseUrl || !supabaseAnon) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnon, {
+/**
+ * Cliente TIPADO contra el esquema real de la base.
+ *
+ * `database.types.ts` lo genera `npm run types:db` con
+ * `supabase gen types typescript`. Tiparlo aquí convierte en error de
+ * COMPILACIÓN lo que antes solo salía en runtime: mandar una columna que no
+ * existe en un insert, filtrar por un campo inexistente, u ordenar por uno mal
+ * escrito. Es lo que habría cazado el bug de `tournament_judges.organizer_id`
+ * y el de `assigned_at`, que rompieron dos pantallas sin que typecheck ni los
+ * tests dijeran nada.
+ *
+ * Si tocas el esquema, REGENERA los tipos. Si no, mienten igual que mentían
+ * las migraciones.
+ */
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnon, {
   auth: {
     /**
      * En nativo usamos AsyncStorage para que la sesión sobreviva

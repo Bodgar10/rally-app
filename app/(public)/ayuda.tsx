@@ -13,6 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 // ─── Datos ──────────────────────────────────────────────────────────────────
 
@@ -142,9 +143,7 @@ export default function AyudaScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <Pressable onPress={() => router.back()} style={s.back}>
-        <Text style={s.backText}>← Volver</Text>
-      </Pressable>
+      <BotonVolver texto="Volver" />
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <Text style={s.eyebrow}>RALLY</Text>
@@ -221,8 +220,6 @@ export default function AyudaScreen() {
 
 const s = StyleSheet.create({
   safe:     { flex: 1, backgroundColor: color.bg },
-  back:     { paddingHorizontal: space[4.5], paddingTop: space[4] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
   content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[4], ...webContentColumn },
 
   eyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },

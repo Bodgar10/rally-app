@@ -20,6 +20,7 @@ import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, Badge, SectionLabel, Avatar } from '@/components/ui';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -252,9 +253,7 @@ export default function InscripcionScreen() {
 
       {/* Header */}
       <View style={s.header}>
-        <Pressable onPress={() => router.back()} style={s.back}>
-          <Text style={s.backText}>← Volver</Text>
-        </Pressable>
+        <BotonVolver texto="Volver" />
         <Text style={s.eyebrow}>INSCRIPCIÓN</Text>
         <Text style={s.title}>{tournament?.name}</Text>
       </View>
@@ -443,9 +442,8 @@ const s = StyleSheet.create({
   safe:             { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
 
-  header:   { paddingHorizontal: space[4.5], paddingTop: space[3] },
-  back:     { marginBottom: space[2] },
-  backText: { fontFamily: font.body, fontSize: fontSize.body, color: color.gold },
+  // Hermano del ScrollView: aporta su propia columna, que no hereda.
+  header:   { paddingHorizontal: space[4.5], paddingTop: space[3], ...webContentColumn },
   eyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3, marginBottom: space[1] },
   title:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[2] },
 

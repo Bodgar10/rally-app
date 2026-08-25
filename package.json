@@ -42,7 +42,8 @@
     "web": "expo start --web",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "typecheck:test": "tsc -p tsconfig.test.json"
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "types:db": "supabase gen types typescript --project-id xnyhgikcrzalzquzlzyu --schema public > src/lib/supabase/database.types.ts.tmp && mv src/lib/supabase/database.types.ts.tmp src/lib/supabase/database.types.ts"
   },
   "private": true
 }
