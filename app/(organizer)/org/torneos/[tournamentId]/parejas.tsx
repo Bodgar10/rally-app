@@ -50,32 +50,35 @@ export default function ParejasTorneoScreen() {
   const cargar = useCallback(async () => {
     const [{ data: t }, { data }] = await Promise.all([
       supabase.from('tournaments').select('name').eq('id', tournamentId).single(),
-      supabase
-        .from('pairs')
-        .select(`
-          id, payment_status,
-          categories:category_id ( display_name ),
-          player1:player1_id ( full_name ),
-          player2:player2_id ( full_name )
-        `)
+      // Va por organizer_pairs_admin (migración 041) y no por `pairs` con
+      // embed: ese embed pasaba por users_select_own, que solo deja leer la
+      // propia fila, así que el organizador veía '—' en TODOS los jugadores de
+      // su propio torneo. La vista ya está acotada al owner por dentro.
+      // Cast hasta que se aplique la 041 y se corra `npm run types:db`.
+      (supabase.from as unknown as (v: string) => {
+        select: (c: string) => { eq: (c: string, v: string) => { order: (c: string, o: { ascending: boolean }) => Promise<{ data: { pair_id: string; payment_status: string; category_id: string; player1_name: string; player2_name: string }[] | null; error: { message?: string } | null }> } };
+      })('organizer_pairs_admin')
+        .select('pair_id, payment_status, category_id, player1_name, player2_name')
         .eq('tournament_id', tournamentId)
         .order('created_at', { ascending: true }),
     ]);
 
     if (t) setNombre((t as { name: string }).name);
 
+    // La vista no embebe la categoría, así que su nombre se resuelve aparte.
+    // `categories_select` sí deja leerla, es solo que no viaja con la vista.
+    const { data: cats } = await supabase
+      .from('categories')
+      .select('id, display_name')
+      .eq('tournament_id', tournamentId);
+    const nombreCat = new Map((cats ?? []).map((c) => [c.id, c.display_name]));
+
     setParejas(
-      ((data ?? []) as unknown as Array<{
-        id: string;
-        payment_status: string;
-        categories: { display_name: string } | null;
-        player1: { full_name: string } | null;
-        player2: { full_name: string } | null;
-      }>).map((row) => ({
-        id:        row.id,
-        jugador1:  row.player1?.full_name ?? '—',
-        jugador2:  row.player2?.full_name ?? '—',
-        categoria: row.categories?.display_name ?? '—',
+      (data ?? []).map((row) => ({
+        id:        row.pair_id,
+        jugador1:  row.player1_name,
+        jugador2:  row.player2_name,
+        categoria: nombreCat.get(row.category_id) ?? '—',
         pago:      row.payment_status,
       })),
     );
