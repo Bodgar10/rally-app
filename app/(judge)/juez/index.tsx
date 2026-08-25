@@ -55,7 +55,14 @@ async function fetchAssignedTournaments(): Promise<AssignedTournament[]> {
       organizers: { name: string };
     };
   }>).filter((a) =>
-    ['registration_closed', 'in_progress'].includes(a.tournaments?.status ?? '')
+    // 'registration_open' entra desde la migración 035: el torneo ya no pasa a
+    // 'in_progress' al cerrar la PRIMERA categoría, sino la última. Sin esto,
+    // un torneo con la 5ª Mixta ya cerrada y sus partidos generados no le
+    // aparecería al juez hasta que se cerraran TODAS las categorías.
+    // Un torneo sin ninguna categoría cerrada no tiene partidos, así que se
+    // distingue solo por pendingMatches = 0.
+    ['registration_open', 'registration_closed', 'in_progress']
+      .includes(a.tournaments?.status ?? '')
   );
 
   if (active.length === 0) return [];

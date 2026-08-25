@@ -13,15 +13,18 @@
 
 import { useCallback, useState } from 'react';
 import {
-  View, Text, TextInput, ScrollView, Pressable,
+  View, Text, ScrollView, Pressable, Share,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import Icon from '@/components/ui/Icon';
+import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/organizer/BuscadorDeUsuario';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
-import { bottomInset, inputFontSize, webContentColumn } from '@/lib/web-layout';
+import { bottomInset, webContentColumn } from '@/lib/web-layout';
+
+const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL ?? 'https://rallypadel.mx';
 
 interface Juez {
   id:     string;
@@ -37,8 +40,7 @@ export default function JuecesTorneoScreen() {
   const [nombre, setNombre]   = useState('');
   const [judges, setJudges]   = useState<Juez[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [correo, setCorreo]   = useState('');
-  const [buscando, setBuscando] = useState(false);
+  const [asignando, setAsignando] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [exito, setExito]     = useState<string | null>(null);
 
@@ -75,34 +77,12 @@ export default function JuecesTorneoScreen() {
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
-  async function asignar() {
+  async function asignar(u: UsuarioEncontrado) {
     setError(null);
     setExito(null);
-    if (!correo.trim()) {
-      setError('Escribe el correo del juez.');
-      return;
-    }
+    setAsignando(true);
 
-    setBuscando(true);
     try {
-      // RPC SECURITY DEFINER: buscar por correo sin exponer la tabla users.
-      const { data: encontrado, error: rpcErr } = await supabase.rpc(
-        'find_user_by_email',
-        { p_email: correo.trim().toLowerCase() },
-      );
-
-      if (rpcErr || !encontrado || encontrado.length === 0) {
-        setError('No hay ninguna cuenta de RALLY con ese correo. El juez debe registrarse primero.');
-        return;
-      }
-
-      const candidato = (encontrado as Array<{ id: string; full_name: string; email: string }>)[0];
-
-      if (judges.some((j) => j.userId === candidato.id)) {
-        setError(`${candidato.full_name} ya está asignado a este torneo.`);
-        return;
-      }
-
       const { data: tData } = await supabase
         .from('tournaments')
         .select('organizer_id')
@@ -118,21 +98,23 @@ export default function JuecesTorneoScreen() {
         .from('tournament_judges')
         .insert({
           tournament_id: tournamentId,
-          user_id:       candidato.id,
+          user_id:       u.id,
           organizer_id:  (tData as { organizer_id: string }).organizer_id,
         });
 
       if (insertErr) {
         console.error('[jueces] insert', insertErr);
-        setError('No se pudo asignar. Verifica que esa persona sea juez de tu organización.');
+        // El único fallo realista aquí es el unique(tournament_id, user_id):
+        // la política tj_write solo comprueba que TÚ seas owner del torneo,
+        // no exige nada del usuario asignado.
+        setError('No se pudo asignar. Puede que ya sea juez de este torneo.');
         return;
       }
 
-      setCorreo('');
-      setExito(`${candidato.full_name} asignado como juez.`);
+      setExito(`${u.full_name} asignado como juez.`);
       await cargar();
     } finally {
-      setBuscando(false);
+      setAsignando(false);
     }
   }
 
@@ -202,43 +184,40 @@ export default function JuecesTorneoScreen() {
 
         {/* Alta */}
         <View style={s.form}>
-          <Text style={s.label}>Asignar por correo</Text>
-          <TextInput
-            style={s.input}
-            value={correo}
-            onChangeText={(v) => { setCorreo(v); setError(null); setExito(null); }}
-            placeholder="correo@ejemplo.com"
-            placeholderTextColor={color.muted}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            selectionColor={color.gold}
-            accessibilityLabel="Correo del juez"
+          <BuscadorDeUsuario
+            label="Asignar juez"
+            placeholder="Nombre o correo"
+            ayuda="Busca a cualquier persona con cuenta en RALLY. No hace falta que sea de tu organización."
+            yaElegidos={judges.map((j) => j.userId)}
+            textoYaElegido="Ya es juez"
+            onElegir={asignar}
+            renderSinResultados={(consulta) => (
+              <View style={s.sinResultados}>
+                <Text style={s.sinResultadosTexto}>
+                  Nadie con ese nombre o correo. El juez tiene que tener cuenta
+                  en RALLY.
+                </Text>
+                {consulta.includes('@') && (
+                  <Pressable
+                    onPress={() => Share.share({
+                      message: `Te invito a RALLY para que puedas capturar resultados: ${SITE_URL}`,
+                    })}
+                    style={s.invitar}
+                    accessibilityRole="button"
+                    accessibilityLabel="Invitar a RALLY"
+                  >
+                    <Text style={s.invitarTexto}>Enviar invitación →</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           />
-          <Text style={s.hint}>
-            Debe tener cuenta en RALLY y pertenecer a tu organización.
-          </Text>
 
+          {asignando && <ActivityIndicator color={color.champagne} size="small" />}
           {error && <Text style={s.error}>{error}</Text>}
           {exito && <Text style={s.exito}>{exito}</Text>}
-
-          <Pressable
-            onPress={asignar}
-            disabled={buscando || !correo.trim()}
-            style={({ pressed }) => [
-              s.btnSecundario,
-              (buscando || !correo.trim()) && s.btnInactivo,
-              pressed && { opacity: 0.85 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Asignar juez"
-          >
-            {buscando
-              ? <ActivityIndicator color={color.champagne} size="small" />
-              : <Text style={s.btnSecundarioTexto}>Asignar juez</Text>
-            }
-          </Pressable>
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -268,22 +247,13 @@ const s = StyleSheet.create({
   quitarTexto:{ fontFamily: font.body, fontSize: fontSize.caption, color: color.danger },
 
   form:  { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[2], marginTop: space[2] },
-  label: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, letterSpacing: 0.3 },
-  input: {
-    backgroundColor:   color.surface2,
-    borderWidth:       1,
-    borderColor:       color.lineSoft,
-    borderRadius:      radius.md,
-    minHeight:         touchTarget,
-    paddingHorizontal: space[4],
-    paddingVertical:   space[3],
-    fontFamily:        font.body,
-    fontSize:          inputFontSize(fontSize.body),
-    color:             color.text,
-  },
-  hint:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8 },
   error: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 17 },
   exito: { fontFamily: font.body, fontSize: fontSize.caption, color: color.live },
+
+  sinResultados:      { gap: space[2] },
+  sinResultadosTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  invitar:            { alignSelf: 'flex-start', minHeight: touchTarget, justifyContent: 'center' },
+  invitarTexto:       { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.gold },
 
   btnSecundario: {
     borderWidth:     1,
