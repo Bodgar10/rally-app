@@ -8,12 +8,14 @@
  *   el cierre obligaba al jugador a inscribirse sin saber a qué puede entrar.
  *   Lo que sí depende del cierre es el CUADRO — grupos, partidos y tabla.
  *
- * DE DÓNDE SALE EL CONTEO DE PAREJAS
- *   No de un count desde el cliente: `pairs_select` (migración 008) solo deja
- *   ver la propia pareja, así que un jugador no inscrito contaría 0 en todas
- *   las categorías. Cero, no error — habría enseñado un dato FALSO.
- *   Va por `tournament_category_counts` (migración 038), SECURITY DEFINER, que
- *   devuelve solo el agregado y nunca identidades.
+ * POR QUÉ NO SE ENSEÑA CUÁNTAS PAREJAS VAN
+ *   Se llegó a mostrar y se quitó: al jugador no le sirve saber cómo va el
+ *   llenado, y una categoría en cero desanima justo al que iba a ser el
+ *   primero en apuntarse. La tarjeta se queda con el nombre y el estado.
+ *
+ *   El RPC `tournament_category_counts` (migración 038) queda sin consumidor
+ *   en el cliente. La función sigue en la base a propósito: el conteo real es
+ *   útil para el organizador y no cuesta nada tenerla.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -42,12 +44,11 @@ interface Tournament {
   venues:           { name: string; address: string; city: string } | null;
 }
 
-/** Los cinco estados del enum category_status, más el conteo del RPC. */
+/** Los cinco estados del enum category_status. */
 interface CategoriaVista {
   id:           string;
   display_name: string;
   status:       'open' | 'closed' | 'seeded' | 'in_progress' | 'finished';
-  parejas:      number;
 }
 
 /**
@@ -58,27 +59,10 @@ interface CategoriaVista {
  * formato, y para quien mira desde fuera todos significan lo mismo — ya no se
  * puede entrar y el cuadro está armado.
  */
-function lecturaDeEstado(c: CategoriaVista): { etiqueta: string; tono: 'live' | 'muted'; detalle: string } {
-  const n = c.parejas;
-  const parejas = n === 1 ? '1 pareja' : `${n} parejas`;
-
-  if (c.status === 'open') {
-    return {
-      etiqueta: 'Abierta',
-      tono:     'live',
-      detalle:  n === 0 ? 'Aún sin parejas inscritas' : `${parejas} inscritas`,
-    };
-  }
-
-  if (c.status === 'finished') {
-    return { etiqueta: 'Finalizada', tono: 'muted', detalle: `${parejas} participaron` };
-  }
-
-  return {
-    etiqueta: 'Cuadro armado',
-    tono:     'muted',
-    detalle:  `${parejas} · ya no admite inscripciones`,
-  };
+function lecturaDeEstado(c: CategoriaVista): { etiqueta: string; tono: 'live' | 'muted' } {
+  if (c.status === 'open')     return { etiqueta: 'Abierta',    tono: 'live'  };
+  if (c.status === 'finished') return { etiqueta: 'Finalizada', tono: 'muted' };
+  return { etiqueta: 'Cuadro armado', tono: 'muted' };
 }
 
 export default function TorneoDetailScreen() {
@@ -89,8 +73,8 @@ export default function TorneoDetailScreen() {
   const [loading, setLoading]       = useState(true);
 
   const cargar = useCallback(async () => {
-    // Las tres en paralelo: ninguna depende del resultado de otra.
-    const [{ data: t }, { data: cats }, { data: counts }] = await Promise.all([
+    // Las dos en paralelo: ninguna depende del resultado de otra.
+    const [{ data: t }, { data: cats }] = await Promise.all([
       supabase
         .from('tournaments')
         .select('id, name, start_date, end_date, status, registration_fee, venues(name, address, city)')
@@ -102,31 +86,15 @@ export default function TorneoDetailScreen() {
         .eq('tournament_id', tournamentId)
         .order('gender')
         .order('division'),
-      // El RPC es de la migración 038 y todavía no está en los tipos
-      // generados. El cast se acota al nombre y a la forma del resultado; al
-      // correr `npm run types:db` sobra.
-      (supabase.rpc as unknown as (
-        fn: string,
-        args: { p_tournament_id: string },
-      ) => Promise<{ data: { category_id: string; pair_count: number }[] | null }>)(
-        'tournament_category_counts',
-        { p_tournament_id: tournamentId },
-      ),
     ]);
 
     if (t) setTournament(t as unknown as Tournament);
-
-    // El conteo se une por id. Si el RPC falló (todavía sin migración, o red),
-    // `counts` viene null y todas quedan en 0: la lista se ve igual, solo sin
-    // el número. Preferible a no enseñar las categorías.
-    const porId = new Map((counts ?? []).map((c) => [c.category_id, c.pair_count]));
 
     setCategorias(
       (cats ?? []).map((c) => ({
         id:           c.id,
         display_name: c.display_name,
         status:       c.status as CategoriaVista['status'],
-        parejas:      porId.get(c.id) ?? 0,
       })),
     );
 
@@ -228,8 +196,8 @@ export default function TorneoDetailScreen() {
               const l = lecturaDeEstado(c);
 
               // Antes del cierre no hay grupos ni partidos, así que entrar
-              // llevaría a una pantalla vacía. Peor que no poder entrar: la
-              // tarjeta ya dice lo único que se sabe ("Abierta · 4 parejas").
+              // llevaría a una pantalla vacía. El badge ya dice lo único que
+              // hay que saber: que está abierta.
               if (c.status === 'open') {
                 return (
                   <View key={c.id} style={s.categoria}>
@@ -237,7 +205,6 @@ export default function TorneoDetailScreen() {
                       <Text style={s.categoriaNombre} numberOfLines={1}>{c.display_name}</Text>
                       <Badge label={l.etiqueta} type={l.tono} dot={l.tono === 'live'} />
                     </View>
-                    <Text style={s.categoriaDetalle}>{l.detalle}</Text>
                   </View>
                 );
               }
@@ -254,10 +221,7 @@ export default function TorneoDetailScreen() {
                     <Text style={s.categoriaNombre} numberOfLines={1}>{c.display_name}</Text>
                     <Badge label={l.etiqueta} type={l.tono} dot={l.tono === 'live'} />
                   </View>
-                  <View style={s.categoriaFila}>
-                    <Text style={s.categoriaDetalle}>{l.detalle}</Text>
-                    <Text style={s.verCuadro}>Ver cuadro ›</Text>
-                  </View>
+                  <Text style={[s.verCuadro, { alignSelf: 'flex-end' }]}>Ver cuadro ›</Text>
                 </Pressable>
               );
             })}
@@ -327,7 +291,6 @@ const s = StyleSheet.create({
   categoriaFila:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3] },
   verCuadro:        { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold, flexShrink: 0 },
   categoriaNombre:  { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text, flex: 1 },
-  categoriaDetalle: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
 
   vacio:    { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center', paddingVertical: space[3] },
   stubText: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center', paddingVertical: space[3] },
