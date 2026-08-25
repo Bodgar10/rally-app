@@ -124,15 +124,18 @@ export default function NuevaContrasenaScreen() {
 
   if (cuenta === undefined) {
     return (
-      <View style={[s.flex, s.center]}>
-        <ActivityIndicator color={color.gold} />
+      <View style={s.flex}>
+        <View style={s.center}>
+          <ActivityIndicator color={color.gold} />
+        </View>
       </View>
     );
   }
 
   if (success) {
     return (
-      <View style={[s.flex, s.center]}>
+      <View style={s.flex}>
+        <View style={s.center}>
         <Text style={s.eyebrow}>RALLY</Text>
         <Text style={s.title}>
           {esDeMenor ? 'Cuenta activada' : '¡Contraseña actualizada!'}
@@ -145,6 +148,7 @@ export default function NuevaContrasenaScreen() {
         <Pressable style={s.btnPrimary} onPress={() => router.replace('/(auth)/login')}>
           <Text style={s.btnPrimaryText}>Entrar</Text>
         </Pressable>
+        </View>
       </View>
     );
   }
@@ -258,7 +262,10 @@ const s = StyleSheet.create({
   // porque la rama de tutor añade dos campos y una casilla que no caben en
   // pantallas cortas con el teclado abierto.
   contenido: { flexGrow: 1, backgroundColor: color.bg, paddingBottom: bottomInset },
-  center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: space[4.5], ...webContentColumn },
+  // El fondo se queda en `flex` (ancho completo) y la columna en `center`.
+  // Juntos, webContentColumn limitaba el ancho del View que pinta el fondo y
+  // salían franjas grises a los lados en escritorio.
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space[4.5], ...webContentColumn },
 
   eyebrow:    { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 4, marginBottom: space[2] },
   title:      { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, letterSpacing: 0.4, marginBottom: space[4], textAlign: 'center' },
