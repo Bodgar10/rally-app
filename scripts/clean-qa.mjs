@@ -5,10 +5,15 @@
  * Borra TODO lo que creó seed-qa.mjs: los usuarios qa_NNN@rally.test y, por
  * cascada, sus parejas, inscripciones y declaraciones de edad.
  *
- * POR QUÉ BASTA CON BORRAR LOS USUARIOS
- *   `public.users.id` referencia `auth.users(id) on delete cascade`, y de
- *   `public.users` cuelgan pairs (player1_id/player2_id), registrations (vía
- *   pairs) y player_age_declarations. Borrar en auth arrastra todo.
+ * EL ORDEN IMPORTA: PRIMERO LAS PAREJAS
+ *   `pairs.player1_id` y `player2_id` son `on delete RESTRICT` (migración 001),
+ *   no cascade. Es deliberado: borrar a un jugador metido en un cuadro no puede
+ *   pasar en silencio. Así que borrar el usuario primero falla con "Database
+ *   error deleting user" y no dice por qué.
+ *
+ *   Se borran las parejas y DESPUÉS los usuarios. Lo demás (ratings,
+ *   ranking_points, suscripciones, declaraciones de edad) sí es cascade desde
+ *   auth.users y se va solo.
  *
  * EL FRENO QUE HAY QUE CONOCER
  *   `registrations_block_paid_delete` (migración 033) impide borrar una
@@ -103,9 +108,18 @@ async function main() {
     if (r.trim() !== 'borrar') { console.log('  Cancelado.\n'); return; }
   }
 
+  // 1) Parejas. Sin esto, el RESTRICT de pairs tumba cada borrado de usuario.
+  //    Al irse la pareja se van sus registrations por cascade — y ahí es donde
+  //    salta el trigger de pagos, ya descartado arriba.
+  if (idsParejas.length > 0) {
+    const { error: errP } = await supa.from('pairs').delete().in('id', idsParejas);
+    if (errP) { console.error(`\n  ✕ No se pudieron borrar las parejas: ${errP.message}\n`); process.exit(1); }
+    console.log(`  Parejas borradas: ${idsParejas.length}`);
+  }
+
+  // 2) Usuarios. Ahora sí: el cascade desde auth.users se lleva el resto.
   let ok = 0, mal = 0;
   await enTanda(usuarios.map((u) => async () => {
-    // Solo auth: el cascade se lleva public.users y todo lo que cuelga.
     const { error } = await supa.auth.admin.deleteUser(u.id);
     if (error) { mal++; console.error(`    ✕ ${u.email}: ${error.message}`); }
     else { ok++; if (ok % 25 === 0) process.stdout.write(`    ${ok}/${usuarios.length}\n`); }

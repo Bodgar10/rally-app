@@ -12,7 +12,21 @@ export interface SeedInput {
 export interface BracketMatch {
   slotA: number;
   slotB: number;
-  pairAId: string | null; // null = bye
+  /**
+   * null = bye.
+   *
+   * NO ES UN CASO REAL DEL PRODUCTO, y conviene saberlo antes de invertir en
+   * él: `computeFormat` está diseñado para que el número de clasificados sea
+   * SIEMPRE potencia de 2 — para eso existe `bestExtraQualifiers`, que rellena
+   * hasta la potencia con los mejores terceros. Verificado con los siete
+   * tamaños que producen planes distintos (5, 8, 16, 24, 32, 4, 9): ninguno
+   * deja un hueco.
+   *
+   * Los byes solo aparecerían si alguien alimenta computeSeeding saltándose
+   * computeFormat. El soporte de aquí es defensivo, no un camino que la app
+   * recorra.
+   */
+  pairAId: string | null;
   pairBId: string | null;
   isRematch: boolean; // true si quedó un rematch de grupo inevitable
 }

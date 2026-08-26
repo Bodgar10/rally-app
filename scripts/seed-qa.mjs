@@ -42,15 +42,26 @@ const TOURNAMENT_ID = '21db9ff2-5d1e-4a1d-be53-2b77aa0e37f0'; // 5to Torneo Mexa
  * Cuántas parejas por categoría, y por qué cada número.
  * Los planes están verificados contra computeFormat: si el motor cambia, esta
  * tabla deja de describir la realidad y hay que actualizarla.
+ *
+ * `parejas` es lo que SIEMBRA este script, no el total de la categoría. Si ya
+ * hay parejas reales ahí, se suman — y `objetivo` dice a cuánto debe llegar el
+ * total para que el plan salga el esperado.
+ *
+ * `base` es el primer índice de correo de cada categoría, y está fijo a
+ * propósito: con índices correlativos, cambiar el número de una categoría
+ * desplazaba los de todas las siguientes y la reejecución dejaba de reutilizar
+ * los mismos usuarios. Con bloques de 100 reservados, tocar una no mueve el
+ * resto. 32 parejas = 64 usuarios, así que 100 sobra.
  */
 const REPARTO = [
-  { division: 'sexta',   gender: 'mixed',  parejas: 5,  plan: 'round robin, final directa' },
-  { division: 'quinta',  gender: 'mixed',  parejas: 8,  plan: '2 grupos de 4 → semifinales' },
-  { division: 'cuarta',  gender: 'mixed',  parejas: 16, plan: '4 grupos de 4 → cuartos' },
-  { division: 'tercera', gender: 'mixed',  parejas: 24, plan: '6 grupos de 4 → r16 con 4 mejores terceros' },
-  { division: 'segunda', gender: 'mixed',  parejas: 32, plan: '8 grupos de 4 → r16 limpio' },
-  { division: 'quinta',  gender: 'female', parejas: 4,  plan: 'AMBIGUO: round robin o semifinales' },
-  { division: 'cuarta',  gender: 'female', parejas: 9,  plan: '3 grupos de 3 → semis con 1 repescado' },
+  { division: 'sexta',   gender: 'mixed',  base: 100, parejas: 5,  objetivo: 5,  plan: 'round robin, final directa' },
+  // 6 sembradas + 2 parejas reales que ya estaban = 8.
+  { division: 'quinta',  gender: 'mixed',  base: 200, parejas: 6,  objetivo: 8,  plan: '2 grupos de 4 → semifinales' },
+  { division: 'cuarta',  gender: 'mixed',  base: 300, parejas: 16, objetivo: 16, plan: '4 grupos de 4 → cuartos' },
+  { division: 'tercera', gender: 'mixed',  base: 400, parejas: 24, objetivo: 24, plan: '6 grupos de 4 → r16 con 4 mejores terceros' },
+  { division: 'segunda', gender: 'mixed',  base: 500, parejas: 32, objetivo: 32, plan: '8 grupos de 4 → r16 limpio' },
+  { division: 'quinta',  gender: 'female', base: 600, parejas: 4,  objetivo: 4,  plan: 'AMBIGUO: round robin o semifinales' },
+  { division: 'cuarta',  gender: 'female', base: 700, parejas: 9,  objetivo: 9,  plan: '3 grupos de 3 → semis con 1 repescado' },
 ];
 
 /** Altas en paralelo. Más alto empieza a dar 429 en el endpoint de admin. */
@@ -158,7 +169,8 @@ async function main() {
   console.log(`  Parejas   ${totalParejas}`);
   console.log(`  Jugadores ${totalUsuarios}\n`);
   for (const r of REPARTO) {
-    console.log(`    ${r.division.padEnd(8)} ${r.gender.padEnd(7)} ${String(r.parejas).padStart(3)}  ${r.plan}`);
+    const extra = r.objetivo !== r.parejas ? ` (+${r.objetivo - r.parejas} ya existentes → ${r.objetivo})` : '';
+    console.log(`    ${r.division.padEnd(8)} ${r.gender.padEnd(7)} ${String(r.parejas).padStart(3)}${extra.padEnd(28)}  ${r.plan}`);
   }
   console.log('');
 
@@ -205,9 +217,9 @@ async function main() {
   // El índice global es estable: la categoría N siempre ocupa el mismo rango,
   // así que reejecutar reutiliza exactamente los mismos usuarios.
   const plan = [];
-  let indice = 1;
   for (const r of REPARTO) {
     const cat = catDe.get(`${r.division}|${r.gender}`);
+    let indice = r.base;
     for (let p = 0; p < r.parejas; p++) {
       const dos = [];
       for (let j = 0; j < 2; j++) {
@@ -308,8 +320,8 @@ async function main() {
   for (const r of REPARTO) {
     const c = catDe.get(`${r.division}|${r.gender}`);
     const n = cuenta.get(c.id) ?? 0;
-    const ok = n === r.parejas ? '✓' : '✕';
-    console.log(`    ${ok} ${c.display_name.padEnd(14)} ${String(n).padStart(3)}/${r.parejas}`);
+    const ok = n === r.objetivo ? '✓' : '✕';
+    console.log(`    ${ok} ${c.display_name.padEnd(14)} ${String(n).padStart(3)}/${r.objetivo}`);
   }
   console.log(`\n  Contraseña de todos: qa-rally-2026`);
   console.log(`  Para borrar: node scripts/clean-qa.mjs\n`);
