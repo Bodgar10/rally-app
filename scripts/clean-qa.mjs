@@ -28,6 +28,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { TORNEOS_QA } from './qa-config.mjs';
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -124,6 +125,18 @@ async function main() {
     if (error) { mal++; console.error(`    ✕ ${u.email}: ${error.message}`); }
     else { ok++; if (ok % 25 === 0) process.stdout.write(`    ${ok}/${usuarios.length}\n`); }
   }), CONCURRENCIA);
+
+  // 3) Los torneos que creó seed-cimepa, enteros. Sus categorías y ventanas se
+  //    van por cascade. El de prueba original NO está en esta lista: lo creó el
+  //    usuario a mano y tiene casos límite que vale la pena conservar.
+  const { data: torneos } = await supa
+    .from('tournaments').select('id, name').in('name', TORNEOS_QA);
+
+  for (const t of torneos ?? []) {
+    const { error } = await supa.from('tournaments').delete().eq('id', t.id);
+    if (error) console.error(`    ✕ torneo "${t.name}": ${error.message}`);
+    else console.log(`  Torneo borrado: ${t.name}`);
+  }
 
   const { data: quedan } = await supa
     .from('users').select('id').like('email', 'qa_%@rally.test');
