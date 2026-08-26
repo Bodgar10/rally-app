@@ -103,6 +103,34 @@ function describirGrupos(tam: number[]): string {
 }
 
 /**
+ * "3 partidos asegurados" · "3 partidos, o 2 en los grupos de 3".
+ *
+ * Es el dato que decide si el torneo cabe en un fin de semana, y el que el
+ * jugador pregunta antes de inscribirse: cuántas veces va a jugar aunque
+ * pierda todo. En un grupo de N son N−1.
+ *
+ * Con grupos desiguales NO se promedia ni se da el mínimo: se dicen los dos
+ * números y de qué grupos sale cada uno. Decir "2 o 3" a secas dejaría al
+ * organizador sin saber a quién le toca cuál.
+ */
+function describirAsegurados(tam: number[]): string {
+  const distintos = [...new Set(tam)].sort((a, b) => b - a);
+
+  if (distintos.length === 1) {
+    const n = distintos[0] - 1;
+    return n === 1 ? '1 partido asegurado' : `${n} partidos asegurados`;
+  }
+
+  // El tamaño mayoritario manda; los demás se enuncian como excepción.
+  const [mayor, ...resto] = distintos;
+  const excepciones = resto
+    .map((t) => `${t - 1} en los grupos de ${t}`)
+    .join(', o ');
+
+  return `${mayor - 1} partidos, o ${excepciones}`;
+}
+
+/**
  * "1 mejor segundo" / "4 mejores terceros".
  *
  * LA POSICIÓN SE DERIVA, NO SE FIJA. El texto decía "tercero" siempre, y con
@@ -142,9 +170,13 @@ function describirPlan(plan: FormatPlan): string {
   if (plan.advancePerGroup === 0 && !extra) return `${grupos} · sin fase final`;
 
   // Con un solo grupo, "por grupo" sobra: se pasa directo a la ronda.
+  // Los asegurados van pegados a la estructura, no en otra línea: son parte de
+  // la misma pregunta ("¿cómo se juega y cuánto juego?").
+  const asegurados = describirAsegurados(plan.groupSizes);
+
   return unSoloGrupo
-    ? `${grupos} · pasan ${plan.advancePerGroup}${extra} a la ${ronda}`
-    : `${grupos} · pasan ${plan.advancePerGroup} por grupo${extra} · ${ronda}`;
+    ? `${grupos} · ${asegurados} · pasan ${plan.advancePerGroup}${extra} a la ${ronda}`
+    : `${grupos} · ${asegurados} · pasan ${plan.advancePerGroup} por grupo${extra} · ${ronda}`;
 }
 
 /** Grupos de tamaño desigual: quien esté en el grande juega un partido más. */
