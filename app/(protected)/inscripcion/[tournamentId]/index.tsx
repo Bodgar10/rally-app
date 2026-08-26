@@ -407,7 +407,7 @@ export default function InscripcionScreen() {
             // Formulario de cuenta nueva
             <View style={s.nuevaCaja}>
               <View style={s.nuevaCabecera}>
-                <Text style={s.nuevaTitulo}>CUENTA NUEVA</Text>
+                <Text style={s.nuevaTitulo}>Escribe sus datos</Text>
                 <Pressable onPress={() => setParejaNueva(null)} style={s.partnerChange} accessibilityRole="button">
                   <Text style={s.partnerChangeText}>Cancelar</Text>
                 </Pressable>
@@ -486,6 +486,25 @@ export default function InscripcionScreen() {
                   accessibilityLabel="Teléfono"
                 />
               </View>
+
+              {/* Va AQUÍ, dentro del formulario y antes de confirmar: quien
+                  inscribe tiene que saber lo que está haciendo cuando lo hace,
+                  no enterarse después. La cuenta queda creada pero SIN activar
+                  —no tiene contraseña— y eso hay que decirlo con esa palabra. */}
+              <View style={s.antesDeCrear}>
+                <Text style={s.antesDeCrearTitulo}>La cuenta queda sin activar</Text>
+                <Text style={s.antesDeCrearTexto}>
+                  Le creamos la cuenta, pero no tendrá contraseña. Dile que entre
+                  a <Text style={s.antesDeCrearFuerte}>{SITIO}</Text>, ponga{' '}
+                  <Text style={s.antesDeCrearFuerte}>
+                    {parejaNueva.correo.trim() || 'ese correo'}
+                  </Text>{' '}
+                  y cree su contraseña. Con eso ya puede ver los partidos.
+                </Text>
+                <Text style={s.antesDeCrearNota}>
+                  También le mandamos un correo, pero puede no llegarle.
+                </Text>
+              </View>
             </View>
           ) : (
             <BuscadorDeUsuario
@@ -496,20 +515,23 @@ export default function InscripcionScreen() {
               textoYaElegido="Eres tú"
               onElegir={elegirExistente}
               accionSecundaria={(consulta) => (
-                <Pressable
-                  onPress={() => setParejaNueva(
-                    // Lo tecleado se aprovecha: si parece correo va al campo de
-                    // correo, y si no, al de nombre.
-                    RE_CORREO.test(consulta)
-                      ? { ...PAREJA_VACIA, correo: consulta }
-                      : { ...PAREJA_VACIA, nombre: consulta },
-                  )}
-                  style={({ pressed }) => [s.crearCuenta, pressed && { opacity: 0.85 }]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Crearle cuenta en RALLY"
-                >
-                  <Text style={s.crearCuentaTexto}>+  Crearle cuenta en RALLY</Text>
-                </Pressable>
+                <View style={s.crearCuentaBloque}>
+                  <Text style={s.crearCuentaTitulo}>¿Tu pareja no tiene cuenta?</Text>
+                  <Pressable
+                    onPress={() => setParejaNueva(
+                      // Lo tecleado se aprovecha: si parece correo va al campo
+                      // de correo, y si no, al de nombre.
+                      RE_CORREO.test(consulta)
+                        ? { ...PAREJA_VACIA, correo: consulta }
+                        : { ...PAREJA_VACIA, nombre: consulta },
+                    )}
+                    style={({ pressed }) => [s.crearCuenta, pressed && { opacity: 0.85 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Crearle cuenta en RALLY"
+                  >
+                    <Text style={s.crearCuentaTexto}>+  Crearle cuenta en RALLY</Text>
+                  </Pressable>
+                </View>
               )}
             />
           )}
@@ -583,7 +605,10 @@ export default function InscripcionScreen() {
             label={submitting ? 'Inscribiendo…' : 'Confirmar inscripción'}
             variant="primary"
             loading={submitting}
-            disabled={!selectedCategory || !partnerFound}
+            // `parejaLista`, no `partnerFound`: con una cuenta recién creada
+            // partnerFound sigue en null y el botón quedaba muerto con el
+            // formulario completo.
+            disabled={!selectedCategory || !parejaLista || submitting}
             onPress={handleInscribir}
           />
         </View>
@@ -657,6 +682,15 @@ const s = StyleSheet.create({
   // Alta de cuenta de la pareja
   crearCuenta:      { minHeight: touchTarget, justifyContent: 'center', paddingHorizontal: space[3], borderWidth: 1, borderColor: color.line, borderStyle: 'dashed', borderRadius: radius.md, marginTop: space[1] },
   crearCuentaTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.gold },
+
+  crearCuentaBloque: { gap: space[1], marginTop: space[2] },
+  crearCuentaTitulo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
+
+  antesDeCrear:       { backgroundColor: 'rgba(212,175,55,0.08)', borderWidth: 1, borderColor: color.line, borderRadius: radius.md, padding: space[3], gap: space[1] },
+  antesDeCrearTitulo: { fontFamily: font.display, fontSize: fontSize.caption, color: color.goldBright, letterSpacing: 0.3 },
+  antesDeCrearTexto:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 19 },
+  antesDeCrearFuerte: { color: color.goldBright, fontWeight: '600' },
+  antesDeCrearNota:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
 
   nuevaCaja:      { gap: space[3] },
   nuevaCabecera:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
