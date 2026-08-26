@@ -2,7 +2,17 @@
  * RALLY · Flujo de Inscripción a Torneo
  * 3 pasos en una sola pantalla con scroll:
  *   Paso 1 — Elegir categoría (cards seleccionables)
- *   Paso 2 — Buscar pareja por correo (estilo Uber — Doc A §8)
+ *   Paso 2 — Buscar pareja por nombre o correo, y crearle cuenta si no la tiene
+ *
+ * ANTES ERA UN MURO
+ *   Buscaba por correo EXACTO y, si no existía, decía "tu pareja debe
+ *   registrarse primero". Mismo problema que ya se resolvió en el flujo del
+ *   organizador: si tu pareja no tiene cuenta, no te puedes inscribir.
+ *   Ahora se la creas tú, igual que hace el organizador.
+ *
+ * El alta va por la Edge Function `pair-register-self`: crear usuarios exige
+ * service_role, y auth.users no comparte transacción con pairs (la función
+ * compensa borrando lo que creó si el insert falla).
  *   Paso 3 — Preferencia de horario + confirmar
  *
  * Sprint 4 agregará el checkout de Stripe Connect.
@@ -21,6 +31,7 @@ import { Button, Card, Badge, SectionLabel, Avatar } from '@/components/ui';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
+import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -46,6 +57,40 @@ interface PartnerResult {
   photo_url: string | null;
 }
 
+/** Datos de la cuenta que se le crea a la pareja. `nombre` es el del JUGADOR. */
+interface ParejaNueva {
+  nombre:   string;
+  /** Del tutor si esMenor; de la propia pareja si no. */
+  correo:   string;
+  telefono: string;
+  esMenor:  boolean;
+}
+
+const PAREJA_VACIA: ParejaNueva = { nombre: '', correo: '', telefono: '', esMenor: false };
+
+const RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** Sin https:// ni barra final: es una dirección que se dicta en voz alta. */
+const SITIO = (process.env.EXPO_PUBLIC_SITE_URL ?? 'rally-app-theta-three.vercel.app')
+  .replace(/^https?:\/\//, '')
+  .replace(/\/+$/, '');
+
+/** Códigos de la Edge Function traducidos. Nunca se enseña el código crudo. */
+const MENSAJE: Record<string, string> = {
+  unauthenticated:          'Tu sesión expiró. Vuelve a entrar.',
+  registration_closed:      'Este torneo ya cerró inscripciones.',
+  category_closed:          'Esa categoría ya cerró inscripciones.',
+  category_not_found:       'La categoría ya no existe. Recarga la pantalla.',
+  tournament_not_found:     'El torneo ya no existe. Recarga la pantalla.',
+  invalid_name:             'El nombre debe tener al menos 3 caracteres.',
+  invalid_email:            'El correo no tiene un formato válido.',
+  same_player_twice:        'No puedes inscribirte contigo mismo.',
+  pair_duplicate:           'Uno de los dos ya está inscrito en esta categoría.',
+  create_user_failed:       'No se pudo crear la cuenta de tu pareja. Intenta de nuevo.',
+  age_declaration_required: 'Falta declarar si tu pareja es menor de edad.',
+};
+const MENSAJE_GENERICO = 'No se pudo completar la inscripción. Intenta de nuevo.';
+
 type SchedulePref = 'morning' | 'afternoon' | 'any';
 
 const SCHEDULE_OPTIONS: { value: SchedulePref; label: string; sub: string }[] = [
@@ -68,12 +113,15 @@ export default function InscripcionScreen() {
   // Paso 1 — Categoría
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
 
-  // Paso 2 — Pareja
-  const [partnerEmail, setPartnerEmail]   = useState('');
-  const [searching, setSearching]         = useState(false);
-  const [partnerFound, setPartnerFound]   = useState<PartnerResult | null>(null);
-  const [partnerNotFound, setPartnerNotFound] = useState(false);
+  // Paso 2 — Pareja. Dos caminos excluyentes: una cuenta que ya existe, o una
+  // que se crea aquí mismo.
+  const [partnerFound, setPartnerFound] = useState<PartnerResult | null>(null);
+  const [parejaNueva, setParejaNueva]   = useState<ParejaNueva | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [miId, setMiId] = useState<string | undefined>(undefined);
+
+  /** Se creó la cuenta de la pareja: hay que decirle a quien inscribe cómo entra. */
+  const [cuentaCreada, setCuentaCreada] = useState<{ nombre: string; siguiente: () => void } | null>(null);
 
   // Paso 3 — Horario
   const [schedulePref, setSchedulePref] = useState<SchedulePref>('any');
@@ -99,6 +147,9 @@ export default function InscripcionScreen() {
           .eq('status', 'open')
           .order('division'),
       ]);
+      const { data: { user } } = await supabase.auth.getUser();
+      setMiId(user?.id);
+
       if (t) setTournament(t as Tournament);
       if (cats) setCategories(cats as Category[]);
       setLoadingData(false);
@@ -106,101 +157,111 @@ export default function InscripcionScreen() {
     load();
   }, [tournamentId]);
 
-  // ─── Buscar pareja por correo ────────────────────────────────────────
+  // ─── Elegir pareja ───────────────────────────────────────────────────
 
-  async function handleSearchPartner() {
+  function elegirExistente(u: UsuarioEncontrado) {
     setError(null);
-    setPartnerFound(null);
-    setPartnerNotFound(false);
-
-    if (!partnerEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(partnerEmail.trim())) {
-      setError('Ingresa un correo válido.');
-      return;
-    }
-
-    // Verificar que no sea el correo del propio usuario
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user?.email?.toLowerCase() === partnerEmail.trim().toLowerCase()) {
-      setError('No puedes inscribirte contigo mismo.');
-      return;
-    }
-
-    setSearching(true);
-    // RLS de users es "solo tu fila": buscamos vía RPC find_user_by_email
-    // (SECURITY DEFINER, migración 012). Devuelve id/email/full_name/photo_url.
-    const { data } = await supabase
-      .rpc('find_user_by_email', { p_email: partnerEmail.trim().toLowerCase() })
-      .maybeSingle();
-
-    setSearching(false);
-
-    if (data) {
-      setPartnerFound(data as PartnerResult);
-      setShowConfirmModal(true);
-    } else {
-      setPartnerNotFound(true);
-    }
+    if (u.id === miId) { setError('No puedes inscribirte contigo mismo.'); return; }
+    setParejaNueva(null);
+    setPartnerFound({
+      id: u.id, full_name: u.full_name, email: u.email, photo_url: u.photo_url,
+    });
+    setShowConfirmModal(true);
   }
+
+  const parejaNuevaValida =
+    !!parejaNueva
+    && parejaNueva.nombre.trim().length >= 3
+    && RE_CORREO.test(parejaNueva.correo.trim());
+
+  /** Hay pareja resuelta, venga de donde venga. */
+  const parejaLista = !!partnerFound || parejaNuevaValida;
+
 
   // ─── Inscribir ───────────────────────────────────────────────────────
 
   async function handleInscribir() {
     setError(null);
     if (!selectedCategory) { setError('Elige una categoría.'); return; }
-    if (!partnerFound)      { setError('Busca y confirma a tu pareja.'); return; }
+    if (!parejaLista)      { setError('Elige a tu pareja o créale una cuenta.'); return; }
 
     setSubmitting(true);
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setError('Sesión expirada.'); setSubmitting(false); return; }
+    // Todo va por la Edge Function: crear la cuenta de la pareja exige
+    // service_role, y auth.users no comparte transacción con pairs — si el
+    // insert fallara, la función borra la cuenta que acaba de crear.
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setError('Tu sesión expiró. Vuelve a entrar.'); setSubmitting(false); return; }
 
-    // Verificar que la pareja no esté ya inscrita en esta categoría
-    const { data: existing } = await supabase
-      .from('pairs')
-      .select('id')
-      .eq('category_id', selectedCategory.id)
-      .or(`player1_id.eq.${partnerFound.id},player2_id.eq.${partnerFound.id}`);
+      const partner = partnerFound
+        ? { mode: 'existing' as const, user_id: partnerFound.id }
+        : {
+            mode:      'new' as const,
+            full_name: parejaNueva!.nombre.trim(),
+            email:     parejaNueva!.correo.trim().toLowerCase(),
+            phone:     parejaNueva!.telefono.trim(),
+            is_minor:  parejaNueva!.esMenor,
+          };
 
-    if (existing && existing.length > 0) {
-      setError('Tu pareja ya está inscrita en esta categoría.');
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/pair-register-self`,
+        {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization:  `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            tournament_id:       tournamentId,
+            category_id:         selectedCategory.id,
+            partner,
+            schedule_preference: schedulePref,
+          }),
+        },
+      );
+
+      const json = await res.json().catch(() => null);
       setSubmitting(false);
-      return;
-    }
 
-    // Precio efectivo de la categoría (mismo criterio que el servidor y la pantalla de pago).
-    const effectiveFee = selectedCategory.fee_override ?? tournament?.registration_fee ?? 0;
-    const isOnlinePay = effectiveFee > 0;
+      if (!res.ok || !json?.ok) {
+        const codigo = typeof json?.error === 'string' ? json.error : '';
 
-    // Crear la pareja. Con pago online nace 'pending' (la liquida el webhook de Connect tras el
-    // checkout). Torneo gratis (fee 0) se queda 'paid_offline' — no hay cobro que hacer.
-    const { error: pairError } = await supabase
-      .from('pairs')
-      .insert({
-        tournament_id:       tournamentId,
-        category_id:         selectedCategory.id,
-        player1_id:          user.id,
-        player2_id:          partnerFound.id,
-        schedule_preference: schedulePref,
-        payment_status:      isOnlinePay ? 'pending' : 'paid_offline',
-      });
+        // Correo ya usado: se equivocó de rama, no de dato.
+        if (codigo === 'email_already_exists' && json?.existing_user) {
+          setError(
+            `Ya hay una cuenta con ese correo: ${json.existing_user.full_name}. ` +
+            'Búscala por su nombre y selecciónala en vez de crear una nueva.',
+          );
+          setParejaNueva(null);
+          return;
+        }
 
-    setSubmitting(false);
-
-    if (pairError) {
-      if (pairError.code === '23505') {
-        setError('Ya estás inscrito en esta categoría.');
-      } else {
-        setError('No se pudo completar la inscripción. Intenta de nuevo.');
+        console.error('[inscripcion] fallo:', { status: res.status, json });
+        setError(MENSAJE[codigo] ?? MENSAJE_GENERICO);
+        return;
       }
-      return;
-    }
 
-    // Éxito. Con pago online → pantalla de pago (checkout Stripe Connect).
-    // Gratis → upsell de patrocinadores (S5-FIX-02); desde ahí "Ir a mi torneo".
-    if (isOnlinePay) {
-      router.push(`/(protected)/inscripcion/${tournamentId}/pago`);
-    } else {
-      router.replace(`/(protected)/inscripcion/${tournamentId}/patrocinadores`);
+      // Con cuota > 0 → checkout de Stripe Connect. Gratis → upsell.
+      const siguiente = () => {
+        if (json.requires_payment) {
+          router.push(`/(protected)/inscripcion/${tournamentId}/pago`);
+        } else {
+          router.replace(`/(protected)/inscripcion/${tournamentId}/patrocinadores`);
+        }
+      };
+
+      // Si se creó la cuenta, primero hay que decirle cómo entra: el correo
+      // puede no llegarle, y quien inscribe la tiene delante ahora mismo.
+      if (json.partner_is_new) {
+        setCuentaCreada({ nombre: partner.mode === 'new' ? partner.full_name : '', siguiente });
+        return;
+      }
+
+      siguiente();
+    } catch {
+      setSubmitting(false);
+      setError('Sin conexión con el servidor. Revisa tu internet.');
     }
   }
 
@@ -211,6 +272,37 @@ export default function InscripcionScreen() {
   );
 
   const fee = selectedCategory?.fee_override ?? tournament?.registration_fee ?? 0;
+
+  // Se creó la cuenta de la pareja: antes de seguir al pago hay que decirle a
+  // quien inscribe cómo entra. El correo puede no llegarle nunca (spam, dominio
+  // mal escrito), y ahora mismo tiene a su pareja delante.
+  if (cuentaCreada) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <ScrollView contentContainerStyle={s.content}>
+          <Text style={s.comoEntrarTitulo}>Listo, ya está inscrita</Text>
+
+          <View style={s.comoEntrarCaja}>
+            <Text style={s.comoEntrarTitulo}>Dile cómo entrar</Text>
+            <Text style={s.comoEntrarTexto}>
+              Que entre a <Text style={s.comoEntrarFuerte}>{SITIO}</Text> y ponga
+              su correo. La app la reconoce y le pide crear su contraseña. Nada más.
+            </Text>
+            <Text style={s.comoEntrarNota}>
+              También le mandamos un correo con estos datos, pero es más rápido
+              decírselo tú.
+            </Text>
+          </View>
+
+          <Button
+            label={fee > 0 ? 'Continuar al pago' : 'Continuar'}
+            variant="primary"
+            onPress={cuentaCreada.siguiente}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={s.safe}>
@@ -243,7 +335,6 @@ export default function InscripcionScreen() {
                 onPress={() => {
                   setShowConfirmModal(false);
                   setPartnerFound(null);
-                  setPartnerEmail('');
                 }}
               />
             </View>
@@ -298,7 +389,6 @@ export default function InscripcionScreen() {
 
         <Card variant="standard">
           {partnerFound ? (
-            // Pareja confirmada
             <View style={s.partnerConfirmed}>
               <Avatar name={partnerFound.full_name} size={40} />
               <View style={s.partnerConfirmedTexts}>
@@ -306,55 +396,122 @@ export default function InscripcionScreen() {
                 <Text style={s.partnerEmail}>{partnerFound.email}</Text>
               </View>
               <Pressable
-                onPress={() => { setPartnerFound(null); setPartnerEmail(''); }}
+                onPress={() => setPartnerFound(null)}
                 style={s.partnerChange}
+                accessibilityRole="button"
               >
                 <Text style={s.partnerChangeText}>Cambiar</Text>
               </Pressable>
             </View>
-          ) : (
-            // Buscar pareja
-            <View style={s.partnerSearch}>
-              <Text style={s.partnerSearchLabel}>
-                Escribe el correo con el que tu pareja se registró en RALLY
-              </Text>
-              <View style={s.partnerInputRow}>
-                <TextInput
-                  style={s.partnerInput}
-                  placeholder="correo@pareja.com"
-                  placeholderTextColor={color.muted}
-                  value={partnerEmail}
-                  onChangeText={text => {
-                    setPartnerEmail(text);
-                    setPartnerNotFound(false);
-                  }}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  returnKeyType="search"
-                  onSubmitEditing={handleSearchPartner}
-                  selectionColor={color.gold}
-                />
-                <Pressable
-                  style={[s.searchBtn, searching && { opacity: 0.6 }]}
-                  onPress={handleSearchPartner}
-                  disabled={searching}
-                >
-                  {searching
-                    ? <ActivityIndicator color={color.onGold} size="small" />
-                    : <Text style={s.searchBtnText}>Buscar</Text>
-                  }
+          ) : parejaNueva ? (
+            // Formulario de cuenta nueva
+            <View style={s.nuevaCaja}>
+              <View style={s.nuevaCabecera}>
+                <Text style={s.nuevaTitulo}>CUENTA NUEVA</Text>
+                <Pressable onPress={() => setParejaNueva(null)} style={s.partnerChange} accessibilityRole="button">
+                  <Text style={s.partnerChangeText}>Cancelar</Text>
                 </Pressable>
               </View>
 
-              {partnerNotFound && (
-                <View style={s.notFoundBox}>
-                  <Text style={s.notFoundText}>
-                    No encontramos ese correo en RALLY. Tu pareja debe registrarse primero.
-                  </Text>
-                  {/* TODO Sprint 3: enviar invitación por Resend */}
+              {/* El aviso va ANTES de los campos: si apareciera después, ya
+                  habrías escrito el correo del chico. */}
+              <View style={s.avisoMenor}>
+                <Text style={s.avisoMenorTexto}>
+                  Si tu pareja es menor de 18 años, usa el correo del padre, madre
+                  o tutor. Ellos activarán la cuenta y verán los partidos.
+                </Text>
+              </View>
+
+              <Pressable
+                style={s.checkRow}
+                onPress={() => setParejaNueva({ ...parejaNueva, esMenor: !parejaNueva.esMenor })}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: parejaNueva.esMenor }}
+              >
+                <View style={[s.check, parejaNueva.esMenor && s.checkMarcado]}>
+                  {parejaNueva.esMenor && <Text style={s.checkPalomita}>✓</Text>}
                 </View>
-              )}
+                <Text style={s.checkLabel}>Es menor de edad</Text>
+              </Pressable>
+
+              <View style={s.campo}>
+                <Text style={s.campoEtiqueta}>Nombre completo de tu pareja</Text>
+                <TextInput
+                  style={s.partnerInput}
+                  placeholder="Juan Pérez"
+                  placeholderTextColor={color.muted}
+                  value={parejaNueva.nombre}
+                  onChangeText={(v) => setParejaNueva({ ...parejaNueva, nombre: v })}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  selectionColor={color.gold}
+                  accessibilityLabel="Nombre completo de tu pareja"
+                />
+                {parejaNueva.esMenor && (
+                  <Text style={s.campoAyuda}>
+                    El nombre del jugador, no el del tutor: es quien aparece en el cuadro.
+                  </Text>
+                )}
+              </View>
+
+              <View style={s.campo}>
+                <Text style={s.campoEtiqueta}>
+                  {parejaNueva.esMenor ? 'Correo del padre, madre o tutor' : 'Correo'}
+                </Text>
+                <TextInput
+                  style={s.partnerInput}
+                  placeholder="correo@ejemplo.com"
+                  placeholderTextColor={color.muted}
+                  value={parejaNueva.correo}
+                  onChangeText={(v) => setParejaNueva({ ...parejaNueva, correo: v })}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  selectionColor={color.gold}
+                  accessibilityLabel="Correo"
+                />
+              </View>
+
+              <View style={s.campo}>
+                <Text style={s.campoEtiqueta}>Teléfono (opcional)</Text>
+                <TextInput
+                  style={s.partnerInput}
+                  placeholder="81 1234 5678"
+                  placeholderTextColor={color.muted}
+                  value={parejaNueva.telefono}
+                  onChangeText={(v) => setParejaNueva({ ...parejaNueva, telefono: v })}
+                  keyboardType="phone-pad"
+                  autoCapitalize="none"
+                  selectionColor={color.gold}
+                  accessibilityLabel="Teléfono"
+                />
+              </View>
             </View>
+          ) : (
+            <BuscadorDeUsuario
+              label="Nombre o correo de tu pareja"
+              placeholder="Nombre o correo"
+              ayuda="Escribe al menos 3 letras. Si no tiene cuenta, créasela aquí."
+              yaElegidos={miId ? [miId] : []}
+              textoYaElegido="Eres tú"
+              onElegir={elegirExistente}
+              accionSecundaria={(consulta) => (
+                <Pressable
+                  onPress={() => setParejaNueva(
+                    // Lo tecleado se aprovecha: si parece correo va al campo de
+                    // correo, y si no, al de nombre.
+                    RE_CORREO.test(consulta)
+                      ? { ...PAREJA_VACIA, correo: consulta }
+                      : { ...PAREJA_VACIA, nombre: consulta },
+                  )}
+                  style={({ pressed }) => [s.crearCuenta, pressed && { opacity: 0.85 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Crearle cuenta en RALLY"
+                >
+                  <Text style={s.crearCuentaTexto}>+  Crearle cuenta en RALLY</Text>
+                </Pressable>
+              )}
+            />
           )}
         </Card>
 
@@ -381,7 +538,7 @@ export default function InscripcionScreen() {
         </Card>
 
         {/* ── Resumen y confirmar ─────────────────────────────────────── */}
-        {selectedCategory && partnerFound && (
+        {selectedCategory && parejaLista && (
           <>
             <SectionLabel title="Resumen" />
             <Card variant="feature">
@@ -392,7 +549,7 @@ export default function InscripcionScreen() {
               <View style={s.summaryDivider} />
               <View style={s.summaryRow}>
                 <Text style={s.summaryLabel}>Pareja</Text>
-                <Text style={s.summaryValue}>{partnerFound.full_name}</Text>
+                <Text style={s.summaryValue}>{partnerFound?.full_name ?? parejaNueva?.nombre.trim()}</Text>
               </View>
               <View style={s.summaryDivider} />
               <View style={s.summaryRow}>
@@ -497,7 +654,33 @@ const s = StyleSheet.create({
   },
   searchBtnText: { fontFamily: font.body, fontSize: 13, fontWeight: '600', color: color.onGold },
 
-  notFoundBox:  { backgroundColor: 'rgba(224,114,111,0.1)', borderRadius: radius.md, padding: space[3], borderWidth: 1, borderColor: 'rgba(224,114,111,0.3)' },
+  // Alta de cuenta de la pareja
+  crearCuenta:      { minHeight: touchTarget, justifyContent: 'center', paddingHorizontal: space[3], borderWidth: 1, borderColor: color.line, borderStyle: 'dashed', borderRadius: radius.md, marginTop: space[1] },
+  crearCuentaTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.gold },
+
+  nuevaCaja:      { gap: space[3] },
+  nuevaCabecera:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  nuevaTitulo:    { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne, letterSpacing: 1.4 },
+
+  avisoMenor:      { backgroundColor: color.surface2, borderRadius: radius.md, padding: space[3] },
+  avisoMenorTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 17 },
+
+  checkRow:      { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: touchTarget },
+  check:         { width: 20, height: 20, borderRadius: radius.xs, borderWidth: 1, borderColor: color.gold, backgroundColor: color.surface2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  checkMarcado:  { backgroundColor: color.gold },
+  checkPalomita: { fontSize: 12, color: color.onGold, fontWeight: '700' },
+  checkLabel:    { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
+
+  campo:         { gap: space[1] },
+  campoEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, letterSpacing: 0.3 },
+  campoAyuda:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 16 },
+
+  // "Diles cómo entrar", tras crear la cuenta de la pareja
+  comoEntrarCaja:   { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[2] },
+  comoEntrarTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne },
+  comoEntrarTexto:  { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 22 },
+  comoEntrarFuerte: { color: color.goldBright, fontWeight: '600' },
+  comoEntrarNota:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
   notFoundText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 18 },
 
   partnerConfirmed:      { flexDirection: 'row', alignItems: 'center', gap: space[3] },
