@@ -43,7 +43,8 @@ function scorePartition(sizes: number[]): number | null {
 /**
  * Deriva el formato para N no listados (Doc B §1.1, regla general):
  * preferir grupos de 4; clasificados redondeados a potencia de 2 hacia abajo;
- * completar con mejores terceros. ambiguous=true si dos g empatan en score.
+ * completar con los mejores de la posición advancePerGroup+1 (segundos si
+ * pasa 1 por grupo, terceros si pasan 2). ambiguous=true si dos g empatan en score.
  */
 function deriveFormat(n: number): FormatPlan {
   if (n <= 5) {

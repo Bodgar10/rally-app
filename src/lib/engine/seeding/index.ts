@@ -18,7 +18,9 @@ export interface BracketMatch {
    * NO ES UN CASO REAL DEL PRODUCTO, y conviene saberlo antes de invertir en
    * él: `computeFormat` está diseñado para que el número de clasificados sea
    * SIEMPRE potencia de 2 — para eso existe `bestExtraQualifiers`, que rellena
-   * hasta la potencia con los mejores terceros. Verificado con los siete
+   * hasta la potencia con los mejores de la posición `advancePerGroup + 1`
+   * (los segundos cuando pasa 1 por grupo, los terceros cuando pasan 2).
+   * Verificado con los siete
    * tamaños que producen planes distintos (5, 8, 16, 24, 32, 4, 9): ninguno
    * deja un hueco.
    *

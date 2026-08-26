@@ -102,6 +102,32 @@ function describirGrupos(tam: number[]): string {
   return trozos.length === 1 ? trozos[0] : `${trozos.slice(0, -1).join(', ')} y ${trozos[trozos.length - 1]}`;
 }
 
+/**
+ * "1 mejor segundo" / "4 mejores terceros".
+ *
+ * LA POSICIÓN SE DERIVA, NO SE FIJA. El texto decía "tercero" siempre, y con
+ * `advancePerGroup = 1` era falso: si pasa 1 por grupo, los primeros ya están
+ * clasificados y el repescado sale de entre los SEGUNDOS. De los doce tamaños
+ * con repesca (9, 11, 13, 18, 19, 21, 23, 24, 25, 27, 28, 29) solo el 24 pasa
+ * 2 por grupo — o sea que el texto mentía en once de doce.
+ *
+ * El motor SIEMPRE estuvo bien: `selectQualifiers` filtra por
+ * `position === advancePerGroup + 1`, y su test de las 9 parejas ya afirmaba
+ * que el repescado es el mejor 2º. Era solo la copia.
+ */
+function mejoresDePosicion(posicion: number, cuantos: number): string {
+  const ORDINAL: Record<number, [string, string]> = {
+    2: ['segundo', 'segundos'],
+    3: ['tercero', 'terceros'],
+    4: ['cuarto',  'cuartos'],
+    5: ['quinto',  'quintos'],
+  };
+  const plural = cuantos > 1;
+  // Fallback numérico por si algún día un plan deja pasar 5+ por grupo.
+  const [sing, plu] = ORDINAL[posicion] ?? [`${posicion}º`, `${posicion}º`];
+  return plural ? `mejores ${plu}` : `mejor ${sing}`;
+}
+
 /** "2 grupos de 4 · pasan 2 por grupo · semifinales" */
 function describirPlan(plan: FormatPlan): string {
   const grupos = describirGrupos(plan.groupSizes);
@@ -109,7 +135,7 @@ function describirPlan(plan: FormatPlan): string {
   const ronda = RONDA[plan.knockoutStart] ?? plan.knockoutStart;
 
   const extra = plan.bestExtraQualifiers > 0
-    ? ` + ${plan.bestExtraQualifiers} mejor${plan.bestExtraQualifiers > 1 ? 'es' : ''} tercero${plan.bestExtraQualifiers > 1 ? 's' : ''}`
+    ? ` + ${plan.bestExtraQualifiers} ${mejoresDePosicion(plan.advancePerGroup + 1, plan.bestExtraQualifiers)}`
     : '';
 
   // Sin nadie que avance no hay fase final que anunciar.
