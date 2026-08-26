@@ -4,11 +4,13 @@
  * Selección MÚLTIPLE con chips, en vez del alta de una en una que había antes.
  * El organizador ve de un vistazo qué va a abrir y lo confirma en un guardado.
  *
- * SOLO MIXTO Y FEMENIL
- *   El enum de la BD es ('male','female','mixed') y NO se toca: 'male' sigue
- *   existiendo y las categorías varoniles ya creadas se respetan. Simplemente
- *   no se ofrece, porque en el padel mexicano los hombres compiten en mixto y
- *   ese grupo quedaría siempre vacío.
+ * LOS TRES GÉNEROS
+ *   Varonil, Femenil y Mixto, los tres del enum ('male','female','mixed').
+ *
+ *   Hubo una versión que escondía Varonil suponiendo que en el padel mexicano
+ *   los hombres solo compiten en mixto. Es falso: el Sexto Torneo Cimepa (We
+ *   All Padel, 165 parejas) reparte 2A a 6A Fuerza —todas varoniles— más 5A
+ *   Femenil y Mixtos C/D. Las varoniles eran 126 de las 165 parejas.
  *
  * BORRAR CATEGORÍAS
  *   Deseleccionar una categoría la ELIMINA, y eso arrastra en cascada sus
@@ -53,10 +55,11 @@ const DIVISIONES = [
   { valor: 'primera', etiqueta: '1ª' },
 ] as const satisfies ReadonlyArray<{ valor: Division; etiqueta: string }>;
 
-/** 'male' existe en el enum pero no se ofrece. Ver cabecera. */
+/** Los tres del enum. Ver cabecera. */
 const GRUPOS = [
-  { genero: 'mixed',  titulo: 'Mixto'   },
+  { genero: 'male',   titulo: 'Varonil' },
   { genero: 'female', titulo: 'Femenil' },
+  { genero: 'mixed',  titulo: 'Mixto'   },
 ] as const satisfies ReadonlyArray<{ genero: Genero; titulo: string }>;
 
 const NOMBRE_GENERO: Record<Genero, string> = {
@@ -178,12 +181,6 @@ export default function CategoriasScreen() {
     return { aCrear, aBorrar };
   }, [seleccion, existentes]);
 
-  /** Categorías varoniles ya existentes: se conservan, no se editan. */
-  const varoniles = useMemo(
-    () => existentes.filter((c) => c.gender === 'male'),
-    [existentes],
-  );
-
   const hayCambios = aCrear.length > 0 || aBorrar.length > 0;
   const puedeGuardar = seleccion.size > 0 && hayCambios && !guardando;
 
@@ -289,26 +286,6 @@ export default function CategoriasScreen() {
           </View>
         ))}
 
-        {/* Varonil solo aparece si el torneo YA tiene alguna: no se ofrecen
-            nuevas, pero ocultar las existentes las dejaría contadas en el botón
-            sin que se vean por ningún lado. Son de solo lectura. */}
-        {varoniles.length > 0 && (
-          <View style={s.grupo}>
-            <Text style={s.grupoTitulo}>VARONIL</Text>
-            <View style={s.chips}>
-              {varoniles.map((c) => (
-                <View key={c.id} style={[s.chip, s.chipFijo]}>
-                  <Text style={s.chipTextoFijo}>
-                    {DIVISIONES.find((d) => d.valor === c.division)?.etiqueta ?? c.division}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            <Text style={s.grupoNota}>
-              Ya no se abren categorías varoniles nuevas. Estas se conservan.
-            </Text>
-          </View>
-        )}
 
         <Text style={s.ayuda}>
           Podrás agregar o quitar categorías mientras las inscripciones sigan
@@ -423,12 +400,9 @@ const s = StyleSheet.create({
     borderRadius:    radius.pill,
   },
   chipActivo:      { backgroundColor: 'rgba(212,175,55,0.12)', borderColor: color.gold },
-  chipFijo:        { opacity: 0.55 },
-  chipTextoFijo:   { fontFamily: font.display, fontSize: fontSize.cardName, color: color.muted },
   chipTexto:       { fontFamily: font.display, fontSize: fontSize.cardName, color: color.muted },
   chipTextoActivo: { color: color.gold },
 
-  grupoNota: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 17 },
   ayuda: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[3] },
   error: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
 
