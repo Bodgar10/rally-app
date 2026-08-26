@@ -34,15 +34,39 @@ function distribute(n: number, g: number): number[] {
   return sizes;
 }
 
-/** Score de "cercanía a grupos de 4"; menor es mejor. Inválido si algún size < 3 o > 5. */
+/**
+ * Tamaño de grupo preferido cuando no se sabe nada de la capacidad del torneo.
+ *
+ * ERA 4 Y ESTABA MAL CALIBRADO. Evidencia: el Sexto Torneo Cimepa (We All
+ * Padel, 165 parejas) armó 55 grupos y TODOS de 3. Contra sus ocho categorías
+ * reales, el motor con preferencia 4 proponía 244 partidos de fase de grupos
+ * frente a los 165 que jugaron — 79 de más, 20 de ellos en una sola categoría
+ * de 30 parejas.
+ *
+ * Y las dos capas ya se contradecían: las entradas literales de 9, 12 y 18
+ * están escritas a mano con grupos de 3, rompiendo a propósito la preferencia
+ * de esta función. La tabla ya sabía lo que la derivación ignoraba.
+ *
+ * Un grupo de 3 son 3 partidos y 2 asegurados por pareja; uno de 4 son 6 y 3.
+ * El doble de canchas por un partido más.
+ *
+ * ► ES UN DEFAULT, NO UNA REGLA. Sale de suponer que la capacidad aprieta,
+ *   que es el caso de los torneos grandes. Con pocas parejas y canchas de
+ *   sobra, un grupo de 4 es mejor: todos juegan un partido más y cabe igual.
+ *   Esa decisión necesita saber cuántas canchas y cuántas horas hay, y hoy
+ *   computeFormat solo recibe el número de parejas.
+ */
+const TAMANO_PREFERIDO = 3;
+
+/** Score de cercanía al tamaño preferido; menor es mejor. Inválido fuera de [3,5]. */
 function scorePartition(sizes: number[]): number | null {
   if (sizes.some((s) => s < 3 || s > 5)) return null;
-  return sizes.reduce((acc, s) => acc + Math.abs(s - 4), 0);
+  return sizes.reduce((acc, s) => acc + Math.abs(s - TAMANO_PREFERIDO), 0);
 }
 
 /**
  * Deriva el formato para N no listados (Doc B §1.1, regla general):
- * preferir grupos de 4; clasificados redondeados a potencia de 2 hacia abajo;
+ * preferir grupos de TAMANO_PREFERIDO; clasificados redondeados a potencia de 2 hacia abajo;
  * completar con los mejores de la posición advancePerGroup+1 (segundos si
  * pasa 1 por grupo, terceros si pasan 2). ambiguous=true si dos g empatan en score.
  */
