@@ -49,6 +49,7 @@ import {
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
+import CuadroPreview from '@/components/tournament/CuadroPreview';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -183,6 +184,38 @@ function describirPlan(plan: FormatPlan): string {
     : `${grupos} · ${asegurados} · pasan ${plan.advancePerGroup} por grupo${extra} · ${ronda}`;
 }
 
+/**
+ * Cuántos SEGUNDOS de grupo llegan al cuadro, y con qué frase.
+ *
+ * Es el dato que decide si el torneo se muere a la mitad: cuando de un grupo
+ * solo pasa el primero, quien pierde su primer partido ya sabe que no avanza y
+ * juega el segundo por jugar.
+ */
+function segundosQueAvanzan(plan: FormatPlan): { n: number; grupos: number; ratio: number } {
+  const grupos = plan.groupSizes.length;
+  const n = plan.advancePerGroup >= 2 ? grupos : plan.bestExtraQualifiers;
+  return { n, grupos, ratio: grupos === 0 ? 0 : n / grupos };
+}
+
+function fraseSegundos(x: { n: number; grupos: number; ratio: number }): string {
+  if (x.ratio >= 1)   return 'Todos los segundos avanzan.';
+  if (x.ratio >= 0.5) return `Quedar segundo sirve: ${x.n} de ${x.grupos} avanzan.`;
+  if (x.ratio > 0)    return `Solo ${x.n} de ${x.grupos} segundos avanzan.`;
+  return 'Solo avanzan los primeros. Quien pierda su primer partido queda eliminado en la práctica.';
+}
+
+/** "Pasan los 5 primeros y los 3 mejores segundos" */
+function describirClasificados(plan: FormatPlan): string {
+  const g = plan.groupSizes.length;
+  const directos = plan.advancePerGroup >= 2
+    ? `los ${g === 1 ? 'dos primeros' : `${g * 2} primeros y segundos de grupo`}`
+    : `los ${g} primeros`;
+  const extra = plan.bestExtraQualifiers > 0
+    ? ` y los ${plan.bestExtraQualifiers} ${mejoresDePosicion(plan.advancePerGroup + 1, plan.bestExtraQualifiers)}`
+    : '';
+  return `Pasan ${directos}${extra}`;
+}
+
 /** Grupos de tamaño desigual: quien esté en el grande juega un partido más. */
 function avisoDesigual(plan: FormatPlan): string | null {
   const t = plan.groupSizes;
@@ -206,6 +239,70 @@ const ETIQUETA: Record<EstadoCategoria, { texto: string; tinte: string }> = {
   vacia:   { texto: 'VACÍA',              tinte: color.muted     },
   cerrada: { texto: 'CERRADA',            tinte: color.champagne },
 };
+
+/**
+ * Las dos fases de una categoría, cada una con su etiqueta y su borde
+ * izquierdo.
+ *
+ * Antes iba todo en una línea corrida — "5 grupos de 4 y 3 · 3 partidos
+ * asegurados · pasan 1 por grupo + 3 mejores segundos · cuartos" — que nadie
+ * leía entera. Son dos preguntas distintas ("¿cuánto juego?" y "¿cómo se
+ * clasifica?") y ahora se ven como tales.
+ */
+function BloquesDelPlan({ plan }: { plan: FormatPlan }) {
+  const [verCuadro, setVerCuadro] = useState(false);
+
+  const seg   = segundosQueAvanzan(plan);
+  const ronda = RONDA[plan.knockoutStart] ?? plan.knockoutStart;
+  const Q     = plan.advancePerGroup * plan.groupSizes.length + plan.bestExtraQualifiers;
+
+  // El ratio se pinta, no solo se dice: el color lo hace legible de un vistazo
+  // sin tener que leer la frase.
+  const tinteSeg = seg.ratio >= 0.5 ? color.live
+                 : seg.ratio > 0    ? color.alive
+                 : color.danger;
+
+  return (
+    <View style={s.bloques}>
+      <View style={s.bloque}>
+        <Text style={s.bloqueEtiqueta}>FASE DE GRUPOS</Text>
+        <Text style={s.bloqueLinea}>{describirGrupos(plan.groupSizes)}</Text>
+        <Text style={s.bloqueNota}>{describirAsegurados(plan.groupSizes)}</Text>
+      </View>
+
+      {plan.advancePerGroup > 0 && (
+        <View style={s.bloque}>
+          <View style={s.bloqueCabecera}>
+            <Text style={s.bloqueEtiqueta}>ELIMINATORIAS</Text>
+            <Pressable
+              onPress={() => setVerCuadro((v) => !v)}
+              style={({ pressed }) => [s.verCuadro, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: verCuadro }}
+            >
+              <Text style={s.verCuadroTexto}>{verCuadro ? 'Ocultar' : 'Ver cuadro'}</Text>
+            </Pressable>
+          </View>
+
+          <Text style={s.bloqueLinea}>
+            {ronda} · {Q} clasificados
+          </Text>
+          <Text style={s.bloqueNota}>{describirClasificados(plan)}</Text>
+          <Text style={[s.bloqueNota, { color: tinteSeg }]}>{fraseSegundos(seg)}</Text>
+
+          {verCuadro && (
+            <CuadroPreview
+              Q={Q}
+              grupos={plan.groupSizes.length}
+              advancePerGroup={plan.advancePerGroup}
+              repescados={plan.bestExtraQualifiers}
+            />
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
 
 /** Ocupación de una fase, con su barra. */
 function BarraFase({ titulo, fase }: { titulo: string; fase: FaseCapacidad }) {
@@ -583,8 +680,11 @@ export default function CerrarInscripcionesScreen() {
                   </View>
                 )}
 
-                {plan && <Text style={s.estructura}>── {describirPlan(plan)}</Text>}
-                {desigual && <Text style={s.desigual}>{desigual}</Text>}
+                {/* Con formato ambiguo la línea de resumen sobraba: decía
+                    exactamente lo mismo que la primera opción del radio, dos
+                    veces seguidas. Las opciones ya lo dicen todo. */}
+                {plan && c.estado !== 'ambigua' && <BloquesDelPlan plan={plan} />}
+                {desigual && c.estado !== 'ambigua' && <Text style={s.desigual}>{desigual}</Text>}
 
                 {c.estado === 'faltan' && (
                   <Text style={s.faltan}>Se necesitan 2 parejas pagadas para poder cerrar.</Text>
@@ -736,7 +836,6 @@ const s = StyleSheet.create({
   etiqueta:     { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', letterSpacing: 0.5, flexShrink: 0 },
 
   conteo:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
-  estructura: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 },
   capacidad:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[3], marginBottom: space[2] },
   capacidadMal:    { borderColor: color.danger, backgroundColor: 'rgba(224,114,111,0.08)' },
   capacidadTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
@@ -751,6 +850,17 @@ const s = StyleSheet.create({
 
   diagnostico:      { backgroundColor: color.surface2, borderRadius: radius.md, padding: space[3] },
   diagnosticoTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 19 },
+
+  bloques:         { gap: space[3], marginTop: space[1] },
+  // Borde de un solo lado: sin radio, como manda el design system.
+  bloque:          { borderLeftWidth: 2, borderLeftColor: color.lineSoft, paddingLeft: space[3], gap: 3 },
+  bloqueCabecera:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2] },
+  bloqueEtiqueta:  { fontFamily: font.display, fontSize: 12, color: color.muted, letterSpacing: 1.8, textTransform: 'uppercase' },
+  bloqueLinea:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
+  bloqueNota:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+
+  verCuadro:       { paddingHorizontal: space[3], paddingVertical: space[1.5], borderWidth: 1, borderColor: color.line, borderRadius: radius.sm, flexShrink: 0 },
+  verCuadroTexto:  { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.gold },
 
   desigual:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
   faltan:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 17 },
