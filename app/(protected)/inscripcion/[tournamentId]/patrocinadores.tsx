@@ -5,11 +5,12 @@
  * Sprint 5 · S5-SON-05
  */
 import { useState } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { color, radius, space, font } from '@/lib/design-tokens';
-import { webContentColumn } from '@/lib/web-layout';
+import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { Button } from '@/components/ui';
 import { SponsorCatalog } from '@/components/sponsors/SponsorCatalog';
 import { SponsorUpsell } from '@/components/sponsors/SponsorUpsell';
 import type { SponsorProduct } from '@/components/sponsors/SponsorCatalog';
@@ -28,7 +29,7 @@ export default function PatrocinadoresScreen() {
     <View style={{ flex: 1, backgroundColor: color.bg }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100, ...webContentColumn }}
+        contentContainerStyle={{ paddingBottom: bottomInset, ...webContentColumn }}
       >
         {/* Header */}
         <View style={{ paddingHorizontal: space[4], paddingTop: space[5], paddingBottom: space[3] }}>
@@ -83,47 +84,15 @@ export default function PatrocinadoresScreen() {
           tournamentId={tournamentId}
           onReserve={(product) => setSelectedProduct(product)}
         />
-      </ScrollView>
 
-      {/* Footer fijo: botón "Ir a mi torneo" */}
-      <View
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: color.bg,
-          borderTopWidth: 1,
-          borderTopColor: color.lineSoft,
-          paddingHorizontal: space[4],
-          paddingTop: 14,
-          paddingBottom: 34,
-        }}
-      >
-        <Pressable
-          onPress={handleSkip}
-          style={({ pressed }) => ({
-            borderRadius: radius.sm,
-            backgroundColor: color.surface2,
-            borderWidth: 1,
-            borderColor: color.line,
-            paddingVertical: 13,
-            alignItems: 'center',
-            opacity: pressed ? 0.8 : 1,
-          })}
-        >
-          <Text
-            style={{
-              fontFamily: font.display,
-              fontWeight: '600',
-              fontSize: 15,
-              color: color.champagne,
-            }}
-          >
-            Ir a mi torneo
-          </Text>
-        </Pressable>
-      </View>
+        {/* Antes era un footer `position:'absolute'` a ancho de ventana: se
+            salía de la columna centrada y en escritorio quedaba una barra
+            cruzando la pantalla que no parecía un botón. Dentro del scroller
+            hereda webContentColumn y usa el Button del design system. */}
+        <View style={{ paddingHorizontal: space[4], marginTop: space[5] }}>
+          <Button label="Ir a mi torneo" variant="secondary" onPress={handleSkip} />
+        </View>
+      </ScrollView>
 
       {/* Modal de upsell */}
       <SponsorUpsell
