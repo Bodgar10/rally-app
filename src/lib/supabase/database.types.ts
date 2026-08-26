@@ -1570,11 +1570,48 @@ export type Database = {
           },
         ]
       }
+      tournament_windows: {
+        Row: {
+          created_at: string
+          desde: string
+          dia: string
+          hasta: string
+          id: string
+          tournament_id: string
+        }
+        Insert: {
+          created_at?: string
+          desde: string
+          dia: string
+          hasta: string
+          id?: string
+          tournament_id: string
+        }
+        Update: {
+          created_at?: string
+          desde?: string
+          dia?: string
+          hasta?: string
+          id?: string
+          tournament_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_windows_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournaments: {
         Row: {
+          courts: number | null
           created_at: string
           end_date: string
           id: string
+          match_minutes: number | null
           name: string
           organizer_id: string
           registration_fee: number
@@ -1583,9 +1620,11 @@ export type Database = {
           venue_id: string | null
         }
         Insert: {
+          courts?: number | null
           created_at?: string
           end_date: string
           id?: string
+          match_minutes?: number | null
           name: string
           organizer_id: string
           registration_fee?: number
@@ -1594,9 +1633,11 @@ export type Database = {
           venue_id?: string | null
         }
         Update: {
+          courts?: number | null
           created_at?: string
           end_date?: string
           id?: string
+          match_minutes?: number | null
           name?: string
           organizer_id?: string
           registration_fee?: number
