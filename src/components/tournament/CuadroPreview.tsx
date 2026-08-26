@@ -28,13 +28,14 @@ import Svg, { Path } from 'react-native-svg';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 export interface CuadroPreviewProps {
-  /** Tamaño del cuadro. Siempre potencia de 2. */
-  Q: number;
+  /**
+   * Clasificados. NO tiene por qué ser potencia de 2 — en el padel real casi
+   * nunca lo es, y de ahí salen los byes.
+   */
+  clasificados: number;
   /** Cuántos grupos alimentan el cuadro. */
   grupos: number;
-  /** 1 o 2 clasificados directos por grupo. */
-  advancePerGroup: number;
-  /** Repescados de la posición advancePerGroup+1. */
+  /** Cuántos SEGUNDOS de grupo se repescan. */
   repescados: number;
 }
 
@@ -59,6 +60,16 @@ const NOMBRE_RONDA: Record<number, string> = {
   1:  'Campeón',
 };
 
+/** Marca interna de ranura sin clasificado. El rival de un bye. */
+const BYE = '\u0000BYE';
+
+/** La menor potencia de 2 que contiene a n. */
+function pow2AlMenos(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return Math.max(p, 2);
+}
+
 /** Letra de grupo: A, B, C… y AA en adelante por si hay más de 26. */
 function letraGrupo(i: number): string {
   return i < 26
@@ -76,16 +87,17 @@ function letraGrupo(i: number): string {
 function procedencias(p: CuadroPreviewProps): string[] {
   const salida: string[] = [];
   for (let g = 0; g < p.grupos; g++) salida.push(`1º ${letraGrupo(g)}`);
-  if (p.advancePerGroup >= 2) {
+
+  // Con todos los segundos dentro se nombran por su grupo; si son unos pocos,
+  // por su orden de repesca. "3º mejor 2º" no dice nada si pasan todos.
+  if (p.repescados >= p.grupos) {
     for (let g = 0; g < p.grupos; g++) salida.push(`2º ${letraGrupo(g)}`);
+  } else {
+    for (let r = 0; r < p.repescados; r++) {
+      salida.push(p.repescados === 1 ? 'Mejor 2º' : `${r + 1}º mejor 2º`);
+    }
   }
-  for (let r = 0; r < p.repescados; r++) {
-    salida.push(p.repescados === 1 ? 'Mejor 2º' : `${r + 1}º mejor 2º`);
-  }
-  // Si el plan no llena el cuadro, el hueco se dibuja: es más honesto que
-  // inventar una procedencia.
-  while (salida.length < p.Q) salida.push('—');
-  return salida.slice(0, p.Q);
+  return salida.slice(0, p.clasificados);
 }
 
 /**
@@ -104,14 +116,17 @@ function ordenSiembra(Q: number): number[] {
 }
 
 export default function CuadroPreview(props: CuadroPreviewProps) {
-  const { Q } = props;
+  const Q = pow2AlMenos(props.clasificados);
 
   const columnas = useMemo(() => {
     const orden = ordenSiembra(Q);
     const proc  = procedencias(props);
 
-    // Primera columna: los Q clasificados en orden de siembra.
-    const primera = orden.map((seed) => proc[seed - 1] ?? '—');
+    // Primera columna: los clasificados en orden de siembra. Las ranuras que
+    // sobran quedan VACÍAS — son los byes, y el rival del sembrado alto
+    // simplemente no existe. La serpiente empareja al mejor con el peor, así
+    // que los byes caen solos en los seeds altos.
+    const primera = orden.map((seed) => proc[seed - 1] ?? BYE);
 
     // Las siguientes son cajas vacías: quién llega ahí depende de quién gane.
     const cols: string[][] = [primera];
@@ -178,7 +193,8 @@ export default function CuadroPreview(props: CuadroPreviewProps) {
                 key={`${ci}-${fi}`}
                 style={[
                   s.caja,
-                  ci === 0 && !!texto && texto !== '—' && s.cajaLlena,
+                  ci === 0 && !!texto && texto !== BYE && s.cajaLlena,
+                  ci === 0 && texto === BYE && s.cajaBye,
                   {
                     left: x,
                     top: 22 + fi * paso + paso / 2 - CAJA_ALTO / 2,
@@ -188,10 +204,14 @@ export default function CuadroPreview(props: CuadroPreviewProps) {
                 ]}
               >
                 <Text
-                  style={[s.cajaTexto, (!texto || texto === '—') && s.cajaTextoVacio]}
+                  style={[
+                    s.cajaTexto,
+                    !texto && s.cajaTextoVacio,
+                    texto === BYE && s.cajaTextoBye,
+                  ]}
                   numberOfLines={1}
                 >
-                  {texto || '·'}
+                  {texto === BYE ? 'BYE' : (texto || '·')}
                 </Text>
               </View>
             ));
@@ -226,6 +246,12 @@ const s = StyleSheet.create({
   // Solo la primera columna tiene contenido conocido; el resto se llena al
   // jugarse. Distinguirlas evita que parezca que el cuadro ya está resuelto.
   cajaLlena: { borderColor: color.line, backgroundColor: color.surface },
+
+  // El bye no es una caja vacía: es una ranura que se sabe que nadie va a
+  // ocupar. Se marca para que el organizador vea de un vistazo quién pasa
+  // directo, que es lo más contraintuitivo del cuadro.
+  cajaBye:        { borderStyle: 'dashed', borderColor: color.line, backgroundColor: 'transparent' },
+  cajaTextoBye:   { color: color.champagne, letterSpacing: 1.5, textAlign: 'center' },
 
   cajaTexto:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
   cajaTextoVacio: { color: color.muted, opacity: 0.5, textAlign: 'center' },

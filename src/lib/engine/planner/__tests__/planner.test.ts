@@ -45,18 +45,50 @@ describe('candidatos (§5)', () => {
   it('N=30 genera las tres particiones de la spec con su coste', () => {
     const c = candidatos({ id: 'x', parejas: 30 });
 
-    const diezDeTres = c.find((p) => p.groupSizes.every((s) => s === 3) && p.Q === 16)!;
+    // 10 grupos de 3, sin repescar: 10 clasificados en cuadro de 16.
+    const diezDeTres = c.find((p) =>
+      p.groupSizes.every((s) => s === 3) && p.segundosQueAvanzan === 0)!;
     expect(diezDeTres.grupos).toBe(10);
     expect(diezDeTres.costeGrupos).toBe(30);
     expect(diezDeTres.asegurados).toBe(2);
-    expect(diezDeTres.costeEliminacion).toBe(15);
+    expect(diezDeTres.clasificados).toBe(10);
+    expect(diezDeTres.bracketSize).toBe(16);
+    expect(diezDeTres.byes).toBe(6);
+    expect(diezDeTres.partidosPrimeraRonda).toBe(2);
+    expect(diezDeTres.costeEliminacion).toBe(9);   // C−1, no bracketSize−1
 
-    const seisDeCinco = c.find((p) => p.groupSizes.every((s) => s === 5))!;
+    const seisDeCinco = c.find((p) =>
+      p.groupSizes.every((s) => s === 5) && p.segundosQueAvanzan === 0)!;
     expect(seisDeCinco.grupos).toBe(6);
     expect(seisDeCinco.costeGrupos).toBe(60);
     expect(seisDeCinco.asegurados).toBe(4);
-    expect(seisDeCinco.Q).toBe(8);
-    expect(seisDeCinco.costeEliminacion).toBe(7);
+    expect(seisDeCinco.bracketSize).toBe(8);
+    expect(seisDeCinco.costeEliminacion).toBe(5);
+  });
+
+  it('reproduce el cuadro real de 5ª Fuerza: 12 clasificados, 4 byes, 4 partidos', () => {
+    // Es lo que Cimepa armó a mano: 10 primeros + 2 mejores segundos.
+    const p = candidatos({ id: 'x', parejas: 30 })
+      .find((x) => x.groupSizes.every((s) => s === 3) && x.segundosQueAvanzan === 2)!;
+    expect(p.clasificados).toBe(12);
+    expect(p.bracketSize).toBe(16);
+    expect(p.byes).toBe(4);
+    expect(p.partidosPrimeraRonda).toBe(4);
+    expect(p.costeEliminacion).toBe(11);
+  });
+
+  it('el total de eliminatorias es siempre C−1, con byes o sin ellos', () => {
+    // Cada partido elimina a una pareja; hay que eliminar a C−1 para dejar
+    // campeón. Los byes cambian en qué ronda entra cada quien, no el total.
+    for (let n = 6; n <= 40; n++) {
+      for (const p of candidatos({ id: 'x', parejas: n })) {
+        expect(p.costeEliminacion).toBe(p.clasificados - 1);
+        expect(p.byes).toBe(p.bracketSize - p.clasificados);
+        expect(p.partidosPrimeraRonda).toBe(p.clasificados - p.bracketSize / 2);
+        // Los que pasan a la 2ª ronda llenan media llave, siempre.
+        expect(p.byes + p.partidosPrimeraRonda).toBe(p.bracketSize / 2);
+      }
+    }
   });
 
   it('nunca propone grupos de menos de 3 (R1)', () => {
@@ -68,13 +100,19 @@ describe('candidatos (§5)', () => {
     }
   });
 
-  it('el cuadro es siempre potencia de 2 (R3): no hay byes', () => {
+  it('el cuadro es potencia de 2, pero los clasificados NO tienen por qué serlo', () => {
+    // Lo contrario era el bug: forzar C a potencia de 2 hacía los byes
+    // inalcanzables, cuando en el padel real son la norma.
+    let vistosConByes = 0;
     for (let n = 3; n <= 40; n++) {
       for (const p of candidatos({ id: 'x', parejas: n })) {
-        expect(Math.log2(p.Q) % 1).toBe(0);
-        expect(p.advancePerGroup * p.grupos + p.repescados).toBe(p.Q);
+        expect(Math.log2(p.bracketSize) % 1).toBe(0);
+        expect(p.clasificados).toBeLessThanOrEqual(p.bracketSize);
+        expect(p.clasificados).toBeGreaterThan(p.bracketSize / 2);   // el cuadro es el MENOR que cabe
+        if (p.byes > 0) vistosConByes++;
       }
     }
+    expect(vistosConByes).toBeGreaterThan(0);
   });
 
   it('los tamaños de grupo suman las parejas de la categoría', () => {
@@ -96,31 +134,47 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     expect(r.grupos.zona).toBe('limite');
   });
 
-  it('las eliminatorias quedan ajustadas', () => {
-    expect(r.eliminacion.usados).toBe(76);
-    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(79);
+  it('aprovecha el último día repescando, sin pasarse del umbral', () => {
+    // Con el piso a secas serían 47 (49%). El paso 2 sube la repesca hasta
+    // rozar el 85% — porque repescar solo gasta slots del último día, y ese
+    // iba medio vacío.
+    expect(r.eliminacion.usados).toBe(81);
+    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(84);
     expect(r.eliminacion.zona).toBe('ajustado');
+    expect(r.eliminacion.ocupacion).toBeLessThanOrEqual(0.85);
   });
 
-  it('el piso ES el plan: al 94% ninguna categoría puede subir', () => {
+  it('repesca aunque la fase de grupos esté por encima del umbral', () => {
+    // Los grupos van al 94%, pero repescar no toca ese presupuesto. Bloquearlo
+    // por culpa de una fase ajena era desperdiciar el domingo.
+    expect(r.grupos.ocupacion).toBeGreaterThan(0.85);
+    for (const p of r.planes.values()) expect(p.segundosQueAvanzan).toBeGreaterThan(0);
+  });
+
+  it('los tamaños de grupo se quedan en el piso: al 94% no cabe uno más', () => {
     for (const p of r.planes.values()) {
       expect(p.groupSizes.every((s) => s === 3)).toBe(true);
       expect(p.asegurados).toBe(2);
     }
   });
 
+  it('propone MÁS repesca de la que eligió Cimepa', () => {
+    // Ellos pusieron 2 en 5ª Fuerza con el domingo al 49%. Medida la
+    // capacidad, cabían 6 y el cuadro queda lleno, sin un solo bye.
+    const p = r.planes.get('5A')!;
+    expect(p.segundosQueAvanzan).toBe(6);
+    expect(p.clasificados).toBe(16);
+    expect(p.byes).toBe(0);
+  });
+
   it('avisa de que los grupos van al límite', () => {
     expect(r.avisos.some((a) => /límite/i.test(a))).toBe(true);
   });
 
-  it('reproduce los 6 mejores segundos de 5ª Fuerza', () => {
-    // 10 grupos de 3 dan 10 primeros, que no llenan un cuadro de 16: se
-    // repescan 6 segundos. Es lo que Cimepa hizo a mano.
+  it('10 grupos de 3 en 5ª Fuerza', () => {
     const p = r.planes.get('5A')!;
     expect(p.grupos).toBe(10);
-    expect(p.Q).toBe(16);
-    expect(p.advancePerGroup).toBe(1);
-    expect(p.segundosQueAvanzan).toBe(6);
+    expect(p.groupSizes.every((s) => s === 3)).toBe(true);
   });
 });
 
@@ -134,34 +188,31 @@ describe('criterio "quedar segundo debe servir"', () => {
   });
 
   it('la frase cambia según el ratio', () => {
-    // 12 parejas → 4 grupos, Q=8, pasan 2 por grupo: todos los segundos.
-    expect(r.planes.get('5F')!.fraseSegundos).toBe('Todos los segundos avanzan.');
-    // 30 parejas → 6 de 10 segundos.
     expect(r.planes.get('3A')!.fraseSegundos)
       .toBe('Quedar segundo sirve: 6 de 10 segundos avanzan.');
-    // 21 parejas → 7 grupos, Q=8: solo 1 repescado.
-    expect(r.planes.get('2A')!.fraseSegundos)
-      .toBe('Solo 1 de 7 segundos avanzan. Quien pierda el primer partido tiene poco margen.');
+    expect(r.planes.get('5F')!.fraseSegundos)
+      .toBe('Quedar segundo sirve: 3 de 4 segundos avanzan.');
+
+    // Ninguna categoría de Cimepa queda con "solo avanzan los primeros": el
+    // paso 2 gasta el domingo, que iba medio vacío, en que quedar segundo sirva.
+    for (const p of r.planes.values()) expect(p.ratioSegundos).toBeGreaterThanOrEqual(0.5);
   });
 
-  it('el PISO con 4 grupos prefiere el cuadro de 8 al de 4, aunque cueste más', () => {
-    // Q=4 sería más barato (3 partidos contra 7) pero dejaría ratio 0: quien
-    // pierde el primer partido de su grupo ya no avanza.
-    //
-    // Capacidad justa a propósito: con holgura el paso 2 subiría a grupos de 4
-    // y dejaría de probar el piso, que es lo que este test fija.
-    const JUSTA: Capacidad = {
+  it('el piso no repesca a nadie: subir es trabajo del paso 2', () => {
+    // Con la capacidad al límite, el piso es lo que queda. Es correcto que
+    // deje ratio 0: si no cabe nada más, no cabe.
+    const NADA: Capacidad = {
       canchas: 1, minutosPorPartido: 60,
       ventanas: [
         { fecha: '2026-05-09', desde: '08:00', hasta: '22:00' }, // 14 slots
-        { fecha: '2026-05-10', desde: '09:00', hasta: '17:00' }, //  8 slots
+        { fecha: '2026-05-10', desde: '09:00', hasta: '12:00' }, //  3 slots
       ],
     };
-    const p = planTournament([{ id: 'a', parejas: 12 }], JUSTA).planes.get('a')!;
-    expect(p.groupSizes).toEqual([3, 3, 3, 3]);   // el piso, sin subir
-    expect(p.Q).toBe(8);
-    expect(p.advancePerGroup).toBe(2);
-    expect(p.ratioSegundos).toBe(1);
+    const p = planTournament([{ id: 'a', parejas: 12 }], NADA).planes.get('a')!;
+    expect(p.groupSizes).toEqual([3, 3, 3, 3]);
+    expect(p.segundosQueAvanzan).toBe(0);
+    expect(p.clasificados).toBe(4);
+    expect(p.costeEliminacion).toBe(3);
   });
 });
 
@@ -255,7 +306,7 @@ describe('§9 · casos límite', () => {
       const p = planTournament([{ id: 'u', parejas: n }], CIMEPA).planes.get('u')!;
       expect(p.formatType).toBe('round_robin');
       expect(p.groupSizes).toEqual([n]);
-      expect(p.Q).toBe(2);
+      expect(p.bracketSize).toBe(2);
       expect(p.costeEliminacion).toBe(1);
     }
   });
@@ -280,7 +331,7 @@ describe('determinismo', () => {
     const b = planTournament([...CATEGORIAS_CIMEPA].reverse(), CIMEPA);
     for (const [id, p] of a.planes) {
       expect(b.planes.get(id)!.groupSizes).toEqual(p.groupSizes);
-      expect(b.planes.get(id)!.Q).toBe(p.Q);
+      expect(b.planes.get(id)!.clasificados).toBe(p.clasificados);
     }
   });
 });

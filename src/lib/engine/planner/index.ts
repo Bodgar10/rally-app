@@ -61,10 +61,34 @@ export interface PlanCategoria {
   costeGrupos: number;
   /** El peor caso manda: min(tamaños) − 1. */
   asegurados: number;
-  /** Tamaño del cuadro. Siempre potencia de 2 (R3): no hay byes. */
-  Q: number;
+  /**
+   * Clasificados. CUALQUIER número ≥ 2, no una potencia de 2.
+   *
+   * Forzarlo a potencia de 2 era el bug: en el padel real los byes son la
+   * norma. El Sexto Torneo Cimepa armó 5ª Fuerza con 12 clasificados en un
+   * cuadro de 16 — 4 byes, 4 partidos de octavos.
+   */
+  clasificados: number;
+  /** Tamaño del cuadro: la menor potencia de 2 que contiene a los clasificados. */
+  bracketSize: number;
+  /** bracketSize − clasificados. Se los llevan los mejores sembrados. */
+  byes: number;
+  /** Partidos de la primera ronda: clasificados − bracketSize/2. */
+  partidosPrimeraRonda: number;
   advancePerGroup: number;
   repescados: number;
+  /**
+   * SIEMPRE clasificados − 1.
+   *
+   * Cada partido elimina exactamente a una pareja, y hay que eliminar a
+   * C−1 para dejar campeón. Los byes no cambian ese número: solo cambian en
+   * qué ronda entra cada quien.
+   *
+   * Antes se calculaba como bracketSize − 1, que con clasificados no-potencia
+   * de 2 contaba partidos que nadie juega. Contra las ocho categorías de
+   * Cimepa daba 76 en vez de 47 — un 62% de más, y ese porcentaje inflado era
+   * lo que impedía subir de plan en el paso 2.
+   */
   costeEliminacion: number;
   knockoutStart: KnockoutStart;
   /**
@@ -161,8 +185,11 @@ function particiones(n: number): number[][] {
   return salida;
 }
 
-function esPow2(n: number): boolean {
-  return n >= 2 && (n & (n - 1)) === 0;
+/** La menor potencia de 2 que contiene a n. El cuadro se deriva, no se fuerza. */
+function pow2AlMenos(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return Math.max(p, 2);
 }
 
 function knockoutStartFor(Q: number): KnockoutStart {
@@ -198,7 +225,8 @@ export function candidatos(cat: CategoriaEntrada): PlanCategoria[] {
         categoryId: cat.id, parejas: cat.parejas,
         formatType: 'round_robin',
         groupSizes: sizes, grupos, costeGrupos, asegurados,
-        Q: 2, advancePerGroup: 2, repescados: 0,
+        clasificados: 2, bracketSize: 2, byes: 0, partidosPrimeraRonda: 1,
+        advancePerGroup: 2, repescados: 0,
         costeEliminacion: 1, knockoutStart: 'final',
         segundosQueAvanzan: 1, ratioSegundos: 1,
         fraseSegundos: fraseDeSegundos(1, 1),
@@ -206,25 +234,30 @@ export function candidatos(cat: CategoriaEntrada): PlanCategoria[] {
       continue;
     }
 
-    for (let Q = 2; Q <= 2 * grupos; Q *= 2) {
-      if (Q < grupos) continue;
-      if (!esPow2(Q)) continue;
+    // La perilla es una sola: cuántos SEGUNDOS se repescan, de 0 a uno por
+    // grupo. Todo lo demás —cuadro, byes, partidos de primera ronda— se
+    // deriva de ahí.
+    for (let repescados = 0; repescados <= grupos; repescados++) {
+      const clasificados = grupos + repescados;
+      if (clasificados < 2) continue;
 
-      const advancePerGroup = Q >= 2 * grupos ? 2 : 1;
-      const repescados = Q - advancePerGroup * grupos;
-      if (repescados < 0) continue;
+      const bracketSize = pow2AlMenos(clasificados);
+      const byes = bracketSize - clasificados;
 
-      // Con advancePerGroup = 2 pasan TODOS los segundos; con 1, solo los
-      // repescados.
-      const segundosQueAvanzan = advancePerGroup === 2 ? grupos : repescados;
+      // Cuando pasan TODOS los segundos, en realidad pasan 2 por grupo.
+      const advancePerGroup = repescados === grupos ? 2 : 1;
+      const segundosQueAvanzan = repescados;
 
       salida.push({
         categoryId: cat.id, parejas: cat.parejas,
         formatType: 'groups_then_knockout',
         groupSizes: sizes, grupos, costeGrupos, asegurados,
-        Q, advancePerGroup, repescados,
-        costeEliminacion: Q - 1,
-        knockoutStart: knockoutStartFor(Q),
+        clasificados, bracketSize, byes,
+        partidosPrimeraRonda: clasificados - bracketSize / 2,
+        advancePerGroup,
+        repescados: advancePerGroup === 2 ? 0 : repescados,
+        costeEliminacion: clasificados - 1,
+        knockoutStart: knockoutStartFor(bracketSize),
         segundosQueAvanzan,
         ratioSegundos: segundosQueAvanzan / grupos,
         fraseSegundos: fraseDeSegundos(segundosQueAvanzan, grupos),
@@ -236,19 +269,22 @@ export function candidatos(cat: CategoriaEntrada): PlanCategoria[] {
 }
 
 /**
- * El plan de piso: el más barato en canchas.
+ * El plan de piso: el MÁS BARATO en las dos fases.
  *
- * Entre los de coste mínimo se prefiere el que hace que quedar segundo sirva:
- * primero el de mayor advancePerGroup, luego el de mayor ratioSegundos. Un
- * cuadro donde solo entra el primero de cada grupo es más barato, pero deja a
- * medio torneo jugando su segundo partido sin nada en juego.
+ * Sin repescar a nadie, que es lo mínimo que se puede jugar. Si el piso no
+ * cabe, nada cabe.
+ *
+ * Que eso deje ratio 0 es correcto AQUÍ: subir la repesca es trabajo del paso
+ * 2, que es quien sabe cuánto presupuesto sobra. Preferir un plan más caro ya
+ * en el piso —como hacía una versión anterior, con un desempate por
+ * advancePerGroup— rompía el propio concepto de piso: elegía el cuadro más
+ * grande posible antes de saber si cabía.
  */
 function piso(cands: PlanCategoria[]): PlanCategoria {
   return [...cands].sort((a, b) =>
     a.costeGrupos - b.costeGrupos
-    || b.advancePerGroup - a.advancePerGroup
     || a.costeEliminacion - b.costeEliminacion
-    || b.ratioSegundos - a.ratioSegundos
+    || a.byes - b.byes
   )[0];
 }
 
@@ -314,16 +350,26 @@ export function planTournament(
   if (!noCabeGrupos && !noCabeElim) {
     const tope = new Set<string>();
 
-    // Cota de seguridad: cada vuelta sube una categoría de nivel, y los niveles
-    // por categoría son finitos (3 tamaños de grupo).
-    for (let vuelta = 0; vuelta < activas.length * 4; vuelta++) {
+    // Cota de seguridad: cada vuelta sube UNA categoría un escalón, y los
+    // escalones son finitos porque los candidatos lo son. No se puede subir
+    // más veces que planes hay.
+    //
+    // Era `activas.length * 4`, pensado para los 3 tamaños de grupo. Al añadir
+    // la repesca —que sube de uno en uno y puede tener una decena de
+    // escalones— la cota se agotaba antes de llegar a probar los grupos: un
+    // torneo de 12 parejas con canchas de sobra se quedaba en grupos de 3
+    // repescando a todos, en vez de subir a grupos de 4.
+    const maxVueltas = activas.reduce((a, c) => a + (cands.get(c.id)?.length ?? 0), 0);
+
+    for (let vuelta = 0; vuelta < maxVueltas; vuelta++) {
       const candidatas = activas
         .filter((c) => !tope.has(c.id))
         .sort((x, y) => {
           const px = elegido.get(x.id)!, py = elegido.get(y.id)!;
-          return px.asegurados - py.asegurados   // el que peor está
-              || y.parejas - x.parejas           // beneficia a más gente
-              || (x.id < y.id ? -1 : 1);         // determinismo
+          return px.asegurados - py.asegurados      // el que peor está
+              || px.ratioSegundos - py.ratioSegundos // y a igual, el de peor ratio
+              || y.parejas - x.parejas              // beneficia a más gente
+              || (x.id < y.id ? -1 : 1);            // determinismo
         });
 
       if (candidatas.length === 0) break;
@@ -331,7 +377,26 @@ export function planTournament(
       let subio = false;
       for (const c of candidatas) {
         const actual = elegido.get(c.id)!;
-        const mejores = cands.get(c.id)!
+
+        // PRIMERO LOS REPESCADOS, DESPUÉS LOS GRUPOS. Un repescado cuesta
+        // exactamente 1 partido (costeEliminacion = C−1 crece de uno en uno);
+        // subir un tamaño de grupo cuesta decenas. Comprar ratio a un partido
+        // la unidad antes de gastar en partidos asegurados es estrictamente
+        // mejor uso del presupuesto.
+        const masRepesca = cands.get(c.id)!
+          .filter((p) =>
+            p.asegurados === actual.asegurados
+            && p.costeGrupos === actual.costeGrupos
+            && p.segundosQueAvanzan > actual.segundosQueAvanzan)
+          .sort((a, b) =>
+            a.segundosQueAvanzan - b.segundosQueAvanzan   // uno a la vez
+            || a.costeEliminacion - b.costeEliminacion
+            // A igualdad, menos byes: un cuadro lleno se lee mejor que uno
+            // donde media tabla pasa sin jugar.
+            || a.byes - b.byes
+          );
+
+        const masGrupo = cands.get(c.id)!
           .filter((p) => p.asegurados > actual.asegurados)
           .sort((a, b) =>
             a.asegurados - b.asegurados          // el siguiente escalón, no el techo
@@ -340,15 +405,26 @@ export function planTournament(
             || a.costeEliminacion - b.costeEliminacion
           );
 
+        const mejores = [...masRepesca, ...masGrupo];
         if (mejores.length === 0) { tope.add(c.id); continue; }
 
         const siguiente = mejores[0];
+
+        const antesG = usaGrupos(), antesE = usaElim();
         elegido.set(c.id, siguiente);
+        const despuesG = usaGrupos(), despuesE = usaElim();
 
-        const okG = usaGrupos() <= presupuestoGrupos * UMBRAL_SUBIDA;
-        const okE = usaElim()   <= presupuestoElim   * UMBRAL_SUBIDA;
+        // Una fase deja pasar la subida si queda bajo el umbral O si la subida
+        // no la toca. Sin esta segunda condición, un torneo con la fase de
+        // grupos ya al 94% —como Cimepa— no podría repescar a nadie, aunque
+        // repescar solo gasta slots del último día y ese va al 49%. Se estaba
+        // bloqueando una mejora gratuita por culpa de un presupuesto ajeno.
+        const ok = (despues: number, antes: number, presupuesto: number) =>
+          despues <= presupuesto * UMBRAL_SUBIDA || despues === antes;
 
-        if (okG && okE) { subio = true; break; }
+        if (ok(despuesG, antesG, presupuestoGrupos) && ok(despuesE, antesE, presupuestoElim)) {
+          subio = true; break;
+        }
 
         elegido.set(c.id, actual);   // deshacer
         tope.add(c.id);
@@ -377,11 +453,12 @@ export function planTournament(
 
   // ── Camino crítico del último día ─────────────────────────────────────────
   // Las rondas de una categoría son secuenciales: no se juega la semifinal
-  // antes de los cuartos. Con Q=16 hacen falta 4 rondas encadenadas aunque
-  // hubiera 100 canchas libres. Es una restricción que rara vez muerde, pero
+  // antes de los cuartos. Con un cuadro de 16 hacen falta 4 rondas encadenadas
+  // aunque hubiera 100 canchas libres. Manda el bracketSize, no los
+  // clasificados: un bye ocupa ronda igual, aunque no se juegue. Es una restricción que rara vez muerde, pero
   // su fallo es imposible de diagnosticar desde la capacidad agregada.
   if (!unSoloDia && dias > 0) {
-    const maxRondas = Math.max(0, ...[...elegido.values()].map((p) => Math.log2(p.Q)));
+    const maxRondas = Math.max(0, ...[...elegido.values()].map((p) => Math.log2(p.bracketSize)));
     const minutosUltimo = minutosDeVentana(cap.ventanas[dias - 1]);
     const minutosNecesarios = maxRondas * cap.minutosPorPartido;
     if (minutosNecesarios > minutosUltimo) {

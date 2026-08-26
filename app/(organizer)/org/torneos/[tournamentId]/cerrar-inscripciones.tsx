@@ -69,6 +69,12 @@ type EstadoCategoria =
   | 'cerrada';     // status <> 'open'
 
 interface Categoria {
+  /**
+   * Cuántos segundos de grupo se repescan. Arranca en lo que propone el
+   * planificador con la capacidad del torneo, y el organizador lo ajusta.
+   * Se persiste en categories.best_extra_qualifiers al cerrar.
+   */
+  repescados:  number;
   id:          string;
   nombre:      string;
   status:      string;
@@ -204,6 +210,41 @@ function fraseSegundos(x: { n: number; grupos: number; ratio: number }): string 
   return 'Solo avanzan los primeros. Quien pierda su primer partido queda eliminado en la práctica.';
 }
 
+/** Ronda en la que arranca un cuadro de ese tamaño. */
+function knockoutStartFor(bracketSize: number): string {
+  if (bracketSize <= 2) return 'final';
+  if (bracketSize <= 4) return 'semi';
+  if (bracketSize <= 8) return 'quarter';
+  if (bracketSize <= 16) return 'r16';
+  return 'r32';
+}
+
+/** La menor potencia de 2 que contiene a n. */
+function pow2AlMenos(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return Math.max(p, 2);
+}
+
+/**
+ * Todo lo que se deriva de una sola perilla: cuántos segundos avanzan.
+ *
+ * Los byes y "si quedar segundo sirve" son la misma cosa vista al revés —
+ * repescar a uno más quita un bye y suma un partido de primera ronda. Por eso
+ * hay un solo control y no tres.
+ */
+function derivar(grupos: number, repescados: number) {
+  const clasificados = grupos + repescados;
+  const bracketSize  = pow2AlMenos(clasificados);
+  return {
+    clasificados,
+    bracketSize,
+    byes: bracketSize - clasificados,
+    primeraRonda: clasificados - bracketSize / 2,
+    ratio: grupos === 0 ? 0 : repescados / grupos,
+  };
+}
+
 /** "Pasan los 5 primeros y los 3 mejores segundos" */
 function describirClasificados(plan: FormatPlan): string {
   const g = plan.groupSizes.length;
@@ -249,12 +290,25 @@ const ETIQUETA: Record<EstadoCategoria, { texto: string; tinte: string }> = {
  * leía entera. Son dos preguntas distintas ("¿cuánto juego?" y "¿cómo se
  * clasifica?") y ahora se ven como tales.
  */
-function BloquesDelPlan({ plan }: { plan: FormatPlan }) {
+function BloquesDelPlan({
+  plan, repescados, onRepescados,
+}: {
+  plan: FormatPlan;
+  repescados: number;
+  onRepescados: (n: number) => void;
+}) {
   const [verCuadro, setVerCuadro] = useState(false);
 
-  const seg   = segundosQueAvanzan(plan);
-  const ronda = RONDA[plan.knockoutStart] ?? plan.knockoutStart;
-  const Q     = plan.advancePerGroup * plan.groupSizes.length + plan.bestExtraQualifiers;
+  const grupos = plan.groupSizes.length;
+  const d      = derivar(grupos, repescados);
+  const ronda  = RONDA[knockoutStartFor(d.bracketSize)] ?? '';
+  const seg    = { n: repescados, grupos, ratio: d.ratio };
+
+  // El salto de ronda es lo más contraintuitivo del sistema: repescar UNA más
+  // puede disparar los byes de 0 a 7, porque el cuadro pasa a la siguiente
+  // potencia de 2. Se avisa ANTES de pulsar.
+  const siguiente = repescados < grupos ? derivar(grupos, repescados + 1) : null;
+  const salta     = siguiente && siguiente.bracketSize > d.bracketSize;
 
   // El ratio se pinta, no solo se dice: el color lo hace legible de un vistazo
   // sin tener que leer la frase.
@@ -270,7 +324,7 @@ function BloquesDelPlan({ plan }: { plan: FormatPlan }) {
         <Text style={s.bloqueNota}>{describirAsegurados(plan.groupSizes)}</Text>
       </View>
 
-      {plan.advancePerGroup > 0 && (
+      {grupos > 1 && (
         <View style={s.bloque}>
           <View style={s.bloqueCabecera}>
             <Text style={s.bloqueEtiqueta}>ELIMINATORIAS</Text>
@@ -284,18 +338,54 @@ function BloquesDelPlan({ plan }: { plan: FormatPlan }) {
             </Pressable>
           </View>
 
-          <Text style={s.bloqueLinea}>
-            {ronda} · {Q} clasificados
+          <Text style={s.bloqueLinea}>{ronda} · {d.clasificados} clasificados</Text>
+
+          {/* Una sola perilla. Todo lo de abajo se recalcula al pulsarla. */}
+          <View style={s.stepper}>
+            <Text style={s.stepperEtiqueta}>Segundos que avanzan</Text>
+            <View style={s.stepperControl}>
+              <Pressable
+                onPress={() => onRepescados(Math.max(0, repescados - 1))}
+                disabled={repescados <= 0}
+                style={({ pressed }) => [s.stepperBoton, repescados <= 0 && s.stepperInerte, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Un segundo menos"
+              >
+                <Text style={s.stepperSigno}>−</Text>
+              </Pressable>
+              <Text style={s.stepperCifra}>{repescados}</Text>
+              <Pressable
+                onPress={() => onRepescados(Math.min(grupos, repescados + 1))}
+                disabled={repescados >= grupos}
+                style={({ pressed }) => [s.stepperBoton, repescados >= grupos && s.stepperInerte, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Un segundo más"
+              >
+                <Text style={s.stepperSigno}>+</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <Text style={s.bloqueNota}>
+            {d.byes > 0
+              ? `${d.byes} ${d.byes === 1 ? 'pasa' : 'pasan'} directo · ${d.primeraRonda} ${d.primeraRonda === 1 ? 'partido' : 'partidos'}`
+              : `Cuadro lleno · ${d.primeraRonda} partidos`}
           </Text>
-          <Text style={s.bloqueNota}>{describirClasificados(plan)}</Text>
           <Text style={[s.bloqueNota, { color: tinteSeg }]}>{fraseSegundos(seg)}</Text>
+
+          {salta && (
+            <Text style={s.aviso}>
+              Con {repescados + 1}, el cuadro salta a{' '}
+              {(RONDA[knockoutStartFor(siguiente!.bracketSize)] ?? '').toLowerCase()} y{' '}
+              {siguiente!.byes} parejas pasan directo.
+            </Text>
+          )}
 
           {verCuadro && (
             <CuadroPreview
-              Q={Q}
-              grupos={plan.groupSizes.length}
-              advancePerGroup={plan.advancePerGroup}
-              repescados={plan.bestExtraQualifiers}
+              clasificados={d.clasificados}
+              grupos={grupos}
+              repescados={repescados}
             />
           )}
         </View>
@@ -426,6 +516,9 @@ export default function CerrarInscripcionesScreen() {
         pagadas: n, pendientes: pendientes ?? 0,
         estado: clasificar(n, c.status, plan),
         plan, alternativa: 0,
+        // Provisional: lo reemplaza el planificador en cuanto se resuelve la
+        // capacidad, unas líneas más abajo.
+        repescados: plan?.bestExtraQualifiers ?? 0,
       };
     }));
 
@@ -443,11 +536,20 @@ export default function CerrarInscripcionesScreen() {
           fecha: w.dia, desde: w.desde.slice(0, 5), hasta: w.hasta.slice(0, 5),
         })),
       };
-      setCapacidad(planTournament(
+      const conCapacidad = planTournament(
         conConteos.filter((c) => c.status === 'open' && c.pagadas >= 3)
           .map((c) => ({ id: c.id, parejas: c.pagadas })),
         cap,
-      ));
+      );
+      setCapacidad(conCapacidad);
+
+      // El default de la perilla sale de la capacidad, igual que el tamaño de
+      // grupo: si el último día va holgado, más repescados; si aprieta, más
+      // byes y un domingo más ligero.
+      setCategorias((prev) => prev.map((c) => {
+        const p = conCapacidad.planes.get(c.id);
+        return p ? { ...c, repescados: p.segundosQueAvanzan } : c;
+      }));
     } else {
       setCapacidad(null);
     }
@@ -482,6 +584,10 @@ export default function CerrarInscripcionesScreen() {
     });
   }
 
+  function setRepescados(id: string, n: number) {
+    setCategorias((prev) => prev.map((c) => (c.id === id ? { ...c, repescados: n } : c)));
+  }
+
   function elegirAlternativa(id: string, idx: number) {
     setCategorias((prev) => prev.map((c) => (c.id === id ? { ...c, alternativa: idx } : c)));
   }
@@ -500,9 +606,20 @@ export default function CerrarInscripcionesScreen() {
   /** El plan efectivo: la alternativa elegida si era ambigua. */
   function planDe(c: Categoria): FormatPlan | null {
     if (!c.plan) return null;
-    if (!c.plan.ambiguous) return c.plan;
-    const opciones = [c.plan, ...(c.plan.alternatives ?? [])];
-    return opciones[c.alternativa] ?? c.plan;
+    const base = c.plan.ambiguous
+      ? ([c.plan, ...(c.plan.alternatives ?? [])][c.alternativa] ?? c.plan)
+      : c.plan;
+
+    // La repesca elegida en el stepper viaja como bestExtraQualifiers, que es
+    // donde la guarda `categories` desde la migración 001. Con TODOS los
+    // segundos dentro pasan 2 por grupo y no hay repescados: son la misma
+    // situación escrita de dos formas, y el motor de siembra espera la segunda.
+    const grupos = base.groupSizes.length;
+    if (grupos <= 1) return base;
+
+    return c.repescados >= grupos
+      ? { ...base, advancePerGroup: 2, bestExtraQualifiers: 0 }
+      : { ...base, advancePerGroup: 1, bestExtraQualifiers: c.repescados };
   }
 
   async function cerrar() {
@@ -683,7 +800,13 @@ export default function CerrarInscripcionesScreen() {
                 {/* Con formato ambiguo la línea de resumen sobraba: decía
                     exactamente lo mismo que la primera opción del radio, dos
                     veces seguidas. Las opciones ya lo dicen todo. */}
-                {plan && c.estado !== 'ambigua' && <BloquesDelPlan plan={plan} />}
+                {plan && c.estado !== 'ambigua' && (
+                  <BloquesDelPlan
+                    plan={plan}
+                    repescados={c.repescados}
+                    onRepescados={(n) => setRepescados(c.id, n)}
+                  />
+                )}
                 {desigual && c.estado !== 'ambigua' && <Text style={s.desigual}>{desigual}</Text>}
 
                 {c.estado === 'faltan' && (
@@ -858,6 +981,15 @@ const s = StyleSheet.create({
   bloqueEtiqueta:  { fontFamily: font.display, fontSize: 12, color: color.muted, letterSpacing: 1.8, textTransform: 'uppercase' },
   bloqueLinea:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
   bloqueNota:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+
+  stepper:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3], marginTop: space[2], marginBottom: space[1] },
+  stepperEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, flex: 1 },
+  stepperControl:  { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  stepperBoton:    { width: 34, height: 34, borderRadius: radius.sm, borderWidth: 1, borderColor: color.line, backgroundColor: color.surface2, alignItems: 'center', justifyContent: 'center' },
+  stepperInerte:   { opacity: 0.35 },
+  stepperSigno:    { fontFamily: font.display, fontSize: 18, color: color.gold },
+  stepperCifra:    { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text, minWidth: 22, textAlign: 'center' },
+  aviso:           { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 18, marginTop: space[1] },
 
   verCuadro:       { paddingHorizontal: space[3], paddingVertical: space[1.5], borderWidth: 1, borderColor: color.line, borderRadius: radius.sm, flexShrink: 0 },
   verCuadroTexto:  { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.gold },

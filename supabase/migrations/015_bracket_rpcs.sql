@@ -10,6 +10,17 @@ create unique index if not exists matches_bracket_slot_uniq
   where stage <> 'group';
 
 -- SEED: materializa la 1.ª ronda eliminatoria de una categoría.
+-- ⚠️ SUSTITUIDA POR LA MIGRACIÓN 045 (no editar esta: queda como registro).
+--
+--    Esta versión sembraba los byes con status 'scheduled' y winner_pair_id
+--    null. Como nadie los juega, nada los ponía en 'finished', y el guard de
+--    generate-bracket —`allFinished = ms.every(m => m.status === 'finished'
+--    && m.winner_pair_id)`— nunca se cumplía: el cuadro se atascaba en la
+--    primera ronda con un bye y no avanzaba jamás.
+--
+--    La 045 hace que un partido con un solo lado nazca resuelto. Ver allí el
+--    razonamiento completo, incluido por qué played_at se queda en NULL.
+
 create or replace function public.seed_bracket_for_category(
   p_actor       uuid,
   p_category_id uuid,

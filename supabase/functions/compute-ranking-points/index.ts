@@ -79,15 +79,27 @@ Deno.serve(async (req) => {
       const { data: matches } = await admin
         .from('matches').select('id, stage, pair_a_id, pair_b_id, winner_pair_id, status')
         .eq('category_id', cat.id);
-      const finished = (matches ?? []).filter((m: any) => m.status === 'finished' && m.winner_pair_id);
+      // DOS CONJUNTOS, y la diferencia importa. Desde la migración 045 un bye
+      // nace 'finished' con winner_pair_id, así que hay que distinguir entre
+      // "jugó y ganó" y "estuvo en el cuadro".
+      const resueltos = (matches ?? []).filter((m: any) => m.status === 'finished' && m.winner_pair_id);
+
+      //   jugados: los que de verdad se disputaron. Un bye NO cuenta como
+      //   victoria — nadie ganó nada.
+      const jugados = resueltos.filter((m: any) => m.pair_a_id && m.pair_b_id);
+      //   participacion: incluye los byes. Pasar de ronda sin jugar SÍ es
+      //   haber estado en el cuadro, y de aquí salen drawSize y qualified.
+      const participacion = resueltos.filter((m: any) => m.stage !== 'group');
+
+      const finished = jugados;
 
       // drawSize = nº de parejas en knockout; si no hubo knockout, nº de parejas de la categoría.
-      const knockout = finished.filter((m: any) => m.stage !== 'group');
+      const knockout = participacion;
       const koPairs = new Set<string>();
       knockout.forEach((m: any) => { if (m.pair_a_id) koPairs.add(m.pair_a_id); if (m.pair_b_id) koPairs.add(m.pair_b_id); });
       const drawSize = koPairs.size || (pairs ?? []).length;
 
-      const finalMatch = finished.find((m: any) => m.stage === 'final');
+      const finalMatch = participacion.find((m: any) => m.stage === 'final');
       const roundRobinOnly = cat.format_type === 'round_robin';
 
       for (const p of (pairs ?? []) as any[]) {
@@ -100,8 +112,10 @@ Deno.serve(async (req) => {
           if (finalMatch && finalMatch.winner_pair_id === p.id) furthestRound = 'champion';
           else if (finalMatch && (finalMatch.pair_a_id === p.id || finalMatch.pair_b_id === p.id)) furthestRound = 'final';
           else {
-            const stages = finished
-              .filter((m: any) => m.stage !== 'group' && (m.pair_a_id === p.id || m.pair_b_id === p.id))
+            // Participación, no partidos jugados: llegar a cuartos por bye
+            // sigue siendo llegar a cuartos.
+            const stages = participacion
+              .filter((m: any) => m.pair_a_id === p.id || m.pair_b_id === p.id)
               .map((m: any) => (m.stage === 'third_place' ? 'semi' : m.stage));
             const deepest = order.find((s) => stages.includes(s));
             furthestRound = deepest ? (STAGE_TOKEN[deepest] ?? 'none') : 'none';
