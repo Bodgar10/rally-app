@@ -54,10 +54,8 @@ export default function ParejasTorneoScreen() {
       // embed: ese embed pasaba por users_select_own, que solo deja leer la
       // propia fila, así que el organizador veía '—' en TODOS los jugadores de
       // su propio torneo. La vista ya está acotada al owner por dentro.
-      // Cast hasta que se aplique la 041 y se corra `npm run types:db`.
-      (supabase.from as unknown as (v: string) => {
-        select: (c: string) => { eq: (c: string, v: string) => { order: (c: string, o: { ascending: boolean }) => Promise<{ data: { pair_id: string; payment_status: string; category_id: string; player1_name: string; player2_name: string }[] | null; error: { message?: string } | null }> } };
-      })('organizer_pairs_admin')
+      supabase
+        .from('organizer_pairs_admin')
         .select('pair_id, payment_status, category_id, player1_name, player2_name')
         .eq('tournament_id', tournamentId)
         .order('created_at', { ascending: true }),
@@ -74,13 +72,17 @@ export default function ParejasTorneoScreen() {
     const nombreCat = new Map((cats ?? []).map((c) => [c.id, c.display_name]));
 
     setParejas(
-      (data ?? []).map((row) => ({
-        id:        row.pair_id,
-        jugador1:  row.player1_name,
-        jugador2:  row.player2_name,
-        categoria: nombreCat.get(row.category_id) ?? '—',
-        pago:      row.payment_status,
-      })),
+      // Es una VISTA: Postgres no propaga NOT NULL a través de una vista, así
+      // que sus columnas llegan nullable aunque en origen no lo sean.
+      (data ?? [])
+        .filter((row): row is typeof row & { pair_id: string } => row.pair_id !== null)
+        .map((row) => ({
+          id:        row.pair_id,
+          jugador1:  row.player1_name ?? '—',
+          jugador2:  row.player2_name ?? '—',
+          categoria: nombreCat.get(row.category_id ?? '') ?? '—',
+          pago:      row.payment_status ?? 'pending',
+        })),
     );
     setCargando(false);
   }, [tournamentId]);

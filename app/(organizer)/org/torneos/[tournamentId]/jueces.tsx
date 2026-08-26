@@ -69,10 +69,8 @@ export default function JuecesTorneoScreen() {
       // Va por organizer_judges_admin (migración 041): el embed a `users`
       // pasaba por users_select_own y dejaba la lista sin nombre ni correo.
       // La vista ya está acotada al owner por dentro.
-      // Cast hasta que se aplique la 041 y se corra `npm run types:db`.
-      (supabase.from as unknown as (v: string) => {
-        select: (c: string) => { eq: (c: string, v: string) => { order: (c: string, o: { ascending: boolean }) => Promise<{ data: { id: string; user_id: string; full_name: string; email: string }[] | null; error: { message?: string } | null }> } };
-      })('organizer_judges_admin')
+      supabase
+        .from('organizer_judges_admin')
         .select('id, user_id, full_name, email')
         .eq('tournament_id', tournamentId)
         .order('created_at', { ascending: true }),
@@ -84,12 +82,16 @@ export default function JuecesTorneoScreen() {
       console.error('[jueces] cargar', dbError);
     } else {
       setJudges(
-        (data ?? []).map((row) => ({
-          id:     row.id,
-          userId: row.user_id,
-          name:   row.full_name,
-          email:  row.email,
-        })),
+        // Es una VISTA: sus columnas llegan nullable aunque en origen no lo
+        // sean. Sin id la fila no se puede usar como key de lista.
+        (data ?? [])
+          .filter((row): row is typeof row & { id: string } => row.id !== null)
+          .map((row) => ({
+            id:     row.id,
+            userId: row.user_id ?? '',
+            name:   row.full_name ?? '—',
+            email:  row.email ?? '—',
+          })),
       );
     }
     setCargando(false);

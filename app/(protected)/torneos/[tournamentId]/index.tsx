@@ -97,15 +97,9 @@ export default function TorneoDetailScreen() {
         .eq('tournament_id', tournamentId)
         .order('gender')
         .order('division'),
-      // Cast hasta que se aplique la 042 y se corra `npm run types:db`.
       user
-        ? (supabase.from as unknown as (v: string) => {
-            select: (c: string) => { eq: (c: string, v: string) => Promise<{ data: Array<{
-              category_id: string; payment_status: string;
-              player1_id: string; player2_id: string;
-              player1_name: string; player2_name: string;
-            }> | null }> };
-          })('my_pairs')
+        ? supabase
+            .from('my_pairs')
             .select('category_id, payment_status, player1_id, player2_id, player1_name, player2_name')
             .eq('tournament_id', tournamentId)
         : Promise.resolve({ data: null }),
@@ -115,14 +109,19 @@ export default function TorneoDetailScreen() {
 
     const nombreCat = new Map((cats ?? []).map((c) => [c.id, c.display_name]));
 
+    // `my_pairs` es una VISTA y sus columnas llegan nullable: Postgres no
+    // propaga NOT NULL a través de una vista. Sin category_id la fila no se
+    // puede etiquetar, así que se descarta.
     setMisInscripciones(
-      (mias ?? []).map((m) => ({
-        categoriaId: m.category_id,
-        categoria:   nombreCat.get(m.category_id) ?? '—',
-        // El compañero es el OTRO, quienquiera que sea de los dos.
-        companero:   m.player1_id === user?.id ? m.player2_name : m.player1_name,
-        pagada:      m.payment_status !== 'pending',
-      })),
+      (mias ?? [])
+        .filter((m): m is typeof m & { category_id: string } => m.category_id !== null)
+        .map((m) => ({
+          categoriaId: m.category_id,
+          categoria:   nombreCat.get(m.category_id) ?? '—',
+          // El compañero es el OTRO, quienquiera que sea de los dos.
+          companero:   (m.player1_id === user?.id ? m.player2_name : m.player1_name) ?? '—',
+          pagada:      m.payment_status !== 'pending',
+        })),
     );
 
     setCategorias(

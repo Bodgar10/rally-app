@@ -67,13 +67,8 @@ export default function LoginScreen() {
 
     const limpio = email.trim().toLowerCase();
     setLoading(true);
-    // Cast hasta que se aplique la 043 y se corra `npm run types:db`.
-    const { data, error: rpcError } = await (supabase.rpc as unknown as (
-      fn: string, args: { p_email: string },
-    ) => Promise<{
-      data: 'not_found' | 'needs_activation' | 'has_password' | null;
-      error: { code?: string; message?: string; details?: string } | null;
-    }>)('auth_email_status', { p_email: limpio });
+    const { data, error: rpcError } = await supabase
+      .rpc('auth_email_status', { p_email: limpio });
     setLoading(false);
 
     if (rpcError) {

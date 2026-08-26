@@ -65,14 +65,18 @@ export default function DashboardScreen() {
       if (pairs) setPairIds(pairs.map((p: { id: string }) => p.id));
 
       // Torneo inscrito más próximo, para cuando todavía no hay partido.
-      // Cast hasta que se aplique la 042 y se corra `npm run types:db`.
-      const { data: mias } = await (supabase.from as unknown as (v: string) => {
-        select: (c: string) => Promise<{ data: Array<{
-          tournament_id: string; category_id: string;
-        }> | null }>;
-      })('my_pairs').select('tournament_id, category_id');
+      const { data: mias } = await supabase
+        .from('my_pairs')
+        .select('tournament_id, category_id');
 
-      const idsTorneo = [...new Set((mias ?? []).map((m) => m.tournament_id))];
+      // `my_pairs` es una VISTA: Postgres no propaga NOT NULL a través de una
+      // vista, así que sus columnas llegan nullable aunque en origen no lo sean.
+      const filasMias = (mias ?? []).filter(
+        (m): m is typeof m & { tournament_id: string; category_id: string } =>
+          m.tournament_id !== null && m.category_id !== null,
+      );
+
+      const idsTorneo = [...new Set(filasMias.map((m) => m.tournament_id))];
       if (idsTorneo.length > 0) {
         const [{ data: ts }, { data: cats }] = await Promise.all([
           supabase
@@ -82,7 +86,7 @@ export default function DashboardScreen() {
             // El que antes empiece: es el que le va a tocar.
             .order('start_date', { ascending: true }),
           supabase.from('categories').select('id, display_name').in('id',
-            [...new Set((mias ?? []).map((m) => m.category_id))]),
+            [...new Set(filasMias.map((m) => m.category_id))]),
         ]);
 
         // Un torneo terminado ya no "está por empezar".
@@ -94,7 +98,7 @@ export default function DashboardScreen() {
             nombre: vivo.name,
             inicio: vivo.start_date,
             fin:    vivo.end_date,
-            categorias: (mias ?? [])
+            categorias: filasMias
               .filter((m) => m.tournament_id === vivo.id)
               .map((m) => nombreCat.get(m.category_id) ?? '')
               .filter(Boolean),
