@@ -42,6 +42,10 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import Icon from '@/components/ui/Icon';
 import { computeFormat, type FormatPlan } from '@/lib/engine/format';
+import {
+  planTournament,
+  type Capacidad, type PlanTorneo, type Fase as FaseCapacidad,
+} from '@/lib/engine/planner';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -203,6 +207,68 @@ const ETIQUETA: Record<EstadoCategoria, { texto: string; tinte: string }> = {
   cerrada: { texto: 'CERRADA',            tinte: color.champagne },
 };
 
+/** Ocupación de una fase, con su barra. */
+function BarraFase({ titulo, fase }: { titulo: string; fase: FaseCapacidad }) {
+  const pct = Math.min(1, fase.ocupacion);
+  const tinte = fase.zona === 'no_cabe' ? color.danger
+              : fase.zona === 'limite'  ? color.alive
+              : fase.zona === 'ajustado'? color.champagne
+              : color.live;
+
+  return (
+    <View style={s.faseCaja}>
+      <View style={s.faseFila}>
+        <Text style={s.faseTitulo}>{titulo}</Text>
+        <Text style={[s.faseCifra, { color: tinte }]}>
+          {fase.usados}/{fase.presupuesto} · {Math.round(fase.ocupacion * 100)}%
+        </Text>
+      </View>
+      <View style={s.barra}>
+        <View style={[s.barraLlena, { width: `${pct * 100}%`, backgroundColor: tinte }]} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * El plan del torneo entero.
+ *
+ * Las ocho categorías compiten por las MISMAS canchas, así que decidir una por
+ * una no puede saber si el conjunto cabe — y nadie se entera hasta que la gente
+ * está esperando en el club. Cimepa corrió su fase de grupos al 94% y hubo
+ * esperas de media hora a una hora.
+ */
+function BloqueCapacidad({ plan }: { plan: PlanTorneo }) {
+  return (
+    <View style={[s.capacidad, !plan.cabe && s.capacidadMal]}>
+      <Text style={s.capacidadTitulo}>
+        {plan.cabe ? '¿Cabe en tus canchas?' : 'No cabe en tus canchas'}
+      </Text>
+
+      <BarraFase titulo="Fase de grupos"  fase={plan.grupos} />
+      <BarraFase titulo="Último día"      fase={plan.eliminacion} />
+
+      {plan.avisos.map((a, i) => (
+        <Text key={i} style={s.capacidadAviso}>· {a}</Text>
+      ))}
+
+      {plan.diagnostico && (
+        <View style={s.diagnostico}>
+          <Text style={s.diagnosticoTexto}>
+            Faltan {plan.diagnostico.faltanSlots} partidos de espacio. Puedes: usar{' '}
+            {plan.diagnostico.canchasQueFaltan}{' '}
+            {plan.diagnostico.canchasQueFaltan === 1 ? 'cancha más' : 'canchas más'}, alargar{' '}
+            {plan.diagnostico.horasQueFaltan}{' '}
+            {plan.diagnostico.horasQueFaltan === 1 ? 'hora' : 'horas'} por día, o quitar{' '}
+            {plan.diagnostico.parejasQueSobran}{' '}
+            {plan.diagnostico.parejasQueSobran === 1 ? 'pareja' : 'parejas'}.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ── Pantalla ────────────────────────────────────────────────────────────────
 
 type Fase =
@@ -216,6 +282,7 @@ export default function CerrarInscripcionesScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
 
+  const [capacidad, setCapacidad] = useState<PlanTorneo | null>(null);
   const [nombre, setNombre]         = useState('');
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [marcadas, setMarcadas]     = useState<Set<string>>(new Set());
@@ -223,13 +290,25 @@ export default function CerrarInscripcionesScreen() {
   const [error, setError]           = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
-    const [{ data: t }, { data: cats }] = await Promise.all([
-      supabase.from('tournaments').select('name').eq('id', tournamentId).single(),
+    const [{ data: t }, { data: cats }, { data: ws }] = await Promise.all([
+      // Cast hasta que se aplique la 044 y se corra `npm run types:db`.
+      (supabase.from as unknown as (v: string) => {
+        select: (c: string) => { eq: (c: string, v: string) => {
+          single: () => Promise<{ data: { name: string; courts: number | null; match_minutes: number | null } | null }>;
+        } };
+      })('tournaments')
+        .select('name, courts, match_minutes').eq('id', tournamentId).single(),
       supabase.from('categories').select('id, display_name, status')
         .eq('tournament_id', tournamentId).order('division'),
+      (supabase.from as unknown as (v: string) => {
+        select: (c: string) => { eq: (c: string, v: string) => { order: (c: string) => Promise<{ data: Array<{
+          dia: string; desde: string; hasta: string;
+        }> | null }> } };
+      })('tournament_windows')
+        .select('dia, desde, hasta').eq('tournament_id', tournamentId).order('dia'),
     ]);
 
-    if (t) setNombre((t as { name: string }).name);
+    if (t) setNombre(t.name);
 
     const filas = (cats ?? []) as Array<{ id: string; display_name: string; status: string }>;
 
@@ -254,6 +333,27 @@ export default function CerrarInscripcionesScreen() {
     }));
 
     setCategorias(conConteos);
+
+    // El plan del TORNEO ENTERO. Las categorías compiten por las mismas
+    // canchas, así que decidir una por una no puede saber si el conjunto cabe.
+    // Sin canchas u horarios capturados no hay nada que calcular y la pantalla
+    // se queda con la vista por categoría de siempre.
+    if (t?.courts && (ws ?? []).length > 0) {
+      const cap: Capacidad = {
+        canchas: t.courts,
+        minutosPorPartido: t.match_minutes ?? 60,
+        ventanas: (ws ?? []).map((w) => ({
+          fecha: w.dia, desde: w.desde.slice(0, 5), hasta: w.hasta.slice(0, 5),
+        })),
+      };
+      setCapacidad(planTournament(
+        conConteos.filter((c) => c.status === 'open' && c.pagadas >= 3)
+          .map((c) => ({ id: c.id, parejas: c.pagadas })),
+        cap,
+      ));
+    } else {
+      setCapacidad(null);
+    }
     // Por defecto van marcadas las que se pueden cerrar.
     setMarcadas(new Set(
       conConteos.filter((c) => c.estado === 'lista' || c.estado === 'ambigua').map((c) => c.id),
@@ -432,6 +532,10 @@ export default function CerrarInscripcionesScreen() {
           jugadores ya no podrán inscribirse en ella. Las que dejes abiertas
           siguen aceptando parejas.
         </Text>
+
+        {/* El torneo entero, antes que las categorías: si no cabe, da igual
+            cuál se cierre primero. */}
+        {capacidad && <BloqueCapacidad plan={capacidad} />}
 
         {categorias.map((c) => {
           const et       = ETIQUETA[c.estado];
@@ -633,6 +737,21 @@ const s = StyleSheet.create({
 
   conteo:     { fontFamily: font.body, fontSize: fontSize.body, color: color.text },
   estructura: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 },
+  capacidad:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[3], marginBottom: space[2] },
+  capacidadMal:    { borderColor: color.danger, backgroundColor: 'rgba(224,114,111,0.08)' },
+  capacidadTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  capacidadAviso:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+
+  faseCaja:   { gap: space[1] },
+  faseFila:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  faseTitulo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  faseCifra:  { fontFamily: font.display, fontSize: fontSize.caption },
+  barra:      { height: 4, borderRadius: 2, backgroundColor: color.surface2, overflow: 'hidden' },
+  barraLlena: { height: 4, borderRadius: 2 },
+
+  diagnostico:      { backgroundColor: color.surface2, borderRadius: radius.md, padding: space[3] },
+  diagnosticoTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 19 },
+
   desigual:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
   faltan:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 17 },
 

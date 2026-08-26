@@ -47,7 +47,13 @@ interface Tournament {
   status:           string;
   registration_fee: number;
   venues:           Venue | null;
+  /** Capacidad (migración 044). Null mientras no se capture. */
+  courts:           number | null;
+  match_minutes:    number | null;
 }
+
+/** Una franja horaria por día de torneo. */
+interface Ventana { dia: string; desde: string; hasta: string }
 
 interface Category { id: string; display_name: string }
 
@@ -93,14 +99,15 @@ export default function OrgTournamentScreen() {
   const [loading, setLoading]         = useState(true);
   const [updating, setUpdating]       = useState(false);
   const [finishState, setFinishState] = useState<FinishState>({ status: 'idle' });
+  const [ventanas, setVentanas]       = useState<Ventana[]>([]);
 
   const load = useCallback(async () => {
     // Una sola tanda: la pantalla necesita sede, conteos y el estado de Connect
     // del organizador para poder mostrar el valor de cada fila.
-    const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }] = await Promise.all([
+    const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }, { data: ws }] = await Promise.all([
       supabase
         .from('tournaments')
-        .select('id,name,start_date,end_date,status,registration_fee,organizer_id,venues:venue_id(name,city)')
+        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,organizer_id,venues:venue_id(name,city)')
         .eq('id', tournamentId)
         .single(),
       supabase
@@ -116,7 +123,16 @@ export default function OrgTournamentScreen() {
         .from('pairs')
         .select('id', { count: 'exact', head: true })
         .eq('tournament_id', tournamentId),
+      // Cast hasta que se aplique la 044 y se corra `npm run types:db`.
+      (supabase.from as unknown as (v: string) => {
+        select: (c: string) => { eq: (c: string, v: string) => { order: (c: string) => Promise<{ data: Ventana[] | null }> } };
+      })('tournament_windows')
+        .select('dia, desde, hasta')
+        .eq('tournament_id', tournamentId)
+        .order('dia'),
     ]);
+
+    setVentanas(ws ?? []);
 
     if (t) {
       const fila = t as unknown as Tournament & { organizer_id: string };
@@ -196,6 +212,17 @@ export default function OrgTournamentScreen() {
   const enCurso   = tournament.status === 'in_progress';
 
   const tieneSede       = !!tournament.venues;
+
+  /** "Vie, Sáb y Dom · 34 h" o "Sin definir". */
+  const resumenHorarios = (() => {
+    if (ventanas.length === 0) return 'Sin definir';
+    const minutos = ventanas.reduce((acc, v) => {
+      const m = (x: string) => { const [h, mm] = x.split(':').map(Number); return (h ?? 0) * 60 + (mm ?? 0); };
+      return acc + Math.max(0, m(v.hasta) - m(v.desde));
+    }, 0);
+    const dias = ventanas.length === 1 ? '1 día' : `${ventanas.length} días`;
+    return `${dias} · ${Math.round(minutos / 60)} h`;
+  })();
   const tieneCategorias = categories.length > 0;
 
   // El juez es el único no-obligatorio: no entra en `puedeAbrir`.
@@ -282,11 +309,24 @@ export default function OrgTournamentScreen() {
             value={valorCuota}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cuota`)}
           />
+          {/* Canchas y horarios son las dos mitades de la capacidad: con las
+              dos, el planificador dice si el torneo cabe; sin alguna, cae a
+              decidir categoría por categoría mirando solo las parejas. */}
+          <SettingRow
+            icon="grid"
+            title="Canchas"
+            value={tournament.courts
+              ? `${tournament.courts} ${tournament.courts === 1 ? 'cancha' : 'canchas'}`
+              : 'Sin definir'}
+            iconColor={tournament.courts ? undefined : color.alive}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/canchas`)}
+          />
           <SettingRow
             icon="clock"
-            title="Horarios de partidos"
-            value="Sin definir"
-            disabled
+            title="Horarios"
+            value={resumenHorarios}
+            iconColor={ventanas.length > 0 ? undefined : color.alive}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/horarios`)}
           />
           <SettingRow
             icon="whistle"
