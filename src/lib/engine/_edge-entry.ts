@@ -17,6 +17,18 @@ export { computeSeeding, selectQualifiers, stageForBracketSize } from './seeding
 export type { QualifierStanding, MatchStage } from './seeding';
 export { advanceBracket, thirdPlaceFromSemis } from './bracket';
 
+// Scheduler del dia de eliminatorias (lo consume schedule-knockout)
+export { programarEliminatorias, etapaDeRonda } from './schedule/knockout';
+export type {
+  EntradaScheduler,
+  CategoriaCuadro,
+  PartidoProgramado,
+  Calendario,
+  FranjaOcupacion,
+  DiagnosticoScheduler,
+  EtapaEliminatoria,
+} from './schedule/knockout';
+
 // Rating (lo consume el cron de recompute; lo exponemos aquí para reuso)
 // NOTA: combineOpponentPair YA vive en glicko2.ts (no en un combine-pair.ts) → CAMBIO 1 del prompt se saltó.
 export { updateRating, combineOpponentPair } from './rating/glicko2';

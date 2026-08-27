@@ -146,6 +146,22 @@ interface SeedInput {
 interface BracketMatch {
     slotA: number;
     slotB: number;
+    /**
+     * null = bye.
+     *
+     * NO ES UN CASO REAL DEL PRODUCTO, y conviene saberlo antes de invertir en
+     * él: `computeFormat` está diseñado para que el número de clasificados sea
+     * SIEMPRE potencia de 2 — para eso existe `bestExtraQualifiers`, que rellena
+     * hasta la potencia con los mejores de la posición `advancePerGroup + 1`
+     * (los segundos cuando pasa 1 por grupo, los terceros cuando pasan 2).
+     * Verificado con los siete
+     * tamaños que producen planes distintos (5, 8, 16, 24, 32, 4, 9): ninguno
+     * deja un hueco.
+     *
+     * Los byes solo aparecerían si alguien alimenta computeSeeding saltándose
+     * computeFormat. El soporte de aquí es defensivo, no un camino que la app
+     * recorra.
+     */
     pairAId: string | null;
     pairBId: string | null;
     isRematch: boolean;
@@ -194,6 +210,64 @@ declare function thirdPlaceFromSemis(semis: [RoundMatch, RoundMatch]): {
     pairBId: string;
     sourceMatchIds: [string, string];
 } | null;
+
+/**
+ * Scheduler de eliminatorias.
+ * Asigna hora y cancha a cada partido del último día del torneo.
+ * Lógica pura y determinista: misma entrada -> misma salida. Sin dependencias.
+ */
+interface CategoriaCuadro {
+    id: string;
+    clasificados: number;
+}
+interface EntradaScheduler {
+    canchas: number;
+    desde: string;
+    hasta: string;
+    categorias: CategoriaCuadro[];
+    minutosPorPartido?: number;
+    descansoMinimo?: number;
+    paso?: number;
+}
+interface PartidoProgramado {
+    categoryId: string;
+    ronda: number;
+    totalRondas: number;
+    etapa: EtapaEliminatoria;
+    indiceEnRonda: number;
+    inicio: string;
+    inicioMin: number;
+    cancha: number;
+}
+interface FranjaOcupacion {
+    hora: string;
+    canchas: number;
+}
+interface DiagnosticoScheduler {
+    partidosSinProgramar: number;
+    canchasQueFaltan: number;
+    horasQueFaltan: number;
+}
+interface Calendario {
+    cabe: boolean;
+    partidos: PartidoProgramado[];
+    totalPartidos: number;
+    ultimoInicio: string | null;
+    finEstimado: string | null;
+    cotaInferior: string;
+    ocupacionPorFranja: FranjaOcupacion[];
+    avisos: string[];
+    diagnostico?: DiagnosticoScheduler;
+}
+declare function programarEliminatorias(entrada: EntradaScheduler): Calendario;
+/** Valores del enum match_stage de la base para eliminatorias. */
+type EtapaEliminatoria = 'round_of_32' | 'round_of_16' | 'quarter' | 'semi' | 'final';
+/**
+ * Mapea una ronda del calendario al enum match_stage.
+ * Se calcula por distancia a la final, no por numero de ronda,
+ * para que funcione igual en cuadros de 4 y de 32.
+ */
+declare function etapaDeRonda(ronda: number, totalRondas: number): EtapaEliminatoria;
 
 interface OpponentResult {
     rating: number;
@@ -261,4 +335,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type BracketMatch, type ClinchResult, type ClinchStatus, type Division, type Fixture, type FormatPlan, type FormatType, type GlickoRating, type KnockoutStart, type MatchResultInput, type MatchStage, type NextMatch, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, generateRoundRobin, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { type AdvanceResult, type BracketMatch, type Calendario, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type KnockoutStart, type MatchResultInput, type MatchStage, type NextMatch, type PartidoProgramado, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, generateRoundRobin, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };

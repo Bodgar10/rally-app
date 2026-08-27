@@ -436,6 +436,54 @@ export type Database = {
           },
         ]
       }
+      match_schedule: {
+        Row: {
+          category_id: string
+          court_label: string
+          created_at: string
+          id: string
+          scheduled_at: string
+          slot_index: number
+          stage: Database["public"]["Enums"]["match_stage"]
+          tournament_id: string
+        }
+        Insert: {
+          category_id: string
+          court_label: string
+          created_at?: string
+          id?: string
+          scheduled_at: string
+          slot_index: number
+          stage: Database["public"]["Enums"]["match_stage"]
+          tournament_id: string
+        }
+        Update: {
+          category_id?: string
+          court_label?: string
+          created_at?: string
+          id?: string
+          scheduled_at?: string
+          slot_index?: number
+          stage?: Database["public"]["Enums"]["match_stage"]
+          tournament_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_schedule_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_schedule_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_sets: {
         Row: {
           created_at: string
@@ -492,6 +540,7 @@ export type Database = {
           played_at: string | null
           round_label: string | null
           scheduled_at: string | null
+          scheduled_at_original: string | null
           stage: Database["public"]["Enums"]["match_stage"]
           status: Database["public"]["Enums"]["match_status"]
           tournament_id: string
@@ -508,6 +557,7 @@ export type Database = {
           played_at?: string | null
           round_label?: string | null
           scheduled_at?: string | null
+          scheduled_at_original?: string | null
           stage: Database["public"]["Enums"]["match_stage"]
           status?: Database["public"]["Enums"]["match_status"]
           tournament_id: string
@@ -524,6 +574,7 @@ export type Database = {
           played_at?: string | null
           round_label?: string | null
           scheduled_at?: string | null
+          scheduled_at_original?: string | null
           stage?: Database["public"]["Enums"]["match_stage"]
           status?: Database["public"]["Enums"]["match_status"]
           tournament_id?: string

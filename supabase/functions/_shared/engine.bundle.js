@@ -22,20 +22,30 @@ var RULES = {
   7: plan("groups_then_knockout", [4, 3], 2, 0, "semi"),
   8: plan("groups_then_knockout", [4, 4], 2, 0, "semi"),
   9: plan("groups_then_knockout", [3, 3, 3], 1, 1, "semi"),
-  10: plan("groups_then_knockout", [5, 5], 2, 0, "semi", true, [
-    plan("groups_then_knockout", [3, 3, 2, 2], 1, 0, "semi")
+  // 12 partidos en vez de 20. La alternativa de 5+5 da 1 asegurado más.
+  10: plan("groups_then_knockout", [4, 3, 3], 1, 1, "semi", false, [
+    plan("groups_then_knockout", [5, 5], 2, 0, "semi")
   ]),
   12: plan("groups_then_knockout", [3, 3, 3, 3], 2, 0, "quarter"),
-  14: plan("groups_then_knockout", [4, 4, 3, 3], 2, 0, "quarter", true, [
-    plan("groups_then_knockout", [7, 7], 2, 0, "quarter")
+  // Ya estaba bien; deja de ser ambigua porque con preferencia 3 no hay empate.
+  14: plan("groups_then_knockout", [4, 4, 3, 3], 2, 0, "quarter"),
+  // 18 partidos en vez de 24.
+  16: plan("groups_then_knockout", [4, 3, 3, 3, 3], 1, 3, "quarter", false, [
+    plan("groups_then_knockout", [4, 4, 4, 4], 2, 0, "quarter")
   ]),
-  16: plan("groups_then_knockout", [4, 4, 4, 4], 2, 0, "quarter"),
   18: plan("groups_then_knockout", [3, 3, 3, 3, 3, 3], 1, 2, "quarter"),
-  20: plan("groups_then_knockout", [5, 5, 5, 5], 2, 0, "quarter", true, [
+  // El peor caso de la tabla vieja: 40 partidos de grupos. Ahora 24.
+  20: plan("groups_then_knockout", [4, 4, 3, 3, 3, 3], 1, 2, "quarter", false, [
     plan("groups_then_knockout", [4, 4, 4, 4, 4], 1, 3, "quarter")
   ]),
-  24: plan("groups_then_knockout", [4, 4, 4, 4, 4, 4], 2, 4, "r16"),
-  32: plan("groups_then_knockout", [4, 4, 4, 4, 4, 4, 4, 4], 2, 0, "r16")
+  // 24 en vez de 36 partidos de grupos, aunque el cuadro pasa de 7 a 15.
+  24: plan("groups_then_knockout", [3, 3, 3, 3, 3, 3, 3, 3], 2, 0, "r16", false, [
+    plan("groups_then_knockout", [4, 4, 4, 4, 4, 4], 2, 4, "r16")
+  ]),
+  // 36 en vez de 48.
+  32: plan("groups_then_knockout", [4, 4, 3, 3, 3, 3, 3, 3, 3, 3], 1, 6, "r16", false, [
+    plan("groups_then_knockout", [4, 4, 4, 4, 4, 4, 4, 4], 2, 0, "r16")
+  ])
 };
 
 // src/lib/engine/format/index.ts
@@ -61,9 +71,10 @@ function distribute(n, g2) {
   for (let i = 0; i < g2; i++) sizes.push(base + (i < rem ? 1 : 0));
   return sizes;
 }
+var TAMANO_PREFERIDO = 3;
 function scorePartition(sizes) {
   if (sizes.some((s) => s < 3 || s > 5)) return null;
-  return sizes.reduce((acc, s) => acc + Math.abs(s - 4), 0);
+  return sizes.reduce((acc, s) => acc + Math.abs(s - TAMANO_PREFERIDO), 0);
 }
 function deriveFormat(n) {
   if (n <= 5) {
@@ -619,6 +630,209 @@ function thirdPlaceFromSemis(semis) {
   return { pairAId: la, pairBId: lb, sourceMatchIds: [semis[0].matchId, semis[1].matchId] };
 }
 
+// src/lib/engine/schedule/knockout.ts
+var DEFAULT_MINUTOS_PARTIDO = 60;
+var DEFAULT_DESCANSO_MINIMO = 30;
+var DEFAULT_PASO = 30;
+function parseHora(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) throw new Error(`Hora invalida: ${hhmm}`);
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) throw new Error(`Hora invalida: ${hhmm}`);
+  return h * 60 + min;
+}
+function formatHora(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+function partidosPorRonda(clasificados) {
+  if (clasificados < 2) return [];
+  const bracket = 2 ** Math.ceil(Math.log2(clasificados));
+  const out = [clasificados - bracket / 2];
+  let n = bracket / 4;
+  while (n >= 1) {
+    out.push(n);
+    n /= 2;
+  }
+  return out.filter((n2, i) => i === 0 || n2 >= 1);
+}
+function cotaInferior(entrada) {
+  const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
+  const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
+  const inicio = parseHora(entrada.desde);
+  const items = [];
+  for (const cat of entrada.categorias) {
+    const rondas = partidosPorRonda(cat.clasificados);
+    rondas.forEach((n, i) => {
+      items.push({ distancia: rondas.length - 1 - i, partidos: n });
+    });
+  }
+  if (items.length === 0) return inicio;
+  const maxDist = Math.max(...items.map((i) => i.distancia));
+  let mejor = inicio;
+  for (let j = 0; j <= maxDist; j++) {
+    const n = items.filter((i) => i.distancia >= j).reduce((a, b) => a + b.partidos, 0);
+    if (n === 0) continue;
+    const t = inicio + Math.ceil(n / entrada.canchas) * dur + j * (dur + desc);
+    if (t > mejor) mejor = t;
+  }
+  return mejor;
+}
+function programarEliminatorias(entrada) {
+  const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
+  const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
+  const paso = entrada.paso ?? DEFAULT_PASO;
+  const inicio = parseHora(entrada.desde);
+  const techo = parseHora(entrada.hasta);
+  const avisos = [];
+  if (entrada.canchas < 1) throw new Error("Se necesita al menos una cancha");
+  if (techo <= inicio) throw new Error("La ventana termina antes de empezar");
+  if (dur < 30 || dur > 120) throw new Error("minutosPorPartido fuera de rango");
+  const tareas = [];
+  for (const cat of entrada.categorias) {
+    const rondas = partidosPorRonda(cat.clasificados);
+    if (rondas.length === 0) {
+      avisos.push(`${cat.id} no tiene cuadro: ${cat.clasificados} clasificados.`);
+      continue;
+    }
+    rondas.forEach((n, i) => {
+      tareas.push({
+        categoryId: cat.id,
+        ronda: i + 1,
+        totalRondas: rondas.length,
+        partidos: n,
+        restantes: n,
+        colocados: 0,
+        finMin: null
+      });
+    });
+  }
+  const totalPartidos = tareas.reduce((a, t) => a + t.partidos, 0);
+  const ocupadaHasta = [];
+  const partidos = [];
+  const canchasLibres = (t) => {
+    const libres = [];
+    for (let c = 0; c < entrada.canchas; c++) {
+      const choca = ocupadaHasta.some(
+        (o) => o.cancha === c && o.desde < t + dur && t < o.hasta
+      );
+      if (!choca) libres.push(c);
+    }
+    return libres;
+  };
+  const finDe = (categoryId, ronda) => {
+    const t = tareas.find((x) => x.categoryId === categoryId && x.ronda === ronda);
+    return t ? t.finMin : null;
+  };
+  const pendientes = () => tareas.filter((t) => t.restantes > 0);
+  const oleadasForzosas = /* @__PURE__ */ new Set();
+  for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
+    const listas = pendientes().map((tarea) => {
+      let earliest = inicio;
+      if (tarea.ronda > 1) {
+        const fin = finDe(tarea.categoryId, tarea.ronda - 1);
+        if (fin === null) return null;
+        earliest = fin + desc;
+      }
+      if (earliest > t) return null;
+      const critico = (tarea.totalRondas - tarea.ronda) * (dur + desc) + dur;
+      return { tarea, critico };
+    }).filter((x) => x !== null).sort(
+      (a, b) => b.critico - a.critico || b.tarea.partidos - a.tarea.partidos || a.tarea.categoryId.localeCompare(b.tarea.categoryId)
+    );
+    for (const { tarea } of listas) {
+      if (t + dur > techo) break;
+      const libres = canchasLibres(t);
+      if (libres.length === 0) break;
+      const cabeEntera = tarea.partidos <= entrada.canchas;
+      if (cabeEntera && tarea.restantes > libres.length) continue;
+      const cupo = Math.min(tarea.restantes, libres.length);
+      if (!cabeEntera) oleadasForzosas.add(tarea.categoryId);
+      for (let k = 0; k < cupo; k++) {
+        const cancha = libres[k];
+        ocupadaHasta.push({ cancha, desde: t, hasta: t + dur });
+        partidos.push({
+          categoryId: tarea.categoryId,
+          ronda: tarea.ronda,
+          totalRondas: tarea.totalRondas,
+          etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas),
+          indiceEnRonda: tarea.colocados + k,
+          inicio: formatHora(t),
+          inicioMin: t,
+          cancha: cancha + 1
+        });
+      }
+      tarea.colocados += cupo;
+      tarea.restantes -= cupo;
+      tarea.finMin = t + dur;
+    }
+  }
+  const sinProgramar = tareas.reduce((a, t) => a + t.restantes, 0);
+  const cabe = sinProgramar === 0;
+  for (const cat of oleadasForzosas) {
+    avisos.push(
+      `${cat}: la ronda tiene mas partidos que canchas, se juega en oleadas y la mitad del cuadro descansa mas.`
+    );
+  }
+  const ultimoInicioMin = partidos.length > 0 ? Math.max(...partidos.map((p) => p.inicioMin)) : null;
+  const finEstimadoMin = ultimoInicioMin === null ? null : ultimoInicioMin + dur;
+  const cota = cotaInferior(entrada);
+  if (cabe && finEstimadoMin !== null && finEstimadoMin > cota) {
+    avisos.push(
+      `El calendario termina ${formatHora(finEstimadoMin)}; el minimo posible con esta capacidad es ${formatHora(cota)}.`
+    );
+  }
+  const franjas = /* @__PURE__ */ new Map();
+  for (const p of partidos) {
+    franjas.set(p.inicioMin, (franjas.get(p.inicioMin) ?? 0) + 1);
+  }
+  const ocupacionPorFranja = [...franjas.entries()].sort((a, b) => a[0] - b[0]).map(([min, n]) => ({ hora: formatHora(min), canchas: n }));
+  let diagnostico;
+  if (!cabe) {
+    const horasVentana = (techo - inicio) / 60;
+    diagnostico = {
+      partidosSinProgramar: sinProgramar,
+      canchasQueFaltan: Math.ceil(sinProgramar * dur / 60 / horasVentana),
+      horasQueFaltan: Math.ceil(sinProgramar * dur / 60 / entrada.canchas)
+    };
+    avisos.push(
+      `No caben ${sinProgramar} partidos antes de ${entrada.hasta}. Reduce repescados, alarga la tarde o suma canchas.`
+    );
+  }
+  return {
+    cabe,
+    partidos,
+    totalPartidos,
+    ultimoInicio: ultimoInicioMin === null ? null : formatHora(ultimoInicioMin),
+    finEstimado: finEstimadoMin === null ? null : formatHora(finEstimadoMin),
+    cotaInferior: formatHora(cota),
+    ocupacionPorFranja,
+    avisos,
+    diagnostico
+  };
+}
+function etapaDeRonda(ronda, totalRondas) {
+  const restantes = totalRondas - ronda;
+  switch (restantes) {
+    case 0:
+      return "final";
+    case 1:
+      return "semi";
+    case 2:
+      return "quarter";
+    case 3:
+      return "round_of_16";
+    case 4:
+      return "round_of_32";
+    default:
+      throw new Error(
+        `Cuadro demasiado grande: ronda ${ronda} de ${totalRondas}`
+      );
+  }
+}
+
 // src/lib/engine/rating/glicko2.ts
 var SCALE = 173.7178;
 var EPSILON = 1e-6;
@@ -758,4 +972,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, generateRoundRobin, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, generateRoundRobin, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
