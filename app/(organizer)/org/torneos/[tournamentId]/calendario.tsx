@@ -34,7 +34,7 @@ import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
-import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
@@ -108,6 +108,16 @@ interface Estado {
   fin: string | null;
   finRealista: string | null;
   seVaDeHora: boolean;
+  /**
+   * true si NINGUNA categoría tiene cuadro que programar todavía.
+   *
+   * No es lo mismo que "no cabe". Con las ocho categorías abiertas no hay
+   * clasificados, el motor recibe una lista vacía y devuelve `cabe: false` —
+   * que leído sin contexto se pinta como "No cabe en el domingo" en rojo. Eso
+   * es falso y alarmante: no es que el día no dé de sí, es que aún no hay nada
+   * que colocar. Por eso se distingue ANTES de llamar al motor.
+   */
+  sinCuadros: boolean;
   franjas: { hora: string; filas: Fila[] }[];
   reales: EmpalmeReal[];
   riesgos: Riesgo[];
@@ -124,6 +134,7 @@ type Fase =
 
 export default function CalendarioScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
+  const router = useRouter();
 
   const [estado, setEstado] = useState<Estado | null>(null);
   const [fase, setFase]     = useState<Fase>({ t: 'cargando' });
@@ -255,20 +266,22 @@ export default function CalendarioScreen() {
     });
 
     // ── Horas del día ──────────────────────────────────────────────────────
+    const cuadros = cuadrosDe(cats ?? []);
+    const sinCuadros = cuadros.length === 0;
+
     let fin: string | null = null;
     let finRealista: string | null = null;
-    if (t?.courts) {
-      const cuadros = cuadrosDe(cats ?? []);
-      if (cuadros.length > 0) {
-        try {
-          const r = programarEliminatorias({
-            canchas: t.courts, desde: ventana.desde.slice(0, 5), hasta: cierre,
-            categorias: cuadros, minutosPorPartido: minutos,
-          });
-          fin = r.cabe ? r.finEstimado : null;
-          finRealista = r.finRealista;
-        } catch { /* capacidad imposible: se queda sin horas */ }
-      }
+    // Sin cuadros no se llama al motor: su `cabe: false` sobre una lista vacía
+    // no significa nada y solo puede malinterpretarse.
+    if (t?.courts && !sinCuadros) {
+      try {
+        const r = programarEliminatorias({
+          canchas: t.courts, desde: ventana.desde.slice(0, 5), hasta: cierre,
+          categorias: cuadros, minutosPorPartido: minutos,
+        });
+        fin = r.cabe ? r.finEstimado : null;
+        finRealista = r.finRealista;
+      } catch { /* capacidad imposible: se queda sin horas */ }
     }
 
     setEstado({
@@ -279,6 +292,7 @@ export default function CalendarioScreen() {
       fin,
       finRealista,
       seVaDeHora: finRealista != null && finRealista > cierre,
+      sinCuadros,
       franjas: agruparPorHora(filas),
       reales,
       riesgos,
@@ -386,16 +400,35 @@ export default function CalendarioScreen() {
           </Text>
         ) : (
           <>
-            {/* 1 · Las horas */}
-            <View style={s.tarjeta}>
-              <HorasUltimoDia
-                dia={estado.dia}
-                fin={estado.fin}
-                finRealista={estado.finRealista}
-                seVaDeHora={estado.seVaDeHora}
-                minutos={estado.minutos}
-              />
-            </View>
+            {/* 1 · Las horas.
+                Solo si hay algo que programar. Con todo abierto no hay
+                clasificados y una hora calculada sobre cero cuadros no dice
+                nada — decir "no cabe" ahí sería alarmar por falta de datos. */}
+            {estado.sinCuadros ? (
+              <View style={s.tarjeta}>
+                <Text style={s.neutro}>
+                  Cierra las inscripciones de al menos una categoría para ver el
+                  calendario.
+                </Text>
+                <Pressable
+                  onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`)}
+                  style={({ pressed }) => [s.enlace, pressed && { opacity: 0.7 }]}
+                  accessibilityRole="button"
+                >
+                  <Text style={s.enlaceTexto}>Ir a cerrar inscripciones →</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={s.tarjeta}>
+                <HorasUltimoDia
+                  dia={estado.dia}
+                  fin={estado.fin}
+                  finRealista={estado.finRealista}
+                  seVaDeHora={estado.seVaDeHora}
+                  minutos={estado.minutos}
+                />
+              </View>
+            )}
 
             {/* 2 · Empalmes. Los reales primero: son certezas, no riesgos. */}
             {estado.reales.length > 0 && (
@@ -427,9 +460,13 @@ export default function CalendarioScreen() {
 
             {/* 3 · El calendario */}
             {estado.sinPlan ? (
-              <Text style={s.vacio}>
-                Todavía no hay calendario. Pulsa «Programar el último día».
-              </Text>
+              // Con cuadros pero sin plan, el camino es pulsar el botón. Sin
+              // cuadros el mensaje ya está arriba y repetirlo sobra.
+              estado.sinCuadros ? null : (
+                <Text style={s.vacio}>
+                  Todavía no hay calendario. Pulsa «Programar el último día».
+                </Text>
+              )
             ) : (
               estado.franjas.map((f) => (
                 <View key={f.hora} style={s.franja}>
@@ -463,13 +500,14 @@ export default function CalendarioScreen() {
             {/* 4 · Correr el scheduler */}
             <Pressable
               onPress={programar}
-              disabled={fase.t === 'programando'}
+              disabled={fase.t === 'programando' || estado.sinCuadros}
               style={({ pressed }) => [
                 s.principal,
-                fase.t === 'programando' && s.principalInerte,
+                (fase.t === 'programando' || estado.sinCuadros) && s.principalInerte,
                 pressed && { opacity: 0.85 },
               ]}
               accessibilityRole="button"
+              accessibilityState={{ disabled: estado.sinCuadros }}
             >
               {fase.t === 'programando'
                 ? <ActivityIndicator color={color.bg} />
@@ -478,10 +516,12 @@ export default function CalendarioScreen() {
                   </Text>}
             </Pressable>
 
-            <Text style={s.pieBoton}>
-              Reprogramar reescribe las horas de todo el último día. Los
-              resultados ya capturados no se tocan.
-            </Text>
+            {!estado.sinCuadros && (
+              <Text style={s.pieBoton}>
+                Reprogramar reescribe las horas de todo el último día. Los
+                resultados ya capturados no se tocan.
+              </Text>
+            )}
           </>
         )}
 
@@ -637,5 +677,11 @@ const s = StyleSheet.create({
   noCabeAviso:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
 
   vacio: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 21, paddingVertical: space[3] },
+
+  // Neutro a propósito: ni dorado (no es un logro) ni rojo (no es un fallo).
+  // Es una precondición que todavía no se cumple.
+  neutro:      { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 21 },
+  enlace:      { marginTop: space[2], alignSelf: 'flex-start', minHeight: touchTarget * 0.7, justifyContent: 'center' },
+  enlaceTexto: { fontFamily: font.body, fontSize: fontSize.body, color: color.champagne },
   error: { fontFamily: font.body, fontSize: fontSize.body, color: color.danger, lineHeight: 21, marginTop: space[2] },
 });

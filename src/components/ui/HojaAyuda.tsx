@@ -18,8 +18,20 @@
  *              titulo="Segundos que avanzan" parrafos={[...]} />
  */
 
-import { Modal, View, Text, Pressable, ScrollView, Platform, StyleSheet } from 'react-native';
-import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
+import {
+  Modal, View, Text, Pressable, ScrollView, Platform, StyleSheet,
+  useWindowDimensions,
+} from 'react-native';
+import { color, font, fontSize, radius, space, touchTarget, layout } from '@/lib/design-tokens';
+
+/**
+ * Ancho de lectura cómodo para la tarjeta de escritorio.
+ *
+ * Menor que `layout.contentMaxWidth` (720) a propósito: aquí son párrafos
+ * seguidos, no una pantalla con tarjetas, y una línea de 720px obliga a barrer
+ * la cabeza. Con ~600 la medida cae en el entorno de los 75 caracteres.
+ */
+const ANCHO_LECTURA = 600;
 
 export interface HojaAyudaProps {
   visible: boolean;
@@ -30,6 +42,55 @@ export interface HojaAyudaProps {
 }
 
 export default function HojaAyuda({ visible, onClose, titulo, parrafos }: HojaAyudaProps) {
+  const { width } = useWindowDimensions();
+
+  // Mismo umbral que usa WebShell para decidir nav horizontal vs. hamburguesa:
+  // si el proyecto ya llama "ancho" a >= 900, esto no inventa otra frontera.
+  const ancho = width >= layout.desktopBreakpoint;
+
+  const contenido = (
+    <>
+      <View style={s.cabecera}>
+        <Text style={s.eyebrow}>Ayuda</Text>
+        <Pressable
+          onPress={onClose}
+          hitSlop={12}
+          style={({ pressed }) => [s.cerrar, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar la ayuda"
+        >
+          <Text style={s.cerrarSigno}>✕</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={s.cuerpo} showsVerticalScrollIndicator={false}>
+        <Text style={s.titulo}>{titulo}</Text>
+        {parrafos.map((p, i) => (
+          <Text key={i} style={s.parrafo}>{p}</Text>
+        ))}
+      </ScrollView>
+    </>
+  );
+
+  // ── Pantalla ancha: tarjeta centrada sobre un velo ──────────────────────
+  // Cinco párrafos no justifican secuestrar un monitor entero. El velo deja
+  // ver que la pantalla de atrás sigue ahí, que es lo que hace que esto se lea
+  // como una nota al margen y no como otra pantalla.
+  if (ancho) {
+    return (
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <Pressable style={s.velo} onPress={onClose} accessibilityLabel="Cerrar la ayuda">
+          {/* El Pressable interior come el toque para que pulsar DENTRO de la
+              tarjeta no la cierre. Sin él, seleccionar texto la cerraría. */}
+          <Pressable style={s.tarjeta} onPress={() => {}}>
+            {contenido}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  }
+
+  // ── Pantalla angosta: la hoja de siempre, a pantalla completa ────────────
   return (
     <Modal
       visible={visible}
@@ -37,27 +98,7 @@ export default function HojaAyuda({ visible, onClose, titulo, parrafos }: HojaAy
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={s.fondo}>
-        <View style={s.cabecera}>
-          <Text style={s.eyebrow}>Ayuda</Text>
-          <Pressable
-            onPress={onClose}
-            hitSlop={12}
-            style={({ pressed }) => [s.cerrar, pressed && { opacity: 0.7 }]}
-            accessibilityRole="button"
-            accessibilityLabel="Cerrar la ayuda"
-          >
-            <Text style={s.cerrarSigno}>✕</Text>
-          </Pressable>
-        </View>
-
-        <ScrollView contentContainerStyle={s.cuerpo} showsVerticalScrollIndicator={false}>
-          <Text style={s.titulo}>{titulo}</Text>
-          {parrafos.map((p, i) => (
-            <Text key={i} style={s.parrafo}>{p}</Text>
-          ))}
-        </ScrollView>
-      </View>
+      <View style={s.fondo}>{contenido}</View>
     </Modal>
   );
 }
@@ -85,6 +126,26 @@ export function BotonAyuda({ onPress, etiqueta }: { onPress: () => void; etiquet
 
 const s = StyleSheet.create({
   fondo: { flex: 1, backgroundColor: color.bg },
+
+  velo: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: space[4],
+  },
+  tarjeta: {
+    width: '100%',
+    maxWidth: ANCHO_LECTURA,
+    // Nunca más alto que la ventana: con el texto largo el ScrollView interno
+    // se encarga, en vez de desbordar por abajo.
+    maxHeight: '85%',
+    backgroundColor: color.bg,
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
 
   cabecera: {
     flexDirection: 'row', alignItems: 'center',

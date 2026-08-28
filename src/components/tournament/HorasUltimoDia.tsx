@@ -27,7 +27,14 @@ import { FACTOR_RETRASO } from '@/lib/engine/schedule/knockout';
 export interface HorasUltimoDiaProps {
   /** 'domingo'. Sale de la fecha de la ventana, nunca está fijo. */
   dia: string;
-  /** Hora del plan, '16:30'. Null si el día no da de sí. */
+  /**
+   * Hora del plan, '16:30'. Null significa QUE NO CABE, no "no se sabe".
+   *
+   * La diferencia importa: un motor que recibe cero cuadros también devuelve
+   * `cabe: false`, y pintarlo como "No cabe en el domingo" es falso y alarma
+   * sin motivo. Para ese caso está `sinCuadros`, y quien llame debe decidir
+   * cuál de los dos es ANTES de montar el componente.
+   */
   fin: string | null;
   /** Hora con los retrasos habituales. Es la que decide. */
   finRealista: string | null;
@@ -35,16 +42,37 @@ export interface HorasUltimoDiaProps {
   seVaDeHora: boolean;
   /** Minutos por partido configurados en el torneo. */
   minutos: number;
+  /**
+   * true si todavía no hay ninguna categoría con cuadro que programar.
+   *
+   * No es un error ni una imposibilidad: es una precondición que aún no se
+   * cumple. Se dice en gris y sin horas, porque cualquier hora calculada sobre
+   * cero cuadros sería inventada.
+   */
+  sinCuadros?: boolean;
   titulo?: string;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
 }
 
 export default function HorasUltimoDia({
-  dia, fin, finRealista, seVaDeHora, minutos,
+  dia, fin, finRealista, seVaDeHora, minutos, sinCuadros = false,
   titulo = 'Último día', style, children,
 }: HorasUltimoDiaProps) {
   const duracionReal = Math.round(minutos * FACTOR_RETRASO);
+
+  // Sin cuadros no hay horas que enseñar, y las que hubiera serían inventadas.
+  if (sinCuadros) {
+    return (
+      <View style={[s.caja, style]}>
+        <Text style={s.titulo}>{titulo}</Text>
+        <Text style={s.neutro}>
+          Cierra las inscripciones de al menos una categoría para ver el calendario.
+        </Text>
+        {children}
+      </View>
+    );
+  }
 
   return (
     <View style={[s.caja, style]}>
@@ -77,4 +105,6 @@ const s = StyleSheet.create({
   principal:  { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne, marginTop: space[1] },
   secundaria: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, marginTop: 2 },
   nota:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.7, lineHeight: 16, marginTop: space[1] },
+  // Gris, no rojo: es una precondición pendiente, no un fallo.
+  neutro:     { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 21, marginTop: space[1] },
 });

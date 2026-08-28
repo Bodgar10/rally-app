@@ -363,11 +363,13 @@ const ETIQUETA: Record<EstadoCategoria, { texto: string; tinte: string }> = {
  * clasifica?") y ahora se ven como tales.
  */
 const AYUDA_SEGUNDOS = [
-  'De cada grupo pasa el primero. Aquí decides cuántos segundos lugares se suman.',
-  'Con más segundos, quedar segundo sirve: el que pierde su primer partido todavía juega por algo, y más parejas siguen vivas el último día.',
-  'Con menos, el último día termina antes. Cada pareja extra es un partido más, y los partidos del último día van uno detrás de otro.',
-  'Ojo con los saltos: cuando el número de clasificados cruza una potencia de 2, el cuadro gana una ronda entera y la final se recorre alrededor de una hora.',
-  'Las horas que ves ya incluyen los retrasos habituales. Si el formato solo cabe usando todas las canchas, te avisamos: una cancha fuera de servicio ese día puede dejarte sin terminar.',
+  'En la fase de grupos, cada grupo deja un ganador. Esos primeros lugares siempre pasan a la eliminatoria.',
+  'Pero normalmente sobran lugares en el cuadro. Si tienes 10 grupos, tus 10 ganadores no llenan un cuadro de 16. Aquí decides con quién rellenas: se ordenan todos los segundos lugares del torneo por su desempeño y suben los mejores.',
+  'Ejemplo. Con 10 grupos y 6 segundos que avanzan, el cuadro queda en 16 parejas: los 10 ganadores más los 6 mejores segundos. Los otros 4 segundos se quedan fuera.',
+  'Por qué subirlo. Quedar segundo sirve. El que pierde su primer partido de grupo todavía tiene algo que jugar, y más parejas siguen vivas el último día.',
+  'Por qué bajarlo. Cada pareja extra es un partido más, y los partidos del último día van uno detrás de otro. El torneo termina más tarde.',
+  'Los saltos. Cuando el número de clasificados cruza 4, 8, 16 o 32, el cuadro gana una ronda entera y la final se recorre alrededor de una hora. Por eso a veces subir de uno en uno no cambia nada y de pronto cuesta mucho.',
+  'Las horas que ves ya incluyen los retrasos habituales: los partidos se planifican a 60 minutos y suelen durar 75. Si el formato solo cabe usando todas las canchas, te avisamos — una cancha fuera de servicio ese día puede dejarte sin terminar.',
 ];
 
 function BloquesDelPlan({
