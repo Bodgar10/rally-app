@@ -68,6 +68,100 @@ const CATEGORIAS = [
 
 const CONCURRENCIA = 6;
 
+// ── Jugadores en dos categorías ─────────────────────────────────────────────
+//
+// EL CASO QUE EL SEED NO SABÍA REPRESENTAR
+//   Hasta ahora cada jugador aparecía en una sola categoría, así que las 165
+//   parejas eran 330 personas distintas. En el Cimepa real no fue así:
+//   Santiago Cantillo tenía semifinal de 2ª y final de 3ª a las 17:00 del
+//   mismo domingo. El scheduler razona en parejas por categoría y nunca en
+//   personas — con este seed era imposible siquiera reproducir el problema.
+//
+// LOS TRES DOCUMENTADOS son reales. El resto son sintéticos, hasta rondar el
+// 8% de personas en dos categorías, con el patrón que se ve en el club: una
+// de fuerza más una de mixtos. No se cruzan dos fuerzas — salvo Cantillo, que
+// es precisamente el caso raro que motivó todo esto.
+//
+// El número de PAREJAS no cambia: 165, y los mismos conteos por categoría. Lo
+// que baja es el número de personas distintas. Un cruce reescribe la identidad
+// de un hueco de pareja para que apunte a alguien que ya juega en otra parte.
+
+const clave = (division, gender) => `${division}|${gender}`;
+
+const C = {
+  '2A':  clave('segunda', 'male'),
+  '3A':  clave('tercera', 'male'),
+  '4A':  clave('cuarta',  'male'),
+  '5A':  clave('quinta',  'male'),
+  '6A':  clave('sexta',   'male'),
+  '5F':  clave('quinta',  'female'),
+  'MxD': clave('cuarta',  'mixed'),
+  'MxC': clave('tercera', 'mixed'),
+};
+
+/**
+ * Gente con nombre y apellido, para que los avisos de empalme se lean como en
+ * el torneo real y no como `qa_1103@rally.test`.
+ */
+const PERSONAS = {
+  cantillo:   { correo: 'qa_cantillo@rally.test',   nombre: 'Santiago Cantillo' },
+  tapia:      { correo: 'qa_tapia@rally.test',      nombre: 'Rodolfo Tapia' },
+  robelo:     { correo: 'qa_robelo@rally.test',     nombre: 'Carlos Robelo' },
+  minana:     { correo: 'qa_minana@rally.test',     nombre: 'Nat Miñana' },
+  mandujano:  { correo: 'qa_mandujano@rally.test',  nombre: 'Mariana Mandujano' },
+  paz:        { correo: 'qa_paz@rally.test',        nombre: 'Victor Paz' },
+  edgar:      { correo: 'qa_edgar@rally.test',      nombre: 'Edgar Sánchez' },
+};
+
+/**
+ * Los tres cruces reales, puestos a mano en la pareja 0 de cada categoría.
+ *
+ * En mixtos el hueco 0 es el hombre y el 1 la mujer (ver generosDePareja), así
+ * que Robelo va al 0 de Mixtos C y Mandujano al 1 de Mixtos D.
+ *
+ * Un `null` deja el hueco como lo generó el plan: no toda pareja real tiene
+ * los dos nombres documentados, e inventarlos sería peor dato de prueba.
+ *
+ * MANDUJANO VA EN 5ª FEMENIL, NO EN 6ª FUERZA. En la captura aparece en una
+ * pareja de 6ª, pero aquí las categorías de Fuerza son varoniles —lo dice la
+ * cabecera de CATEGORIAS— y meter una mujer rompería justo la invariante que
+ * ese comentario defiende. Su cruce con Mixtos D, que es lo que importa para
+ * probar los empalmes, se conserva igual.
+ */
+const CRUCES_REALES = [
+  // Cantillo: 2ª con Tapia, 3ª con Robelo. Dos FUERZAS: el caso documentado.
+  { cat: '2A',  pareja: 0, huecos: ['cantillo', 'tapia'] },
+  { cat: '3A',  pareja: 0, huecos: ['cantillo', 'robelo'] },
+  // Robelo: 3ª con Cantillo, Mixtos C con Miñana.
+  { cat: 'MxC', pareja: 0, huecos: ['robelo', 'minana'] },
+  // Mandujano: 5ª Femenil + Mixtos D con Edgar.
+  { cat: '5F',  pareja: 0, huecos: ['mandujano', null] },
+  { cat: 'MxD', pareja: 0, huecos: ['edgar', 'mandujano'] },
+  // Paz se queda en 6ª Fuerza. Que Mandujano no estuviera ahí no lo saca a él.
+  { cat: '6A',  pareja: 0, huecos: ['paz', null] },
+];
+
+/**
+ * De dónde salen los cruces sintéticos. Se alías un hueco de MIXTOS a alguien
+ * que ya juega una categoría de fuerza — nunca al revés, para no tocar los
+ * cuadros de fuerza, y nunca dentro de la misma categoría, que rompería la
+ * pareja.
+ *
+ * Hombres al hueco 0 de mixtos, mujeres al 1. Las parejas 0 quedan fuera:
+ * ya las ocupan los casos reales.
+ */
+// 6A entra aquí como todas: el varón de 6ª que cruza a Mixtos D sale de este
+// zigzag, ocupando el sitio del cruce que estaba mal atribuido a Mandujano.
+const FUENTES_H = ['2A', '3A', '4A', '5A', '6A'];
+const DESTINOS_MIXTOS = [
+  { cat: 'MxD', desde: 1, hasta: 17 },   // 17 parejas libres
+  { cat: 'MxC', desde: 1, hasta: 8  },   //  8 parejas libres
+];
+
+/** Cuántos cruces sintéticos, repartidos entre hombres y mujeres. */
+const CRUCES_H = 13;
+const CRUCES_M = 9;
+
 // ── Nombres ─────────────────────────────────────────────────────────────────
 
 const NOMBRES_H = [
@@ -117,6 +211,113 @@ function generosDePareja(gender) {
   if (gender === 'female') return [true, true];
   if (gender === 'male')   return [false, false];
   return [false, true];
+}
+
+/**
+ * Aplica los cruces sobre un plan ya construido y devuelve el recuento.
+ *
+ * Pura y exportada para poder verificar el porcentaje sin tocar la base: es la
+ * única parte del seed cuyo resultado es un número que hay que comprobar.
+ */
+export function aplicarCruces(plan) {
+// ── Cruces: la misma persona en dos categorías ────────────────────────────
+// Se aplican SOBRE el plan ya construido, reescribiendo la identidad de un
+// hueco. Por eso el número de parejas no se mueve: solo dejan de ser 330
+// personas distintas.
+//
+// Determinista de punta a punta: correrlo dos veces cruza a la misma gente.
+const porCat = new Map();
+plan.forEach((p, i) => {
+  const k = clave(p.categoria.division, p.categoria.gender);
+  if (!porCat.has(k)) porCat.set(k, []);
+  porCat.get(k).push(i);
+});
+
+const hueco = (cat, pareja, j) => {
+  const idxs = porCat.get(C[cat]);
+  if (!idxs || pareja >= idxs.length) return null;
+  return plan[idxs[pareja]].jugadores[j];
+};
+
+// 1) Los tres reales.
+for (const r of CRUCES_REALES) {
+  r.huecos.forEach((persona, j) => {
+    if (!persona) return;                       // hueco sin nombre documentado
+    const h = hueco(r.cat, r.pareja, j);
+    if (h) Object.assign(h, PERSONAS[persona]);
+  });
+}
+
+// 2) Los sintéticos. Un hueco de mixtos pasa a ser alguien de fuerza.
+//    `usados` impide que la misma persona acabe en tres categorías o que un
+//    origen se reutilice: cada cruce es una persona nueva en dos cuadros.
+const usados = new Set(Object.values(PERSONAS).map((p) => p.correo));
+// Intercalados entre Mixtos D y Mixtos C: si se llenara primero D, todos los
+// cruces caerían en el cuadro grande y Mixtos C —que es el más pequeño, y por
+// tanto el que antes llega a semifinales— se quedaría sin ninguno.
+const libres = [];
+for (let p = 1; libres.length < 60; p++) {
+  let quedan = false;
+  for (const d of DESTINOS_MIXTOS) {
+    if (p >= d.desde && p <= d.hasta) { libres.push({ cat: d.cat, pareja: p }); quedan = true; }
+  }
+  if (!quedan) break;
+}
+
+// Los orígenes se recorren en zigzag entre categorías para no vaciar de
+// jugadores cruzados una sola: si todos los cruces salieran de 3ª, el cuadro
+// de 3ª sería el único con riesgo de empalme y el dato de prueba mentiría.
+const origenesH = [];
+for (let vuelta = 1; origenesH.length < CRUCES_H && vuelta < 30; vuelta++) {
+  for (const cat of FUENTES_H) {
+    if (origenesH.length >= CRUCES_H) break;
+    origenesH.push({ cat, pareja: vuelta, j: 0 });
+  }
+}
+const origenesM = [];
+for (let pareja = 1; origenesM.length < CRUCES_M && pareja < 12; pareja++) {
+  origenesM.push({ cat: '5F', pareja, j: pareja % 2 });
+}
+
+let cruzados = 0;
+const aplicar = (origenes, j) => {
+  for (const o of origenes) {
+    const destino = libres.find((l) => !l[`tomado${j}`]);
+    if (!destino) break;
+    const fuente = hueco(o.cat, o.pareja, o.j);
+    const dest   = hueco(destino.cat, destino.pareja, j);
+    if (!fuente || !dest || usados.has(fuente.correo)) continue;
+    destino[`tomado${j}`] = true;
+    usados.add(fuente.correo);
+    Object.assign(dest, { correo: fuente.correo, nombre: fuente.nombre });
+    cruzados++;
+  }
+};
+aplicar(origenesH, 0);
+aplicar(origenesM, 1);
+
+// 3) Verificación: nadie puede quedar dos veces en la MISMA categoría — eso
+//    no es un cruce, es una pareja rota que el insert descartaría en
+//    silencio y dejaría la categoría corta.
+const enCategoria = new Set();
+for (const p of plan) {
+  for (const j of p.jugadores) {
+    const k = `${p.categoria.id}|${j.correo}`;
+    if (enCategoria.has(k)) {
+      console.error(`\n  Cruce inválido: ${j.correo} dos veces en la misma categoría.\n`);
+      process.exit(1);
+    }
+    enCategoria.add(k);
+  }
+}
+
+  const personas = new Set(plan.flatMap((p) => p.jugadores.map((j) => j.correo)));
+  const veces = new Map();
+  for (const p of plan) {
+    for (const j of p.jugadores) veces.set(j.correo, (veces.get(j.correo) ?? 0) + 1);
+  }
+  const enDos = [...veces.values()].filter((n) => n >= 2).length;
+  return { cruzados, personas: personas.size, enDos };
 }
 
 // ── Utilidades ──────────────────────────────────────────────────────────────
@@ -253,6 +454,11 @@ async function main() {
     }
   }
 
+  const stats = aplicarCruces(plan);
+  console.log(`\n  Cruces: ${stats.cruzados} sintéticos + 3 reales`);
+  console.log(`  Personas distintas: ${stats.personas} (antes ${plan.length * 2})`);
+  console.log(`  En dos categorías:  ${stats.enDos} (${(stats.enDos / stats.personas * 100).toFixed(1)}%)`);
+
   // ── Usuarios ──────────────────────────────────────────────────────────────
   const { data: yaHay } = await supa
     .from('users').select('id, email').like('email', 'qa_%@rally.test');
@@ -338,4 +544,7 @@ async function main() {
   console.log(`  Para borrar: node scripts/clean-qa.mjs\n`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Solo al ejecutar el script; importarlo (para verificar aplicarCruces) no siembra nada.
+if (process.argv[1] && process.argv[1].endsWith('seed-cimepa.mjs')) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

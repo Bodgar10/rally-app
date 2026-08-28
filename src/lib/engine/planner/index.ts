@@ -26,6 +26,12 @@
 // Determinista. Sin IA. Sin BD.
 
 import type { FormatType, KnockoutStart } from '../types';
+import {
+  correrCalendario,
+  programarEliminatorias,
+  FACTOR_RETRASO,
+  type CategoriaCuadro,
+} from '../schedule/knockout';
 
 // ── Entradas ────────────────────────────────────────────────────────────────
 
@@ -119,11 +125,30 @@ export interface Diagnostico {
   parejasQueSobran: number;
 }
 
+/** Las tres horas del último día, tal como las calcula el scheduler. */
+export interface HorasUltimoDia {
+  finEstimado: string | null;
+  finRealista: string | null;
+  finRealistaUnaCanchaMenos: string | null;
+}
+
 export interface PlanTorneo {
   cabe: boolean;
   planes: Map<string, PlanCategoria>;
   grupos: Fase;
+  /**
+   * Ocupación del último día en slots.
+   *
+   * INFORMATIVO. Ya no gobierna nada: la decisión de cuántos segundos repescar
+   * y el propio `cabe` los manda la hora de `ultimoDia`. Se conserva porque
+   * sigue siendo un dato legible —cuántos partidos contra cuántos huecos— pero
+   * un porcentaje no mide un día de eliminatorias: las rondas van encadenadas
+   * y el cuadro se estrecha, así que el 84% podía significar terminar a las
+   * seis o a las diez.
+   */
   eliminacion: Fase;
+  /** A qué hora termina de verdad el último día. Null si no hay ventanas. */
+  ultimoDia: HorasUltimoDia | null;
   avisos: string[];
   diagnostico?: Diagnostico;
 }
@@ -288,6 +313,50 @@ function piso(cands: PlanCategoria[]): PlanCategoria {
   )[0];
 }
 
+/**
+ * Los cuadros de un conjunto de planes, en el formato que espera el scheduler.
+ * Menos de 2 clasificados no es cuadro y no ocupa cancha.
+ */
+function cuadrosDe(planes: Iterable<PlanCategoria>): CategoriaCuadro[] {
+  const out: CategoriaCuadro[] = [];
+  for (const p of planes) {
+    if (p.clasificados >= 2) out.push({ id: p.categoryId, clasificados: p.clasificados });
+  }
+  return out;
+}
+
+/**
+ * A qué hora terminaría el último día con estos cuadros, contando los retrasos.
+ *
+ * El techo se abre a 23:59 A PROPÓSITO. La pregunta no es "cabe" —eso lo
+ * decide quien llama, comparando con su cierre— sino "a qué hora acabarías".
+ * Con el techo real la corrida cortaría partidos y devolvería una hora
+ * falsamente temprana, que es justo el error que hace falta evitar aquí.
+ */
+function horaFinRealista(
+  planes: Iterable<PlanCategoria>,
+  cap: Capacidad,
+  ventana: VentanaDia,
+): string | null {
+  const cuadros = cuadrosDe(planes);
+  if (cuadros.length === 0) return null;
+  try {
+    const r = correrCalendario({
+      canchas: cap.canchas,
+      desde: ventana.desde,
+      hasta: '23:59',
+      categorias: cuadros,
+      minutosPorPartido: Math.round(cap.minutosPorPartido * FACTOR_RETRASO),
+      paso: 15,
+    });
+    return r.cabe ? r.finEstimado : null;
+  } catch {
+    // Capacidad imposible (ventana invertida, duración fuera de rango). Quien
+    // llama lo trata como "no cabe".
+    return null;
+  }
+}
+
 function zonaDe(ocupacion: number): Zona {
   if (ocupacion > 1) return 'no_cabe';
   if (ocupacion > UMBRAL_SUBIDA) return 'limite';
@@ -325,6 +394,28 @@ export function planTournament(
   const presupuestoElim = unSoloDia
     ? totalSlots
     : slotsDeDia(cap.ventanas[dias - 1], cap);
+
+  // La ventana del último día: la de las eliminatorias. Con un solo día no hay
+  // "último" que aislar y el criterio por hora no aplica (ver okElim).
+  const ventanaElim = dias > 0 ? cap.ventanas[dias - 1] : null;
+
+  /**
+   * La hora de fin de una configuración, cacheada.
+   *
+   * El bucle greedy prueba y deshace muchas veces, y vuelve a pasar por las
+   * mismas configuraciones. La hora depende SOLO del multiconjunto de
+   * clasificados, así que esa lista ordenada es una clave exacta.
+   */
+  const cacheHora = new Map<string, string | null>();
+  const horaFin = (planes: PlanCategoria[]): string | null => {
+    if (!ventanaElim) return null;
+    const clave = cuadrosDe(planes).map((c) => c.clasificados).sort((a, b) => a - b).join(',');
+    const ya = cacheHora.get(clave);
+    if (ya !== undefined) return ya;
+    const fin = horaFinRealista(planes, cap, ventanaElim);
+    cacheHora.set(clave, fin);
+    return fin;
+  };
 
   // ── Paso 1 · Piso ─────────────────────────────────────────────────────────
   const cands = new Map<string, PlanCategoria[]>();
@@ -414,6 +505,10 @@ export function planTournament(
         elegido.set(c.id, siguiente);
         const despuesG = usaGrupos(), despuesE = usaElim();
 
+        // GRUPOS: sin cambios. Ahí los partidos son independientes y corren en
+        // paralelo, así que el porcentaje de ocupación sí mide algo y el 15%
+        // de margen del umbral es la forma correcta de reservarlo.
+        //
         // Una fase deja pasar la subida si queda bajo el umbral O si la subida
         // no la toca. Sin esta segunda condición, un torneo con la fase de
         // grupos ya al 94% —como Cimepa— no podría repescar a nadie, aunque
@@ -422,7 +517,30 @@ export function planTournament(
         const ok = (despues: number, antes: number, presupuesto: number) =>
           despues <= presupuesto * UMBRAL_SUBIDA || despues === antes;
 
-        if (ok(despuesG, antesG, presupuestoGrupos) && ok(despuesE, antesE, presupuestoElim)) {
+        // ELIMINATORIAS: la hora, no el porcentaje.
+        //
+        // Un día de eliminatorias no se mide en huecos ocupados: las rondas de
+        // una categoría van encadenadas y el cuadro se estrecha, así que las
+        // últimas horas usan una cancha de ocho. El 84% de Cimepa se leía
+        // holgado y terminaba a las 22:15.
+        //
+        // NO se añade margen sobre la hora: `minutosPorPartido` ya va
+        // multiplicado por FACTOR_RETRASO dentro de horaFinRealista, y meter
+        // encima el UMBRAL_SUBIDA sería contar el mismo retraso dos veces —
+        // que es exactamente lo que hacía el umbral del 85%, según su propio
+        // comentario ("la diferencia entre el partido que se planifica y el
+        // que ocurre").
+        const okElim = () => {
+          // Con un solo día los grupos comparten cancha con el cuadro y el
+          // scheduler solo modela el cuadro: no puede responder la pregunta.
+          // Se queda el criterio de slots, que sí cuenta las dos fases.
+          if (unSoloDia) return ok(despuesE, antesE, presupuestoElim);
+          if (despuesE === antesE) return true;   // la subida no toca el último día
+          const fin = horaFin([...elegido.values()]);
+          return fin !== null && fin <= ventanaElim!.hasta;
+        };
+
+        if (ok(despuesG, antesG, presupuestoGrupos) && okElim()) {
           subio = true; break;
         }
 
@@ -449,22 +567,60 @@ export function planTournament(
     ocupacion: eOcup, zona: zonaDe(eOcup),
   };
 
-  const cabe = gOcup <= 1 && eOcup <= 1;
+  // ── El último día, en horas ───────────────────────────────────────────────
+  // Tres corridas (plan, realista, una cancha menos) UNA sola vez, sobre la
+  // configuración ya elegida. Dentro del bucle solo se corría la realista.
+  let ultimoDia: HorasUltimoDia | null = null;
+  if (ventanaElim) {
+    const cuadros = cuadrosDe(elegido.values());
+    if (cuadros.length > 0) {
+      try {
+        const r = programarEliminatorias({
+          canchas: cap.canchas,
+          desde: ventanaElim.desde,
+          hasta: ventanaElim.hasta,
+          categorias: cuadros,
+          minutosPorPartido: cap.minutosPorPartido,
+        });
+        ultimoDia = {
+          finEstimado: r.finEstimado,
+          finRealista: r.finRealista,
+          finRealistaUnaCanchaMenos: r.finRealistaUnaCanchaMenos,
+        };
+      } catch {
+        ultimoDia = null;
+      }
+    }
+  }
 
-  // ── Camino crítico del último día ─────────────────────────────────────────
-  // Las rondas de una categoría son secuenciales: no se juega la semifinal
-  // antes de los cuartos. Con un cuadro de 16 hacen falta 4 rondas encadenadas
-  // aunque hubiera 100 canchas libres. Manda el bracketSize, no los
-  // clasificados: un bye ocupa ronda igual, aunque no se juegue. Es una restricción que rara vez muerde, pero
-  // su fallo es imposible de diagnosticar desde la capacidad agregada.
-  if (!unSoloDia && dias > 0) {
-    const maxRondas = Math.max(0, ...[...elegido.values()].map((p) => Math.log2(p.bracketSize)));
-    const minutosUltimo = minutosDeVentana(cap.ventanas[dias - 1]);
-    const minutosNecesarios = maxRondas * cap.minutosPorPartido;
-    if (minutosNecesarios > minutosUltimo) {
-      const h = Math.ceil(minutosNecesarios / 60);
+  /**
+   * El último día cabe si su hora REALISTA queda antes del cierre.
+   *
+   * Ya no `eOcup <= 1`: caber en huecos y terminar a tiempo son cosas
+   * distintas cuando las rondas van encadenadas. Con un solo día no hay hora
+   * fiable —el scheduler no ve los partidos de grupos que comparten cancha—
+   * así que ahí manda el criterio de slots de siempre.
+   */
+  const elimCabe = unSoloDia || !ventanaElim || ultimoDia === null
+    ? eOcup <= 1
+    : ultimoDia.finRealista !== null && ultimoDia.finRealista <= ventanaElim.hasta;
+
+  const cabe = gOcup <= 1 && elimCabe;
+
+  // ── Avisos del último día ─────────────────────────────────────────────────
+  // Sustituyen al aviso de camino crítico (maxRondas × minutos > ventana) y al
+  // de "va al límite". Los dos aproximaban a ojo lo que el scheduler calcula
+  // exacto, y ninguno daba la única cifra accionable: la hora.
+  if (!unSoloDia && ventanaElim && ultimoDia?.finRealista) {
+    if (ultimoDia.finRealista > ventanaElim.hasta) {
       avisos.push(
-        `El último día necesita al menos ${h} h seguidas: las rondas de una categoría se juegan una tras otra.`,
+        `El último día terminaría a las ${ultimoDia.finRealista}, después del cierre de las ${ventanaElim.hasta}.`,
+      );
+    }
+    const uno = ultimoDia.finRealistaUnaCanchaMenos;
+    if (uno && uno > ventanaElim.hasta) {
+      avisos.push(
+        `Con una cancha menos, el último día terminaría a las ${uno}: este formato depende de que no falle ninguna.`,
       );
     }
   }
@@ -472,9 +628,6 @@ export function planTournament(
   // ── Avisos de ocupación ───────────────────────────────────────────────────
   if (grupos.zona === 'limite') {
     avisos.push('La fase de grupos va al límite. Con retrasos habituales habrá esperas.');
-  }
-  if (eliminacion.zona === 'limite' && !unSoloDia) {
-    avisos.push('El último día va al límite. Con retrasos habituales habrá esperas.');
   }
 
   // ── Diagnóstico ───────────────────────────────────────────────────────────
@@ -499,7 +652,7 @@ export function planTournament(
     };
   }
 
-  return { cabe, planes: elegido, grupos, eliminacion, avisos, diagnostico };
+  return { cabe, planes: elegido, grupos, eliminacion, ultimoDia, avisos, diagnostico };
 }
 
 /**

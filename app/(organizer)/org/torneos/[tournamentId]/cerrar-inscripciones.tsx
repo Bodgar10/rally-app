@@ -50,6 +50,13 @@ import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import CuadroPreview from '@/components/tournament/CuadroPreview';
+import HojaAyuda, { BotonAyuda } from '@/components/ui/HojaAyuda';
+import HorasUltimoDia from '@/components/tournament/HorasUltimoDia';
+import {
+  programarEliminatorias,
+  type CategoriaCuadro,
+} from '@/lib/engine/schedule/knockout';
+import { parseFechaISO, indiceLunes } from '@/lib/fechas';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +91,15 @@ interface Categoria {
   plan:        FormatPlan | null;
   /** Alternativa elegida cuando el plan es ambiguo. */
   alternativa: number;
+  /**
+   * El formato REAL de una categoría ya cerrada, tal como quedó en la base.
+   *
+   * Para una cerrada no vale recalcular `computeFormat(pagadas)`: si el
+   * organizador eligió una alternativa o movió el stepper antes de cerrar, la
+   * predicción y lo guardado difieren, y el cálculo del último día tiene que
+   * usar lo que de verdad se va a jugar.
+   */
+  guardado: { grupos: number; porGrupo: number; extra: number } | null;
 }
 
 // ── Presentación del plan ───────────────────────────────────────────────────
@@ -266,6 +282,62 @@ function avisoDesigual(plan: FormatPlan): string | null {
   return `Un grupo de ${max} y otro de ${min}: el de ${max} juega un partido más.`;
 }
 
+/**
+ * El plan que de verdad se va a cerrar: la alternativa elegida si era ambigua,
+ * con la repesca del stepper ya incorporada.
+ *
+ * Vive fuera del componente porque lo necesitan dos consumidores — el cierre y
+ * el cálculo del último día — y tenerlo dentro obligaba a duplicar la lógica
+ * de la conversión `repescados >= grupos`, que es justo donde se cuela un
+ * desajuste entre lo que la pantalla enseña y lo que el servidor guarda.
+ */
+function planEfectivo(c: Categoria): FormatPlan | null {
+  if (!c.plan) return null;
+  const base = c.plan.ambiguous
+    ? ([c.plan, ...(c.plan.alternatives ?? [])][c.alternativa] ?? c.plan)
+    : c.plan;
+
+  // La repesca elegida en el stepper viaja como bestExtraQualifiers, que es
+  // donde la guarda `categories` desde la migración 001. Con TODOS los
+  // segundos dentro pasan 2 por grupo y no hay repescados: son la misma
+  // situación escrita de dos formas, y el motor de siembra espera la segunda.
+  const grupos = base.groupSizes.length;
+  if (grupos <= 1) return base;
+
+  return c.repescados >= grupos
+    ? { ...base, advancePerGroup: 2, bestExtraQualifiers: 0 }
+    : { ...base, advancePerGroup: 1, bestExtraQualifiers: c.repescados };
+}
+
+/**
+ * Cuántas parejas llegan al cuadro de una categoría. `null` = no se sabe.
+ *
+ * Misma fórmula que usa la Edge Function contra la base
+ * (num_groups × advance_per_group + best_extra_qualifiers), aplicada aquí a la
+ * vista previa. Una cerrada usa su formato guardado; una abierta, el que se
+ * está editando en pantalla.
+ */
+function clasificadosDe(c: Categoria): number | null {
+  if (c.status !== 'open') {
+    return c.guardado
+      ? c.guardado.grupos * c.guardado.porGrupo + c.guardado.extra
+      : null;
+  }
+  const p = planEfectivo(c);
+  if (!p) return null;
+  return p.groupSizes.length * p.advancePerGroup + p.bestExtraQualifiers;
+}
+
+const DIAS_LARGOS = [
+  'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+] as const;
+
+/** 'domingo' a partir de 'YYYY-MM-DD'. Vacío si la fecha no es válida. */
+function nombreDelDia(iso: string): string {
+  const d = parseFechaISO(iso);
+  return d ? DIAS_LARGOS[indiceLunes(d)] : '';
+}
+
 function clasificar(pagadas: number, status: string, plan: FormatPlan | null): EstadoCategoria {
   if (status !== 'open') return 'cerrada';
   if (pagadas === 0) return 'vacia';
@@ -290,14 +362,32 @@ const ETIQUETA: Record<EstadoCategoria, { texto: string; tinte: string }> = {
  * leía entera. Son dos preguntas distintas ("¿cuánto juego?" y "¿cómo se
  * clasifica?") y ahora se ven como tales.
  */
+const AYUDA_SEGUNDOS = [
+  'De cada grupo pasa el primero. Aquí decides cuántos segundos lugares se suman.',
+  'Con más segundos, quedar segundo sirve: el que pierde su primer partido todavía juega por algo, y más parejas siguen vivas el último día.',
+  'Con menos, el último día termina antes. Cada pareja extra es un partido más, y los partidos del último día van uno detrás de otro.',
+  'Ojo con los saltos: cuando el número de clasificados cruza una potencia de 2, el cuadro gana una ronda entera y la final se recorre alrededor de una hora.',
+  'Las horas que ves ya incluyen los retrasos habituales. Si el formato solo cabe usando todas las canchas, te avisamos: una cancha fuera de servicio ese día puede dejarte sin terminar.',
+];
+
 function BloquesDelPlan({
-  plan, repescados, onRepescados,
+  plan, repescados, onRepescados, finTorneo,
 }: {
   plan: FormatPlan;
   repescados: number;
   onRepescados: (n: number) => void;
+  /**
+   * Hora REALISTA a la que termina el último día del TORNEO con la
+   * configuración actual. Es un dato global, no de esta categoría: mover este
+   * stepper la mueve para todos, que es justo lo que hay que hacer visible.
+   *
+   * Realista y no la del plan a propósito: al organizador solo se le enseñan
+   * horas en las que puede confiar. La del plan es dato interno del motor.
+   */
+  finTorneo: string | null;
 }) {
   const [verCuadro, setVerCuadro] = useState(false);
+  const [verAyuda, setVerAyuda]   = useState(false);
 
   const grupos = plan.groupSizes.length;
   const d      = derivar(grupos, repescados);
@@ -342,7 +432,13 @@ function BloquesDelPlan({
 
           {/* Una sola perilla. Todo lo de abajo se recalcula al pulsarla. */}
           <View style={s.stepper}>
-            <Text style={s.stepperEtiqueta}>Segundos que avanzan</Text>
+            <View style={s.stepperEtiquetaFila}>
+              <Text style={s.stepperEtiqueta}>Segundos que avanzan</Text>
+              <BotonAyuda
+                onPress={() => setVerAyuda(true)}
+                etiqueta="Qué son los segundos que avanzan"
+              />
+            </View>
             <View style={s.stepperControl}>
               <Pressable
                 onPress={() => onRepescados(Math.max(0, repescados - 1))}
@@ -370,6 +466,7 @@ function BloquesDelPlan({
             {d.byes > 0
               ? `${d.byes} ${d.byes === 1 ? 'pasa' : 'pasan'} directo · ${d.primeraRonda} ${d.primeraRonda === 1 ? 'partido' : 'partidos'}`
               : `Cuadro lleno · ${d.primeraRonda} partidos`}
+            {finTorneo && ` · termina ${finTorneo}`}
           </Text>
           <Text style={[s.bloqueNota, { color: tinteSeg }]}>{fraseSegundos(seg)}</Text>
 
@@ -388,6 +485,13 @@ function BloquesDelPlan({
               repescados={repescados}
             />
           )}
+
+          <HojaAyuda
+            visible={verAyuda}
+            onClose={() => setVerAyuda(false)}
+            titulo="Segundos que avanzan"
+            parrafos={AYUDA_SEGUNDOS}
+          />
         </View>
       )}
     </View>
@@ -417,6 +521,68 @@ function BarraFase({ titulo, fase }: { titulo: string; fase: FaseCapacidad }) {
   );
 }
 
+/** Lo que el scheduler dice del último día, ya resuelto para pintar. */
+interface UltimoDia {
+  /** 'domingo'. Sale de la fecha de la ventana, no está fijo. */
+  dia: string;
+  /** Hora del plan: '16:30'. Null si el día no da de sí. */
+  fin: string | null;
+  /**
+   * Hora con los retrasos habituales. ES LA QUE DECIDE.
+   *
+   * La del plan sirve para ordenar el día; esta para saber si cabe. Un partido
+   * de 60 minutos dura 75, y en eliminatorias ese retraso no se diluye: las
+   * rondas van encadenadas y se suma ronda tras ronda.
+   */
+  finRealista: string | null;
+  /** true si `finRealista` se pasa del cierre de la ventana. */
+  seVaDeHora: boolean;
+  /** Minutos por partido configurados. Para la nota al pie. */
+  minutos: number;
+  /** El aviso del motor sobre quedarse con una cancha menos, si lo hay. */
+  avisoCanchaMenos: string | null;
+  cabe: boolean;
+  /** Categorías que se quedaron fuera del cálculo por no tener vista previa. */
+  sinPrevia: string[];
+}
+
+/**
+ * La hora a la que termina el último día.
+ *
+ * Sustituye a la barra de ocupación. Si el scheduler no pudo calcular —falta
+ * capacidad, ninguna categoría tiene cuadro— se cae a la barra de siempre en
+ * vez de dejar el hueco vacío.
+ */
+function UltimoDiaFin({ dato, respaldo }: { dato: UltimoDia | null; respaldo: FaseCapacidad }) {
+  // Sin cálculo del scheduler se cae a la barra de ocupación de siempre, que
+  // es la única parte que sigue siendo específica de esta pantalla.
+  if (!dato) return <BarraFase titulo="Último día" fase={respaldo} />;
+
+  return (
+    <View style={s.faseCaja}>
+      <HorasUltimoDia
+        dia={dato.dia}
+        fin={dato.cabe ? dato.fin : null}
+        finRealista={dato.finRealista}
+        seVaDeHora={dato.seVaDeHora}
+        minutos={dato.minutos}
+      >
+        {/* Advertencia, no error: el formato cabe — depende de que no falle
+            una cancha, que es otra cosa. */}
+        {dato.avisoCanchaMenos && (
+          <Text style={s.finAdvertencia}>{dato.avisoCanchaMenos}</Text>
+        )}
+
+        {dato.sinPrevia.length > 0 && (
+          <Text style={s.finParcial}>
+            Cálculo parcial: falta {dato.sinPrevia.join(', ')}.
+          </Text>
+        )}
+      </HorasUltimoDia>
+    </View>
+  );
+}
+
 /**
  * El plan del torneo entero.
  *
@@ -425,7 +591,7 @@ function BarraFase({ titulo, fase }: { titulo: string; fase: FaseCapacidad }) {
  * está esperando en el club. Cimepa corrió su fase de grupos al 94% y hubo
  * esperas de media hora a una hora.
  */
-function BloqueCapacidad({ plan }: { plan: PlanTorneo }) {
+function BloqueCapacidad({ plan, ultimoDia }: { plan: PlanTorneo; ultimoDia: UltimoDia | null }) {
   return (
     <View style={[s.capacidad, !plan.cabe && s.capacidadMal]}>
       <Text style={s.capacidadTitulo}>
@@ -433,7 +599,15 @@ function BloqueCapacidad({ plan }: { plan: PlanTorneo }) {
       </Text>
 
       <BarraFase titulo="Fase de grupos"  fase={plan.grupos} />
-      <BarraFase titulo="Último día"      fase={plan.eliminacion} />
+
+      {/* El último día deja de medirse en porcentaje.
+          Un 84% no dice nada accionable: el organizador no sabe si eso es
+          irse a las seis o a las nueve. La hora sí, y es la pregunta que de
+          verdad se hace al mover el stepper. Se calcula con el scheduler
+          real —el mismo que programará el día—, no con una división de slots:
+          las rondas de una categoría van encadenadas y esa dependencia es la
+          que manda en la hora final. */}
+      <UltimoDiaFin dato={ultimoDia} respaldo={plan.eliminacion} />
 
       {plan.avisos.map((a, i) => (
         <Text key={i} style={s.capacidadAviso}>· {a}</Text>
@@ -470,6 +644,16 @@ export default function CerrarInscripcionesScreen() {
   const router = useRouter();
 
   const [capacidad, setCapacidad] = useState<PlanTorneo | null>(null);
+  /**
+   * Canchas, minutos y ventanas tal como vienen de la base.
+   *
+   * `capacidad` ya no basta: es el resultado del planificador, calculado UNA
+   * vez al cargar, y la hora del último día tiene que recalcularse en cada
+   * pulsación del stepper. Para eso hace falta la entrada, no la salida.
+   */
+  const [ventanas, setVentanas] = useState<Array<{ dia: string; desde: string; hasta: string }>>([]);
+  const [canchas, setCanchas]   = useState<number | null>(null);
+  const [minutos, setMinutos]   = useState<number>(60);
   const [nombre, setNombre]         = useState('');
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [marcadas, setMarcadas]     = useState<Set<string>>(new Set());
@@ -485,7 +669,8 @@ export default function CerrarInscripcionesScreen() {
         } };
       })('tournaments')
         .select('name, courts, match_minutes').eq('id', tournamentId).single(),
-      supabase.from('categories').select('id, display_name, status')
+      supabase.from('categories')
+        .select('id, display_name, status, num_groups, advance_per_group, best_extra_qualifiers')
         .eq('tournament_id', tournamentId).order('division'),
       (supabase.from as unknown as (v: string) => {
         select: (c: string) => { eq: (c: string, v: string) => { order: (c: string) => Promise<{ data: Array<{
@@ -497,7 +682,12 @@ export default function CerrarInscripcionesScreen() {
 
     if (t) setNombre(t.name);
 
-    const filas = (cats ?? []) as Array<{ id: string; display_name: string; status: string }>;
+    const filas = (cats ?? []) as Array<{
+      id: string; display_name: string; status: string;
+      num_groups: number | null;
+      advance_per_group: number | null;
+      best_extra_qualifiers: number | null;
+    }>;
 
     const conConteos: Categoria[] = await Promise.all(filas.map(async (c) => {
       const [{ count: pagadas }, { count: pendientes }] = await Promise.all([
@@ -516,6 +706,10 @@ export default function CerrarInscripcionesScreen() {
         pagadas: n, pendientes: pendientes ?? 0,
         estado: clasificar(n, c.status, plan),
         plan, alternativa: 0,
+        // Solo las cerradas lo tienen: en una abierta las tres son NULL.
+        guardado: (c.num_groups != null && c.advance_per_group != null && c.best_extra_qualifiers != null)
+          ? { grupos: c.num_groups, porGrupo: c.advance_per_group, extra: c.best_extra_qualifiers }
+          : null,
         // Provisional: lo reemplaza el planificador en cuanto se resuelve la
         // capacidad, unas líneas más abajo.
         repescados: plan?.bestExtraQualifiers ?? 0,
@@ -528,12 +722,19 @@ export default function CerrarInscripcionesScreen() {
     // canchas, así que decidir una por una no puede saber si el conjunto cabe.
     // Sin canchas u horarios capturados no hay nada que calcular y la pantalla
     // se queda con la vista por categoría de siempre.
+    const ventanasCrudas = (ws ?? []).map((w) => ({
+      dia: w.dia, desde: w.desde.slice(0, 5), hasta: w.hasta.slice(0, 5),
+    }));
+    setVentanas(ventanasCrudas);
+    setCanchas(t?.courts ?? null);
+    setMinutos(t?.match_minutes ?? 60);
+
     if (t?.courts && (ws ?? []).length > 0) {
       const cap: Capacidad = {
         canchas: t.courts,
         minutosPorPartido: t.match_minutes ?? 60,
-        ventanas: (ws ?? []).map((w) => ({
-          fecha: w.dia, desde: w.desde.slice(0, 5), hasta: w.hasta.slice(0, 5),
+        ventanas: ventanasCrudas.map((w) => ({
+          fecha: w.dia, desde: w.desde, hasta: w.hasta,
         })),
       };
       const conCapacidad = planTournament(
@@ -561,6 +762,68 @@ export default function CerrarInscripcionesScreen() {
   }, [tournamentId]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
+
+  /**
+   * A qué hora termina el último día con la configuración que hay ahora.
+   *
+   * UN SOLO CÁLCULO POR RENDER, no uno por categoría: las ocho compiten por
+   * las mismas canchas, así que mover el stepper de una mueve la hora de
+   * todas. Calcularlo dentro de cada tarjeta daría ocho respuestas distintas
+   * y todas mal.
+   *
+   * Corre en el cliente a propósito. `programarEliminatorias` es TypeScript
+   * puro y determinista —el mismo motor que usa la Edge Function—, así que
+   * responde en el mismo frame que la pulsación. Una llamada de red por cada
+   * toque del stepper haría la perilla inservible.
+   */
+  const ultimoDia = useMemo<UltimoDia | null>(() => {
+    if (canchas == null || ventanas.length === 0) return null;
+    const ventana = ventanas[ventanas.length - 1];
+
+    // TODAS las categorías, no solo las que se van a cerrar ahora: las ya
+    // cerradas también ocupan cancha el último día.
+    const cuadros: CategoriaCuadro[] = [];
+    const sinPrevia: string[] = [];
+    for (const c of categorias) {
+      const n = clasificadosDe(c);
+      if (n === null) {
+        // Sin vista previa no se puede adivinar: se dice cuál falta en vez de
+        // dar una hora que se quedaría corta.
+        if (c.estado !== 'vacia') sinPrevia.push(c.nombre);
+        continue;
+      }
+      if (n < 2) continue;   // sin cuadro que programar
+      cuadros.push({ id: c.id, clasificados: n });
+    }
+    if (cuadros.length === 0) return null;
+
+    try {
+      const plan = programarEliminatorias({
+        canchas,
+        desde: ventana.desde,
+        hasta: ventana.hasta,
+        categorias: cuadros,
+        minutosPorPartido: minutos,
+      });
+      return {
+        dia: nombreDelDia(ventana.dia),
+        fin: plan.cabe ? plan.finEstimado : null,
+        finRealista: plan.finRealista,
+        // El motor simula con techo 23:59 para saber la hora real; aquí se
+        // compara contra el cierre que el organizador SÍ configuró.
+        seVaDeHora: plan.finRealista != null
+          && plan.finRealista > ventana.hasta,
+        minutos,
+        avisoCanchaMenos: plan.avisos.find((a) => a.startsWith('Con una cancha menos')) ?? null,
+        cabe: plan.cabe,
+        sinPrevia,
+      };
+    } catch {
+      // El motor valida su entrada (ventana invertida, duración fuera de
+      // rango). Si rechaza, la capacidad está mal capturada: se cae a la barra.
+      return null;
+    }
+  }, [canchas, minutos, ventanas, categorias]);
 
   const cerrables = useMemo(
     () => categorias.filter((c) => marcadas.has(c.id)),
@@ -604,23 +867,7 @@ export default function CerrarInscripcionesScreen() {
   }
 
   /** El plan efectivo: la alternativa elegida si era ambigua. */
-  function planDe(c: Categoria): FormatPlan | null {
-    if (!c.plan) return null;
-    const base = c.plan.ambiguous
-      ? ([c.plan, ...(c.plan.alternatives ?? [])][c.alternativa] ?? c.plan)
-      : c.plan;
-
-    // La repesca elegida en el stepper viaja como bestExtraQualifiers, que es
-    // donde la guarda `categories` desde la migración 001. Con TODOS los
-    // segundos dentro pasan 2 por grupo y no hay repescados: son la misma
-    // situación escrita de dos formas, y el motor de siembra espera la segunda.
-    const grupos = base.groupSizes.length;
-    if (grupos <= 1) return base;
-
-    return c.repescados >= grupos
-      ? { ...base, advancePerGroup: 2, bestExtraQualifiers: 0 }
-      : { ...base, advancePerGroup: 1, bestExtraQualifiers: c.repescados };
-  }
+  const planDe = planEfectivo;
 
   async function cerrar() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -749,7 +996,7 @@ export default function CerrarInscripcionesScreen() {
 
         {/* El torneo entero, antes que las categorías: si no cabe, da igual
             cuál se cierre primero. */}
-        {capacidad && <BloqueCapacidad plan={capacidad} />}
+        {capacidad && <BloqueCapacidad plan={capacidad} ultimoDia={ultimoDia} />}
 
         {categorias.map((c) => {
           const et       = ETIQUETA[c.estado];
@@ -805,6 +1052,7 @@ export default function CerrarInscripcionesScreen() {
                     plan={plan}
                     repescados={c.repescados}
                     onRepescados={(n) => setRepescados(c.id, n)}
+                    finTorneo={ultimoDia?.finRealista ?? null}
                   />
                 )}
                 {desigual && c.estado !== 'ambigua' && <Text style={s.desigual}>{desigual}</Text>}
@@ -963,6 +1211,8 @@ const s = StyleSheet.create({
   capacidadMal:    { borderColor: color.danger, backgroundColor: 'rgba(224,114,111,0.08)' },
   capacidadTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
   capacidadAviso:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  finAdvertencia:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 18, marginTop: space[2] },
+  finParcial:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
 
   faseCaja:   { gap: space[1] },
   faseFila:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
@@ -983,6 +1233,7 @@ const s = StyleSheet.create({
   bloqueNota:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
 
   stepper:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3], marginTop: space[2], marginBottom: space[1] },
+  stepperEtiquetaFila: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   stepperEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, flex: 1 },
   stepperControl:  { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   stepperBoton:    { width: 34, height: 34, borderRadius: radius.sm, borderWidth: 1, borderColor: color.line, backgroundColor: color.surface2, alignItems: 'center', justifyContent: 'center' },

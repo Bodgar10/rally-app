@@ -3,6 +3,7 @@ import {
   cotaInferior,
   partidosPorRonda,
   etapaDeRonda,
+  FACTOR_RETRASO,
   byesDelCuadro,
   tamanoCuadro,
   parseHora,
@@ -143,8 +144,13 @@ describe('Cimepa', () => {
     expect(new Set(primera)).toEqual(new Set(['3a', '4a']));
   });
 
-  it('no deja avisos cuando el plan es optimo', () => {
-    expect(r.avisos).toEqual([]);
+  it('no deja avisos del plan cuando es optimo', () => {
+    const delPlan = r.avisos.filter((a) => !a.startsWith('Con una cancha menos'));
+    expect(delPlan).toEqual([]);
+  });
+
+  it('avisa de que Cimepa depende de sus 8 canchas', () => {
+    expect(r.avisos.some((a) => a.startsWith('Con una cancha menos'))).toBe(true);
   });
 });
 
@@ -269,5 +275,170 @@ describe('mapeo a match_stage', () => {
 
   it('revienta con cuadros de mas de 32', () => {
     expect(() => etapaDeRonda(1, 6)).toThrow();
+  });
+});
+
+describe('las tres horas', () => {
+  const r = programarEliminatorias(CIMEPA);
+
+  it('el plan sigue dando 16:30', () => {
+    expect(r.finEstimado).toBe('16:30');
+  });
+
+  it('la realista es posterior al plan', () => {
+    expect(parseHora(r.finRealista!)).toBeGreaterThan(parseHora(r.finEstimado!));
+  });
+
+  it('con una cancha menos es posterior a la realista', () => {
+    expect(parseHora(r.finRealistaUnaCanchaMenos!)).toBeGreaterThan(
+      parseHora(r.finRealista!),
+    );
+  });
+
+  it('el retraso aplicado es el factor, no un numero suelto', () => {
+    expect(FACTOR_RETRASO).toBe(1.25);
+  });
+
+  it('las corridas 2 y 3 no tocan lo que produce el plan', () => {
+    // 62 partidos, cabe, cota alcanzada: todo sale de la corrida 1 y las
+    // simulaciones con 23:59 no lo contaminan.
+    expect(r.cabe).toBe(true);
+    expect(r.totalPartidos).toBe(62);
+    expect(r.partidos).toHaveLength(62);
+    expect(r.cotaInferior).toBe('16:30');
+    expect(r.ultimoInicio).toBe('15:30');
+  });
+
+  it('con una sola cancha no simula la averia y no revienta', () => {
+    const solo = programarEliminatorias({
+      canchas: 1,
+      desde: '08:00',
+      hasta: '22:00',
+      categorias: [{ id: 'a', clasificados: 4 }],
+    });
+    expect(solo.finRealistaUnaCanchaMenos).toBeNull();
+    expect(solo.finRealista).not.toBeNull();
+  });
+
+  it('avisa de la cancha menos cuando se pasa del cierre', () => {
+    // Cimepa cabe a las 16:30 con 8 canchas, pero con 7 y partidos de 75
+    // minutos se va a las 22:45: el formato depende de que no falle ninguna.
+    expect(r.avisos.some((a) => a.includes('Con una cancha menos'))).toBe(true);
+  });
+
+  it('no avisa cuando sobra tarde', () => {
+    const holgado = programarEliminatorias({ ...CIMEPA, hasta: '23:00' });
+    expect(holgado.avisos.some((a) => a.includes('Con una cancha menos'))).toBe(false);
+  });
+});
+
+describe('separacion de categorias hermanas', () => {
+  // Dos cuadros de 8 con holgura de sobra: si el motor quiere separarlos,
+  // puede. 'ana' juega en las dos, asi que son hermanas.
+  const HERMANAS: EntradaScheduler = {
+    canchas: 8,
+    desde: '08:00',
+    hasta: '22:00',
+    categorias: [
+      { id: 'A', clasificados: 8, jugadores: ['ana', 'a1', 'a2'] },
+      { id: 'B', clasificados: 8, jugadores: ['ana', 'b1', 'b2'] },
+    ],
+  };
+
+  it('no comparten instante en rondas tempranas cuando hay holgura', () => {
+    const r = programarEliminatorias(HERMANAS);
+    const tempranos = r.partidos.filter((p) => p.totalRondas - p.ronda >= 2);
+    // Cuartos de A y cuartos de B nunca a la misma hora.
+    const porHora = new Map<string, Set<string>>();
+    for (const p of tempranos) {
+      if (!porHora.has(p.inicio)) porHora.set(p.inicio, new Set());
+      porHora.get(p.inicio)!.add(p.categoryId);
+    }
+    for (const [hora, cats] of porHora) {
+      expect(`${hora}:${[...cats].sort().join('+')}`).not.toBe(`${hora}:A+B`);
+    }
+  });
+
+  it('ningun empalme temprano queda registrado', () => {
+    const r = programarEliminatorias(HERMANAS);
+    const tempranos = r.empalmes.filter(
+      (e) => e.etapa !== 'semi' && e.etapa !== 'final',
+    );
+    expect(tempranos).toEqual([]);
+  });
+
+  // Cuadros de 4: solo dos rondas, semifinal y final. TODAS estan exentas de
+  // la regla, asi que el motor las junta al arrancar sin apartarlas.
+  const SOLO_SEMIS: EntradaScheduler = {
+    canchas: 8,
+    desde: '08:00',
+    hasta: '22:00',
+    categorias: [
+      { id: 'A', clasificados: 4, jugadores: ['ana', 'a1'] },
+      { id: 'B', clasificados: 4, jugadores: ['ana', 'b1'] },
+    ],
+  };
+
+  it('las semifinales hermanas SI pueden compartir instante', () => {
+    const r = programarEliminatorias(SOLO_SEMIS);
+    const semis = r.partidos.filter((p) => p.etapa === 'semi');
+    expect(new Set(semis.map((p) => p.categoryId))).toEqual(new Set(['A', 'B']));
+    // Las dos arrancan a las 08:00: la regla no las separo.
+    expect(new Set(semis.map((p) => p.inicio))).toEqual(new Set(['08:00']));
+  });
+
+  it('y ese empalme queda registrado para avisar al organizador', () => {
+    const r = programarEliminatorias(SOLO_SEMIS);
+    const semi = r.empalmes.find((e) => e.etapa === 'semi');
+    expect(semi).toBeDefined();
+    expect([semi!.categoriaA, semi!.categoriaB].sort()).toEqual(['A', 'B']);
+    expect(semi!.hora).toBe('08:00');
+  });
+
+  it('la final hermana tambien se registra', () => {
+    const r = programarEliminatorias(SOLO_SEMIS);
+    expect(r.empalmes.some((e) => e.etapa === 'final')).toBe(true);
+  });
+
+  it('sin el campo jugadores no hay hermandad ni empalmes', () => {
+    const sin = programarEliminatorias({
+      ...HERMANAS,
+      categorias: HERMANAS.categorias.map((c) => ({ id: c.id, clasificados: c.clasificados })),
+    });
+    expect(sin.empalmes).toEqual([]);
+  });
+
+  it('Cimepa sin jugadores da exactamente el mismo calendario que antes', () => {
+    // La garantia de no-regresion: el campo es opcional y su ausencia deja el
+    // motor como estaba.
+    const r = programarEliminatorias(CIMEPA);
+    expect(r.finEstimado).toBe('16:30');
+    expect(r.empalmes).toEqual([]);
+    expect(r.partidos).toHaveLength(62);
+  });
+
+  it('sigue siendo determinista con hermandades', () => {
+    const uno = programarEliminatorias(HERMANAS);
+    const otro = programarEliminatorias({
+      ...HERMANAS,
+      categorias: [...HERMANAS.categorias].reverse(),
+    });
+    expect(otro.partidos).toEqual(uno.partidos);
+    expect(otro.empalmes).toEqual(uno.empalmes);
+  });
+
+  it('no se bloquea cuando todas son hermanas de todas', () => {
+    // Grafo completo y sin holgura: la regla es preferencia, no restriccion.
+    // Sin el tope de espera esto dejaria canchas ociosas para siempre.
+    const r = programarEliminatorias({
+      canchas: 2,
+      desde: '08:00',
+      hasta: '22:00',
+      categorias: ['A', 'B', 'C', 'D'].map((id) => ({
+        id, clasificados: 8, jugadores: ['todos', `p${id}`],
+      })),
+    });
+    expect(r.cabe).toBe(true);
+    expect(r.partidos).toHaveLength(28);
   });
 });

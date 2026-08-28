@@ -328,6 +328,14 @@ export default function OrgTournamentScreen() {
             iconColor={ventanas.length > 0 ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/horarios`)}
           />
+          {/* El calendario cuelga de la capacidad: sin canchas ni horarios no
+              hay nada que programar, y la propia pantalla lo dice. */}
+          <SettingRow
+            icon="calendar"
+            title="Calendario"
+            value="Horas y canchas del último día"
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
+          />
           <SettingRow
             icon="whistle"
             title="Jueces"

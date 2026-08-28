@@ -7,6 +7,8 @@
 export interface CategoriaCuadro {
   id: string;
   clasificados: number;
+  /** Ids de jugadores que podrian llegar a eliminatorias en esta categoria. */
+  jugadores?: string[];
 }
 
 export interface EntradaScheduler {
@@ -46,12 +48,42 @@ export interface Calendario {
   partidos: PartidoProgramado[];
   totalPartidos: number;
   ultimoInicio: string | null;
+  /** Hora de fin si todo corre a tiempo. */
   finEstimado: string | null;
+  /** Hora de fin con los retrasos habituales. Es la que se le muestra al organizador. */
+  finRealista: string | null;
+  /** Hora de fin realista si una cancha se cae. Null si solo hay una cancha. */
+  finRealistaUnaCanchaMenos: string | null;
   cotaInferior: string;
   ocupacionPorFranja: FranjaOcupacion[];
+  /** Categorias hermanadas que aun asi quedaron a la misma hora. */
+  empalmes: { categoriaA: string; categoriaB: string; hora: string; etapa: string }[];
   avisos: string[];
   diagnostico?: DiagnosticoScheduler;
 }
+
+/**
+ * Distancia a la final a partir de la cual se evitan los empalmes.
+ *
+ * 2 = octavos, cuartos y anteriores. Semifinales (1) y final (0) quedan
+ * exentas A PROPOSITO: al final del dia todas las categorias convergen y
+ * separarlas retrasaria el torneo entero para proteger un caso que quiza no
+ * ocurra. Quien entra a dos categorias asume ese riesgo; el organizador decide
+ * en el momento quien espera. El motor informa, no arbitra.
+ */
+export const DISTANCIA_MINIMA_SEPARACION = 2;
+
+/**
+ * Pasos de reticula que una ronda temprana espera antes de rendirse.
+ *
+ * La separacion es una PREFERENCIA FUERTE, no una restriccion. Sin este tope,
+ * un grafo de hermandad denso podria dejar canchas ociosas indefinidamente
+ * esperando un hueco limpio, que es peor que el empalme que evita.
+ */
+export const MAX_ESPERA_POR_EMPALME = 4;
+
+/** Un partido planificado a 60 min suele durar 75. Medido en torneos reales. */
+export const FACTOR_RETRASO = 1.25;
 
 export const DEFAULT_MINUTOS_PARTIDO = 60;
 export const DEFAULT_DESCANSO_MINIMO = 30;
@@ -135,7 +167,52 @@ interface Tarea {
   finMin: number | null;
 }
 
-export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
+/**
+ * Dos categorias son HERMANAS si comparten al menos un jugador.
+ *
+ * Es la unica nocion de persona que tiene el motor. El resto del scheduler
+ * razona en parejas por categoria, que es exactamente por lo que no veia el
+ * caso de Cimepa: Santiago Cantillo con semifinal de 2a y final de 3a a las
+ * 17:00 no era dos parejas en conflicto — era una persona.
+ *
+ * Devuelve, por id de categoria, el conjunto de sus hermanas.
+ */
+function grafoDeHermandad(categorias: CategoriaCuadro[]): Map<string, Set<string>> {
+  const porJugador = new Map<string, string[]>();
+  for (const c of categorias) {
+    for (const j of c.jugadores ?? []) {
+      const ya = porJugador.get(j);
+      if (ya) ya.push(c.id);
+      else porJugador.set(j, [c.id]);
+    }
+  }
+
+  const hermanas = new Map<string, Set<string>>();
+  const une = (a: string, b: string) => {
+    if (a === b) return;
+    if (!hermanas.has(a)) hermanas.set(a, new Set());
+    hermanas.get(a)!.add(b);
+  };
+  for (const cats of porJugador.values()) {
+    if (cats.length < 2) continue;
+    for (const a of cats) for (const b of cats) une(a, b);
+  }
+  return hermanas;
+}
+
+/**
+ * UNA corrida del planificador. Es el cuerpo que antes era
+ * `programarEliminatorias` entero, sin un cambio de logica.
+ *
+ * ⚠️ Devuelve `finRealista` y `finRealistaUnaCanchaMenos` SIEMPRE en null: una
+ * corrida no sabe nada de las otras. Los rellena `programarEliminatorias`.
+ * Para mostrarle horas a alguien usa esa; esta es para quien necesita una sola
+ * corrida y sabe que la duracion que pasa ya es la realista.
+ *
+ * Exportada para el planificador (`../planner`), que la llama cientos de veces
+ * dentro de su bucle greedy y no puede pagar tres corridas por tentativa.
+ */
+export function correrCalendario(entrada: EntradaScheduler): Calendario {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
   const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
   const paso = entrada.paso ?? DEFAULT_PASO;
@@ -190,6 +267,15 @@ export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
   const pendientes = () => tareas.filter((t) => t.restantes > 0);
   const oleadasForzosas = new Set<string>();
 
+  // ── Separacion de hermanas ────────────────────────────────────────────────
+  const hermanas = grafoDeHermandad(entrada.categorias);
+  const sonHermanas = (a: string, b: string) => hermanas.get(a)?.has(b) ?? false;
+  /** Cuantos pasos lleva una tarea apartada por la regla. Clave: cat#ronda. */
+  const esperando = new Map<string, number>();
+  /** Que categorias ya ocupan cada instante, para detectar el empalme. */
+  const enInstante = new Map<number, Set<string>>();
+  const empalmes: Calendario['empalmes'] = [];
+
   for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
     const listas = pendientes()
       .map((tarea) => {
@@ -219,8 +305,45 @@ export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
       const cabeEntera = tarea.partidos <= entrada.canchas;
       if (cabeEntera && tarea.restantes > libres.length) continue;
 
+      // ── ¿Choca con una hermana ya puesta a esta hora? ────────────────────
+      // Solo en rondas tempranas (distancia a la final >= 2), donde las rondas
+      // van escaladas y apartarse cuesta poco. Semifinales y finales pasan de
+      // largo: ahi el motor sigue optimizando la hora sin mirar hermandades.
+      const distancia = tarea.totalRondas - tarea.ronda;
+      const yaAqui = enInstante.get(t);
+      const choca = yaAqui
+        ? [...yaAqui].find((otra) => sonHermanas(tarea.categoryId, otra))
+        : undefined;
+
+      if (choca && distancia >= DISTANCIA_MINIMA_SEPARACION) {
+        const clave = `${tarea.categoryId}#${tarea.ronda}`;
+        const espera = (esperando.get(clave) ?? 0) + 1;
+        // Preferencia fuerte, no restriccion: pasado el tope se coloca igual.
+        // Dejar canchas ociosas indefinidamente es peor que el empalme.
+        if (espera <= MAX_ESPERA_POR_EMPALME) {
+          esperando.set(clave, espera);
+          continue;
+        }
+      }
+
       const cupo = Math.min(tarea.restantes, libres.length);
       if (!cabeEntera) oleadasForzosas.add(tarea.categoryId);
+
+      // Se registra TODO empalme entre hermanas, incluidos los de semifinal y
+      // final que dejamos pasar a proposito: es el insumo del aviso.
+      if (yaAqui) {
+        for (const otra of yaAqui) {
+          if (!sonHermanas(tarea.categoryId, otra)) continue;
+          empalmes.push({
+            categoriaA: otra,
+            categoriaB: tarea.categoryId,
+            hora: formatHora(t),
+            etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas),
+          });
+        }
+      }
+      if (yaAqui) yaAqui.add(tarea.categoryId);
+      else enInstante.set(t, new Set([tarea.categoryId]));
 
       for (let k = 0; k < cupo; k++) {
         const cancha = libres[k];
@@ -289,10 +412,86 @@ export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
     totalPartidos,
     ultimoInicio: ultimoInicioMin === null ? null : formatHora(ultimoInicioMin),
     finEstimado: finEstimadoMin === null ? null : formatHora(finEstimadoMin),
+    // Los rellena programarEliminatorias con sus otras dos corridas.
+    finRealista: null,
+    finRealistaUnaCanchaMenos: null,
     cotaInferior: formatHora(cota),
     ocupacionPorFranja,
+    empalmes,
     avisos,
     diagnostico,
+  };
+}
+
+/**
+ * Programa el dia de eliminatorias y dice a que hora termina de verdad.
+ *
+ * POR QUE TRES CORRIDAS Y NO UNA
+ *   Un partido planificado a 60 minutos dura unos 75. En fase de grupos ese
+ *   retraso se diluye —los partidos son independientes y se reabsorbe entre
+ *   canchas—, pero en eliminatorias NO: las rondas van encadenadas, no se
+ *   juega la semifinal antes de los cuartos, y el retraso se suma en linea
+ *   recta ronda tras ronda. Un cuadro de 4 rondas acumula una hora entera.
+ *
+ *   Por eso el organizador necesita un rango. La hora del plan sirve para
+ *   ordenar el dia; la realista es la que decide si cabe.
+ *
+ *   Y la tercera: si el formato solo termina a tiempo usando TODAS las
+ *   canchas, una averia el domingo por la manana deja el torneo sin final.
+ *   Eso no se ve en ningun porcentaje de ocupacion — hay que simularlo.
+ *
+ * Solo la primera corrida produce partidos, avisos y diagnostico. De las
+ * otras dos se toma la hora y nada mas: sus avisos hablan de una entrada que
+ * el organizador no configuro (23:59, otra duracion) y mezclarlos seria
+ * contarle cosas de un torneo que no es el suyo.
+ */
+export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
+  // 1) El plan. Es el que manda: partidos, cabe, cota, ocupacion, diagnostico.
+  const plan = correrCalendario(entrada);
+
+  const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
+  const durReal = Math.round(dur * FACTOR_RETRASO);
+
+  // 2) La realista. El techo se abre a 23:59 A PROPOSITO: la pregunta no es
+  //    "cabe en tu ventana" —eso ya lo contesto el plan— sino "a que hora
+  //    acabarias". Con el techo del organizador la corrida cortaria partidos
+  //    y devolveria una hora falsamente temprana.
+  //    El paso baja a 15 para que la rejilla no redondee el retraso hacia
+  //    arriba en cada ronda.
+  const realista = correrCalendario({
+    ...entrada,
+    minutosPorPartido: durReal,
+    paso: 15,
+    hasta: '23:59',
+  });
+
+  // 3) Una cancha menos. Con una sola cancha no hay nada que simular.
+  const unaMenos = entrada.canchas > 1
+    ? correrCalendario({
+        ...entrada,
+        canchas: entrada.canchas - 1,
+        minutosPorPartido: durReal,
+        paso: 15,
+        hasta: '23:59',
+      })
+    : null;
+
+  const avisos = [...plan.avisos];
+
+  // El aviso se mide contra el cierre que el organizador SI configuro, no
+  // contra el 23:59 de la simulacion.
+  const techoReal = parseHora(entrada.hasta);
+  if (unaMenos?.finEstimado && parseHora(unaMenos.finEstimado) > techoReal) {
+    avisos.push(
+      `Con una cancha menos, este formato terminaria a las ${unaMenos.finEstimado}.`
+    );
+  }
+
+  return {
+    ...plan,
+    finRealista: realista.finEstimado,
+    finRealistaUnaCanchaMenos: unaMenos ? unaMenos.finEstimado : null,
+    avisos,
   };
 }
 

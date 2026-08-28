@@ -134,14 +134,23 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     expect(r.grupos.zona).toBe('limite');
   });
 
-  it('aprovecha el último día repescando, sin pasarse del umbral', () => {
-    // Con el piso a secas serían 47 (49%). El paso 2 sube la repesca hasta
-    // rozar el 85% — porque repescar solo gasta slots del último día, y ese
-    // iba medio vacío.
-    expect(r.eliminacion.usados).toBe(81);
-    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(84);
-    expect(r.eliminacion.zona).toBe('ajustado');
-    expect(r.eliminacion.ocupacion).toBeLessThanOrEqual(0.85);
+  it('aprovecha el último día repescando, sin pasarse de la hora de cierre', () => {
+    // Con el piso a secas serían 47 partidos. El paso 2 sube la repesca hasta
+    // 72 y ahí para: uno más y la hora realista se iría de las 20:00.
+    //
+    // ANTES ERAN 81, con la puerta del 85% de slots — que es literalmente
+    // floor(96 × 0.85). Aquella regla no miraba la hora: 81 partidos
+    // encadenados terminaban 22:15 reales, más de dos horas después del
+    // cierre. El porcentaje no mide un día de eliminatorias.
+    expect(r.eliminacion.usados).toBe(72);
+    expect(r.ultimoDia!.finRealista).toBe('19:45');
+    expect(r.ultimoDia!.finRealista! <= '20:00').toBe(true);
+  });
+
+  it('la ocupación en slots sobrevive como dato, pero ya no manda', () => {
+    // 75% suena holgado; la hora dice 19:45 sobre un cierre de 20:00. Que las
+    // dos cifras cuenten historias distintas es justo el motivo del cambio.
+    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(75);
   });
 
   it('repesca aunque la fase de grupos esté por encima del umbral', () => {
@@ -158,13 +167,20 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     }
   });
 
-  it('propone MÁS repesca de la que eligió Cimepa', () => {
-    // Ellos pusieron 2 en 5ª Fuerza con el domingo al 49%. Medida la
-    // capacidad, cabían 6 y el cuadro queda lleno, sin un solo bye.
+  it('propone MÁS repesca de la que eligió Cimepa, pero menos que con slots', () => {
+    // Tres números para la misma categoría:
+    //   2 → lo que Cimepa puso a mano (12 clasificados, con byes)
+    //   6 → lo que proponía la puerta del 85% de slots (16, cuadro lleno)
+    //   4 → lo que sale ahora: el último nivel cuya hora realista cabe
+    //
+    // El 4 sale de que 5A comparte el domingo con las otras siete: subir a 5
+    // empuja el fin del día pasadas las 20:00. Con byes, sí — un cuadro de 16
+    // con 14 dentro deja 2 —, pero un cuadro lleno que no termina no sirve.
     const p = r.planes.get('5A')!;
-    expect(p.segundosQueAvanzan).toBe(6);
-    expect(p.clasificados).toBe(16);
-    expect(p.byes).toBe(0);
+    expect(p.segundosQueAvanzan).toBe(4);
+    expect(p.clasificados).toBe(14);
+    expect(p.bracketSize).toBe(16);
+    expect(p.byes).toBe(2);
   });
 
   it('avisa de que los grupos van al límite', () => {
@@ -188,14 +204,23 @@ describe('criterio "quedar segundo debe servir"', () => {
   });
 
   it('la frase cambia según el ratio', () => {
+    // 5 de 10, no 6: el sexto no cabe en la hora del domingo.
     expect(r.planes.get('3A')!.fraseSegundos)
-      .toBe('Quedar segundo sirve: 6 de 10 segundos avanzan.');
+      .toBe('Quedar segundo sirve: 5 de 10 segundos avanzan.');
+    // 2 de 4: justo en el 0.5 que separa "sirve" de "solo algunos".
     expect(r.planes.get('5F')!.fraseSegundos)
-      .toBe('Quedar segundo sirve: 3 de 4 segundos avanzan.');
+      .toBe('Quedar segundo sirve: 2 de 4 segundos avanzan.');
 
     // Ninguna categoría de Cimepa queda con "solo avanzan los primeros": el
-    // paso 2 gasta el domingo, que iba medio vacío, en que quedar segundo sirva.
-    for (const p of r.planes.values()) expect(p.ratioSegundos).toBeGreaterThanOrEqual(0.5);
+    // paso 2 gasta el domingo en que quedar segundo sirva.
+    //
+    // EL SUELO BAJÓ DE 0.5 A 0.4. Con la puerta de slots todas llegaban a la
+    // mitad; con la de hora, 4ª y 5ª Fuerza se quedan en 4 de 10 porque el
+    // domingo se acaba antes. Es el precio real del cambio y se afirma tal cual
+    // en vez de relajar el umbral sin decirlo: el compromiso es terminar.
+    const peor = Math.min(...[...r.planes.values()].map((p) => p.ratioSegundos));
+    expect(peor).toBeCloseTo(0.4);
+    for (const p of r.planes.values()) expect(p.ratioSegundos).toBeGreaterThan(0);
   });
 
   it('el piso no repesca a nadie: subir es trabajo del paso 2', () => {
@@ -311,9 +336,14 @@ describe('§9 · casos límite', () => {
     }
   });
 
-  it('avisa del camino crítico cuando el último día es más corto que las rondas', () => {
+  it('da la hora real cuando el último día es más corto que las rondas', () => {
     // Canchas de sobra pero un último día de hora y media: por muchas canchas
     // que haya, las rondas de una categoría van una tras otra.
+    //
+    // Antes esto disparaba un aviso aproximado ("necesita al menos N h
+    // seguidas", de maxRondas × minutosPorPartido). Ahora el scheduler da la
+    // hora exacta, que es lo accionable — y además marca el plan como no cabe,
+    // cosa que el aviso viejo no hacía.
     const r = planTournament([{ id: 'u', parejas: 30 }], {
       canchas: 20, minutosPorPartido: 60,
       ventanas: [
@@ -321,7 +351,9 @@ describe('§9 · casos límite', () => {
         { fecha: '2026-05-10', desde: '09:00', hasta: '10:30' },
       ],
     });
-    expect(r.avisos.some((a) => /una tras otra/.test(a))).toBe(true);
+    expect(r.cabe).toBe(false);
+    expect(r.ultimoDia!.finRealista).toBe('15:30');
+    expect(r.avisos.some((a) => /después del cierre de las 10:30/.test(a))).toBe(true);
   });
 });
 
