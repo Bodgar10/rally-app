@@ -631,6 +631,9 @@ function thirdPlaceFromSemis(semis) {
 }
 
 // src/lib/engine/schedule/knockout.ts
+var DISTANCIA_MINIMA_SEPARACION = 2;
+var MAX_ESPERA_POR_EMPALME = 4;
+var FACTOR_RETRASO = 1.25;
 var DEFAULT_MINUTOS_PARTIDO = 60;
 var DEFAULT_DESCANSO_MINIMO = 30;
 var DEFAULT_PASO = 30;
@@ -680,7 +683,28 @@ function cotaInferior(entrada) {
   }
   return mejor;
 }
-function programarEliminatorias(entrada) {
+function grafoDeHermandad(categorias) {
+  const porJugador = /* @__PURE__ */ new Map();
+  for (const c of categorias) {
+    for (const j of c.jugadores ?? []) {
+      const ya = porJugador.get(j);
+      if (ya) ya.push(c.id);
+      else porJugador.set(j, [c.id]);
+    }
+  }
+  const hermanas = /* @__PURE__ */ new Map();
+  const une = (a, b) => {
+    if (a === b) return;
+    if (!hermanas.has(a)) hermanas.set(a, /* @__PURE__ */ new Set());
+    hermanas.get(a).add(b);
+  };
+  for (const cats of porJugador.values()) {
+    if (cats.length < 2) continue;
+    for (const a of cats) for (const b of cats) une(a, b);
+  }
+  return hermanas;
+}
+function correrCalendario(entrada) {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
   const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
   const paso = entrada.paso ?? DEFAULT_PASO;
@@ -728,6 +752,11 @@ function programarEliminatorias(entrada) {
   };
   const pendientes = () => tareas.filter((t) => t.restantes > 0);
   const oleadasForzosas = /* @__PURE__ */ new Set();
+  const hermanas = grafoDeHermandad(entrada.categorias);
+  const sonHermanas = (a, b) => hermanas.get(a)?.has(b) ?? false;
+  const esperando = /* @__PURE__ */ new Map();
+  const enInstante = /* @__PURE__ */ new Map();
+  const empalmes = [];
   for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
     const listas = pendientes().map((tarea) => {
       let earliest = inicio;
@@ -748,8 +777,32 @@ function programarEliminatorias(entrada) {
       if (libres.length === 0) break;
       const cabeEntera = tarea.partidos <= entrada.canchas;
       if (cabeEntera && tarea.restantes > libres.length) continue;
+      const distancia = tarea.totalRondas - tarea.ronda;
+      const yaAqui = enInstante.get(t);
+      const choca = yaAqui ? [...yaAqui].find((otra) => sonHermanas(tarea.categoryId, otra)) : void 0;
+      if (choca && distancia >= DISTANCIA_MINIMA_SEPARACION) {
+        const clave = `${tarea.categoryId}#${tarea.ronda}`;
+        const espera = (esperando.get(clave) ?? 0) + 1;
+        if (espera <= MAX_ESPERA_POR_EMPALME) {
+          esperando.set(clave, espera);
+          continue;
+        }
+      }
       const cupo = Math.min(tarea.restantes, libres.length);
       if (!cabeEntera) oleadasForzosas.add(tarea.categoryId);
+      if (yaAqui) {
+        for (const otra of yaAqui) {
+          if (!sonHermanas(tarea.categoryId, otra)) continue;
+          empalmes.push({
+            categoriaA: otra,
+            categoriaB: tarea.categoryId,
+            hora: formatHora(t),
+            etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas)
+          });
+        }
+      }
+      if (yaAqui) yaAqui.add(tarea.categoryId);
+      else enInstante.set(t, /* @__PURE__ */ new Set([tarea.categoryId]));
       for (let k = 0; k < cupo; k++) {
         const cancha = libres[k];
         ocupadaHasta.push({ cancha, desde: t, hasta: t + dur });
@@ -807,10 +860,62 @@ function programarEliminatorias(entrada) {
     totalPartidos,
     ultimoInicio: ultimoInicioMin === null ? null : formatHora(ultimoInicioMin),
     finEstimado: finEstimadoMin === null ? null : formatHora(finEstimadoMin),
+    // Los rellena programarEliminatorias con sus otras dos corridas.
+    finRealista: null,
+    finRealistaUnaCanchaMenos: null,
     cotaInferior: formatHora(cota),
     ocupacionPorFranja,
+    empalmes,
     avisos,
     diagnostico
+  };
+}
+function finRealistaEncadenado(cadenas, minutosPorPartido) {
+  if (cadenas.length === 0) return null;
+  const exceso = minutosPorPartido * (FACTOR_RETRASO - 1);
+  let peor = -1;
+  for (const c of cadenas) {
+    const fin = c.ultimoInicioMin + minutosPorPartido + Math.round(c.rondas * exceso);
+    if (fin > peor) peor = fin;
+  }
+  return peor < 0 ? null : peor;
+}
+function cadenasDePartidos(partidos) {
+  const m = /* @__PURE__ */ new Map();
+  for (const p of partidos) {
+    const ya = m.get(p.categoryId);
+    if (ya) {
+      ya.rondas = Math.max(ya.rondas, p.totalRondas);
+      ya.ultimoInicioMin = Math.max(ya.ultimoInicioMin, p.inicioMin);
+    } else {
+      m.set(p.categoryId, {
+        categoryId: p.categoryId,
+        rondas: p.totalRondas,
+        ultimoInicioMin: p.inicioMin
+      });
+    }
+  }
+  return [...m.values()];
+}
+function programarEliminatorias(entrada) {
+  const plan2 = correrCalendario(entrada);
+  const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
+  const paraCadena = plan2.cabe ? plan2 : correrCalendario({ ...entrada, hasta: "23:59" });
+  const realMin = finRealistaEncadenado(cadenasDePartidos(paraCadena.partidos), dur);
+  const unaMenos = entrada.canchas > 1 ? correrCalendario({ ...entrada, canchas: entrada.canchas - 1, hasta: "23:59" }) : null;
+  const unaMenosMin = unaMenos ? finRealistaEncadenado(cadenasDePartidos(unaMenos.partidos), dur) : null;
+  const avisos = [...plan2.avisos];
+  const techoReal = parseHora(entrada.hasta);
+  if (unaMenosMin !== null && unaMenosMin > techoReal) {
+    avisos.push(
+      `Con una cancha menos, este formato terminaria a las ${formatHora(unaMenosMin)}.`
+    );
+  }
+  return {
+    ...plan2,
+    finRealista: realMin === null ? null : formatHora(realMin),
+    finRealistaUnaCanchaMenos: unaMenosMin === null ? null : formatHora(unaMenosMin),
+    avisos
   };
 }
 function etapaDeRonda(ronda, totalRondas) {

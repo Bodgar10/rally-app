@@ -9,6 +9,14 @@
 //     · match_schedule → el plan COMPLETO, incluidas las rondas sin fila.
 //     · matches        → solo los partidos que ya existen y son jugables.
 //   Si luego difieren, el partido se movió. No se duplica el plan en `matches`.
+//
+// LOS EMPALMES NO SE PERSISTEN
+//   Se devuelven en la respuesta. Son derivables en cualquier momento del
+//   calendario guardado (`match_schedule` + `matches`) cruzado con `pairs`, y
+//   una tabla los congelaría: en cuanto el organizador mueva un partido a mano,
+//   la tabla mentiría y el cálculo en vivo no. La pantalla del calendario los
+//   recalcula sobre los partidos que está listando, que es la única fuente que
+//   no puede desfasarse.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
@@ -156,6 +164,29 @@ Deno.serve(async (req) => {
       .select('id, display_name, num_groups, advance_per_group, best_extra_qualifiers')
       .eq('tournament_id', tournamentId);
 
+    // ── Quién juega en cada categoría ──────────────────────────────────────
+    // Es lo que le permite al motor saber que dos categorías comparten gente.
+    // Sin esto no hermana nada y programa octavos de dos categorías con
+    // jugadores comunes a la misma hora — que es lo que pasaba: en el Cimepa
+    // real, Santiago Cantillo tenía dos partidos simultáneos.
+    //
+    // TODAS las parejas de la categoría, no solo las que clasificarán: a la
+    // hora de programar no se sabe quién pasa, y un superconjunto solo puede
+    // sobre-separar. Equivocarse por ahí cuesta minutos de calendario;
+    // equivocarse al revés cuesta que alguien no pueda jugar.
+    const { data: todasParejas } = await admin
+      .from('pairs')
+      .select('category_id, player1_id, player2_id')
+      .eq('tournament_id', tournamentId);
+
+    const jugadoresPorCat = new Map<string, string[]>();
+    for (const pr of todasParejas ?? []) {
+      const ya = jugadoresPorCat.get(pr.category_id);
+      const dos = [pr.player1_id, pr.player2_id];
+      if (ya) ya.push(...dos);
+      else jugadoresPorCat.set(pr.category_id, dos);
+    }
+
     const categorias: CategoriaCuadro[] = [];
     for (const c of (cats ?? []) as FilaCategoria[]) {
       if (c.num_groups == null || c.advance_per_group == null || c.best_extra_qualifiers == null) {
@@ -167,7 +198,7 @@ Deno.serve(async (req) => {
         avisos.push(`${c.display_name}: ${clasificados} clasificados, no hay cuadro que programar.`);
         continue;
       }
-      categorias.push({ id: c.id, clasificados });
+      categorias.push({ id: c.id, clasificados, jugadores: jugadoresPorCat.get(c.id) });
     }
 
     if (categorias.length === 0) {
@@ -199,6 +230,17 @@ Deno.serve(async (req) => {
     // ─────────────────── 6. No cabe: informar sin escribir ───────────────────
     // Un calendario a medias es peor que ninguno: el jugador vería hora en unos
     // partidos y no en otros sin saber por qué. Todo o nada.
+    // Los empalmes con NOMBRE de categoría, no con uuid: el consumidor es una
+    // pantalla y un aviso que dice "a3f9-… choca con 7b21-…" no sirve de nada.
+    const nombrePorCat = new Map(
+      ((cats ?? []) as FilaCategoria[]).map((c) => [c.id, c.display_name]),
+    );
+    const empalmes = plan.empalmes.map((e: Calendario['empalmes'][number]) => ({
+      ...e,
+      categoriaA: nombrePorCat.get(e.categoriaA) ?? e.categoriaA,
+      categoriaB: nombrePorCat.get(e.categoriaB) ?? e.categoriaB,
+    }));
+
     if (!plan.cabe) {
       return json({
         cabe: false,
@@ -206,6 +248,7 @@ Deno.serve(async (req) => {
         cotaInferior: plan.cotaInferior,
         totalPartidos: plan.totalPartidos,
         ocupacionPorFranja: plan.ocupacionPorFranja,
+        empalmes,
         avisos,
         diagnostico: plan.diagnostico ?? null,
         matchesActualizados: 0,
@@ -332,6 +375,11 @@ Deno.serve(async (req) => {
       cotaInferior: plan.cotaInferior,
       totalPartidos: plan.totalPartidos,
       ocupacionPorFranja: plan.ocupacionPorFranja,
+      // Se devuelven, no se persisten: son una función pura del calendario
+      // guardado más quién juega en cada categoría, y ambas cosas ya están en
+      // la base. Una tabla los duplicaría y podría quedarse desfasada al primer
+      // partido que el organizador mueva a mano. Ver la nota del final.
+      empalmes,
       avisos,
       diagnostico: plan.diagnostico ?? null,
       matchesActualizados,

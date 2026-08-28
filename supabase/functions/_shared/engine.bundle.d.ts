@@ -219,6 +219,8 @@ declare function thirdPlaceFromSemis(semis: [RoundMatch, RoundMatch]): {
 interface CategoriaCuadro {
     id: string;
     clasificados: number;
+    /** Ids de jugadores que podrian llegar a eliminatorias en esta categoria. */
+    jugadores?: string[];
 }
 interface EntradaScheduler {
     canchas: number;
@@ -253,12 +255,46 @@ interface Calendario {
     partidos: PartidoProgramado[];
     totalPartidos: number;
     ultimoInicio: string | null;
+    /** Hora de fin si todo corre a tiempo. */
     finEstimado: string | null;
+    /** Hora de fin con los retrasos habituales. Es la que se le muestra al organizador. */
+    finRealista: string | null;
+    /** Hora de fin realista si una cancha se cae. Null si solo hay una cancha. */
+    finRealistaUnaCanchaMenos: string | null;
     cotaInferior: string;
     ocupacionPorFranja: FranjaOcupacion[];
+    /** Categorias hermanadas que aun asi quedaron a la misma hora. */
+    empalmes: {
+        categoriaA: string;
+        categoriaB: string;
+        hora: string;
+        etapa: string;
+    }[];
     avisos: string[];
     diagnostico?: DiagnosticoScheduler;
 }
+/**
+ * Programa el dia de eliminatorias y dice a que hora termina de verdad.
+ *
+ * POR QUE TRES CORRIDAS Y NO UNA
+ *   Un partido planificado a 60 minutos dura unos 75. En fase de grupos ese
+ *   retraso se diluye —los partidos son independientes y se reabsorbe entre
+ *   canchas—, pero en eliminatorias NO: las rondas van encadenadas, no se
+ *   juega la semifinal antes de los cuartos, y el retraso se suma en linea
+ *   recta ronda tras ronda. Un cuadro de 4 rondas acumula una hora entera.
+ *
+ *   Por eso el organizador necesita un rango. La hora del plan sirve para
+ *   ordenar el dia; la realista es la que decide si cabe.
+ *
+ *   Y la tercera: si el formato solo termina a tiempo usando TODAS las
+ *   canchas, una averia el domingo por la manana deja el torneo sin final.
+ *   Eso no se ve en ningun porcentaje de ocupacion — hay que simularlo.
+ *
+ * Solo la primera corrida produce partidos, avisos y diagnostico. De las
+ * otras dos se toma la hora y nada mas: sus avisos hablan de una entrada que
+ * el organizador no configuro (23:59, otra duracion) y mezclarlos seria
+ * contarle cosas de un torneo que no es el suyo.
+ */
 declare function programarEliminatorias(entrada: EntradaScheduler): Calendario;
 /** Valores del enum match_stage de la base para eliminatorias. */
 type EtapaEliminatoria = 'round_of_32' | 'round_of_16' | 'quarter' | 'semi' | 'final';

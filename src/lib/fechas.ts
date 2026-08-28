@@ -239,3 +239,70 @@ export function sumarMeses(anio: number, mes: number, delta: number): { anio: nu
   const d = new Date(anio, mes + delta, 1);
   return { anio: d.getFullYear(), mes: d.getMonth() };
 }
+
+// ── Horas de torneo (timestamptz) ───────────────────────────────────────────
+//
+// OTRO PROBLEMA, EL INVERSO DEL DE ARRIBA
+//   `matches.scheduled_at` y `match_schedule.scheduled_at` son `timestamptz`.
+//   Postgres los guarda en UTC y PostgREST los devuelve en UTC:
+//
+//     el scheduler escribe  2026-09-13T08:00:00-06:00
+//     la lectura devuelve   2026-09-13T14:00:00+00:00   ← el mismo instante
+//
+//   Leer la hora del TEXTO da 14:00, que es falso. Y formatear con
+//   `toLocaleTimeString` sin zona da la hora del DISPOSITIVO, que es igual de
+//   falso para quien abra la app desde otro huso: el jugador en Madrid vería
+//   las 16:00 de un partido que se juega a las 8 de la mañana en el club.
+//
+//   La hora de un torneo es la del club. Siempre. No la del servidor ni la de
+//   quien mira.
+
+/**
+ * La zona en la que se juegan los torneos.
+ *
+ * Un solo sitio, exportada. Cuando RALLY salga de México esto pasará a ser una
+ * columna del torneo o de la sede; hasta entonces, una constante honesta es
+ * mejor que un offset repetido por pantalla.
+ *
+ * Se usa el nombre IANA y no '-06:00' a propósito: México abolió el horario de
+ * verano en 2022, pero si algún día vuelve, el nombre sigue siendo correcto y
+ * el offset fijo no.
+ */
+export const ZONA_TORNEO = 'America/Mexico_City';
+
+/**
+ * 'HH:MM' en la zona del club, venga el ISO en la zona que venga.
+ *
+ * Cadena vacía si no hay hora: quien llama decide qué poner en su lugar
+ * ('Por definir', '—', …) según su contexto.
+ */
+export function horaDeTorneo(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: ZONA_TORNEO,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+}
+
+/**
+ * 'dom, 13 sept, 08:00' en la zona del club. Para cuando el día importa tanto
+ * como la hora — el próximo partido de un torneo de tres días, por ejemplo.
+ */
+export function fechaHoraDeTorneo(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: ZONA_TORNEO,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+}

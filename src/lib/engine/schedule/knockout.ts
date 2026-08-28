@@ -423,6 +423,69 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
   };
 }
 
+/** Lo que hace falta saber de una categoria para estirar su cadena. */
+export interface CadenaCategoria {
+  categoryId: string;
+  /** Cuantas rondas encadenadas juega. */
+  rondas: number;
+  /** Minuto de inicio de su ULTIMO partido, segun el plan. */
+  ultimoInicioMin: number;
+}
+
+/**
+ * A que hora termina de verdad un calendario ya planificado.
+ *
+ * SE ESTIRA LA CADENA, NO EL DIA.
+ *   Un partido de 60 minutos dura unos 75. Ese 25% no se reparte por igual:
+ *
+ *   · Estirar el dia entero por 1.25 SOBREESTIMA. Mete en la cuenta los huecos
+ *     ociosos, y un hueco no se retrasa — absorbe retraso. Una cancha vacia a
+ *     las 15:00 es margen, no deuda.
+ *
+ *   · Replanificar con partidos de 75 minutos SUBESTIMA. Recompacta el dia
+ *     asumiendo una reoptimizacion que nadie hace un domingo a media tarde:
+ *     los partidos ya tienen hora y la gente ya la sabe.
+ *
+ *   Lo que de verdad se acumula es la CADENA de cada categoria: la semifinal no
+ *   empieza hasta que acaban los cuartos, asi que cada ronda hereda el retraso
+ *   de la anterior. Con R rondas, esa categoria termina R x dur x 0.25 mas
+ *   tarde de lo planificado. El torneo acaba cuando acaba la ultima.
+ *
+ * Devuelve minutos, o null si no hay nada que estirar.
+ */
+export function finRealistaEncadenado(
+  cadenas: CadenaCategoria[],
+  minutosPorPartido: number,
+): number | null {
+  if (cadenas.length === 0) return null;
+  const exceso = minutosPorPartido * (FACTOR_RETRASO - 1);
+  let peor = -1;
+  for (const c of cadenas) {
+    const fin = c.ultimoInicioMin + minutosPorPartido + Math.round(c.rondas * exceso);
+    if (fin > peor) peor = fin;
+  }
+  return peor < 0 ? null : peor;
+}
+
+/** Las cadenas que se deducen de un calendario ya programado. */
+export function cadenasDePartidos(partidos: PartidoProgramado[]): CadenaCategoria[] {
+  const m = new Map<string, CadenaCategoria>();
+  for (const p of partidos) {
+    const ya = m.get(p.categoryId);
+    if (ya) {
+      ya.rondas = Math.max(ya.rondas, p.totalRondas);
+      ya.ultimoInicioMin = Math.max(ya.ultimoInicioMin, p.inicioMin);
+    } else {
+      m.set(p.categoryId, {
+        categoryId: p.categoryId,
+        rondas: p.totalRondas,
+        ultimoInicioMin: p.inicioMin,
+      });
+    }
+  }
+  return [...m.values()];
+}
+
 /**
  * Programa el dia de eliminatorias y dice a que hora termina de verdad.
  *
@@ -450,30 +513,33 @@ export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
   const plan = correrCalendario(entrada);
 
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
-  const durReal = Math.round(dur * FACTOR_RETRASO);
 
-  // 2) La realista. El techo se abre a 23:59 A PROPOSITO: la pregunta no es
-  //    "cabe en tu ventana" —eso ya lo contesto el plan— sino "a que hora
-  //    acabarias". Con el techo del organizador la corrida cortaria partidos
-  //    y devolveria una hora falsamente temprana.
-  //    El paso baja a 15 para que la rejilla no redondee el retraso hacia
-  //    arriba en cada ronda.
-  const realista = correrCalendario({
-    ...entrada,
-    minutosPorPartido: durReal,
-    paso: 15,
-    hasta: '23:59',
-  });
+  // 2) La realista. NO se replanifica a otra duracion: se estira la cadena del
+  //    plan. Ver finRealistaEncadenado — replanificar con partidos de 75
+  //    minutos recompactaria el dia y daria una hora que nadie va a ver,
+  //    porque a media tarde el calendario ya no se reoptimiza.
+  //
+  //    Si el plan NO cabe esta truncado —le faltan los partidos que no
+  //    entraron—, y estirar esa cadena daria una hora falsamente temprana: la
+  //    de terminar un torneo a medias. En ese caso se replantea con el techo
+  //    abierto, para responder "a que hora acabarias si los jugaras todos".
+  const paraCadena = plan.cabe
+    ? plan
+    : correrCalendario({ ...entrada, hasta: '23:59' });
+  const realMin = finRealistaEncadenado(cadenasDePartidos(paraCadena.partidos), dur);
 
-  // 3) Una cancha menos. Con una sola cancha no hay nada que simular.
+  // 3) Una cancha menos. Se REPLANIFICA —eso si cambia el plan: con una
+  //    cancha menos los partidos caen en otras horas— y sobre ESE plan se
+  //    estira la cadena, con la misma formula. El techo se abre a 23:59 a
+  //    proposito: la pregunta no es "cabe" sino "a que hora acabarias", y con
+  //    el techo del organizador la corrida cortaria partidos y devolveria una
+  //    hora falsamente temprana.
+  //    Con una sola cancha no hay nada que simular.
   const unaMenos = entrada.canchas > 1
-    ? correrCalendario({
-        ...entrada,
-        canchas: entrada.canchas - 1,
-        minutosPorPartido: durReal,
-        paso: 15,
-        hasta: '23:59',
-      })
+    ? correrCalendario({ ...entrada, canchas: entrada.canchas - 1, hasta: '23:59' })
+    : null;
+  const unaMenosMin = unaMenos
+    ? finRealistaEncadenado(cadenasDePartidos(unaMenos.partidos), dur)
     : null;
 
   const avisos = [...plan.avisos];
@@ -481,16 +547,16 @@ export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
   // El aviso se mide contra el cierre que el organizador SI configuro, no
   // contra el 23:59 de la simulacion.
   const techoReal = parseHora(entrada.hasta);
-  if (unaMenos?.finEstimado && parseHora(unaMenos.finEstimado) > techoReal) {
+  if (unaMenosMin !== null && unaMenosMin > techoReal) {
     avisos.push(
-      `Con una cancha menos, este formato terminaria a las ${unaMenos.finEstimado}.`
+      `Con una cancha menos, este formato terminaria a las ${formatHora(unaMenosMin)}.`
     );
   }
 
   return {
     ...plan,
-    finRealista: realista.finEstimado,
-    finRealistaUnaCanchaMenos: unaMenos ? unaMenos.finEstimado : null,
+    finRealista: realMin === null ? null : formatHora(realMin),
+    finRealistaUnaCanchaMenos: unaMenosMin === null ? null : formatHora(unaMenosMin),
     avisos,
   };
 }

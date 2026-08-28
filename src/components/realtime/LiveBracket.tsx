@@ -22,6 +22,16 @@ import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
+import { horaDeTorneo } from '@/lib/fechas';
+import {
+  ORDEN_ETAPAS,
+  ETIQUETA_ETAPA,
+  agruparPorEtapa,
+  etapasActivas,
+  estaPendiente,
+  textoPendiente,
+  type EtapaCuadro,
+} from './bracket-layout';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -29,15 +39,9 @@ import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 
 type MatchStatus = 'scheduled' | 'in_progress' | 'finished';
 
-type BracketStage =
-  | 'round_of_32'
-  | 'round_of_16'
-  | 'quarter'
-  | 'semi'
-  | 'final'
-  | 'third_place';
+type BracketStage = EtapaCuadro;
 
-interface BracketMatch {
+export interface BracketMatch {
   id: string;
   stage: BracketStage;
   roundLabel: string | null;
@@ -48,35 +52,40 @@ interface BracketMatch {
   pairBName: string | null;
   winnerPairId: string | null;
   scheduledAt: string | null;
+  /** 'Cancha 3'. Opcional: el cuadro del jugador no lo trae. */
+  courtLabel?: string | null;
 }
 
 interface LiveBracketProps {
   categoryId: string;
   /** ID del usuario autenticado para resaltar su bracket. */
   currentUserId?: string;
+  /**
+   * Partidos ya resueltos por quien llama. Si se pasa, el componente NO
+   * consulta la base ni se suscribe a Realtime: pinta lo que le den.
+   *
+   * Existe para el calendario del organizador, que necesita mezclar `matches`
+   * (las rondas ya materializadas) con `match_schedule` (las que todavía no
+   * tienen fila, porque el cuadro se genera ronda a ronda). Ese cruce no lo
+   * puede hacer una consulta por category_id.
+   *
+   * Sin la prop, el comportamiento es exactamente el de siempre — es la rama
+   * que usa la pantalla del jugador.
+   */
+  partidos?: BracketMatch[];
+  /** Mensaje cuando no hay nada que pintar. */
+  vacio?: string;
 }
 
 // ───────────────────────────────────────────
 // Orden de rondas
 // ───────────────────────────────────────────
 
-const STAGE_ORDER: BracketStage[] = [
-  'round_of_32',
-  'round_of_16',
-  'quarter',
-  'semi',
-  'final',
-  'third_place',
-];
-
-const STAGE_LABEL: Record<BracketStage, string> = {
-  round_of_32: 'Octavos (R32)',
-  round_of_16: 'Octavos',
-  quarter: 'Cuartos',
-  semi: 'Semifinal',
-  final: 'Final',
-  third_place: '3er Lugar',
-};
+// El orden, las etiquetas y el criterio de "pendiente" viven en
+// bracket-layout.ts: es la parte testeable, y el proyecto no puede montar
+// tests de render. Aquí solo se reexportan los nombres que ya usaba el archivo.
+const STAGE_ORDER = ORDEN_ETAPAS;
+const STAGE_LABEL = ETIQUETA_ETAPA;
 
 // ───────────────────────────────────────────
 // Fetch
@@ -129,13 +138,18 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
 function MatchCard({
   match,
   currentUserId,
+  primeraRonda = false,
 }: {
+  primeraRonda?: boolean;
   match: BracketMatch;
   currentUserId?: string;
 }) {
   const isLive = match.status === 'in_progress';
   const isDone = match.status === 'finished';
-  const isPending = !match.pairAId || !match.pairBId;
+  const isPending = estaPendiente(match);
+  // "(Por definir)" no explicaba nada. Ahora dice de donde saldra la pareja:
+  // la primera ronda se alimenta de los grupos, las demas de la anterior.
+  const pendiente = textoPendiente(match.stage, primeraRonda);
 
   const pairAWon = isDone && match.winnerPairId === match.pairAId;
   const pairBWon = isDone && match.winnerPairId === match.pairBId;
@@ -174,7 +188,7 @@ function MatchCard({
           }}
           numberOfLines={2}
         >
-          {match.pairAName ?? '(Por definir)'}
+          {match.pairAName ?? pendiente}
           {pairAWon ? ' 🏆' : ''}
         </Text>
       </View>
@@ -195,14 +209,18 @@ function MatchCard({
           }}
           numberOfLines={2}
         >
-          {match.pairBName ?? '(Por definir)'}
+          {match.pairBName ?? pendiente}
           {pairBWon ? ' 🏆' : ''}
         </Text>
       </View>
 
-      {/* Footer: hora o estado */}
+      {/* Footer: hora o estado, y la cancha si se sabe */}
       <View
         style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 6,
           paddingHorizontal: 10,
           paddingVertical: 6,
           borderTopWidth: 1,
@@ -224,12 +242,25 @@ function MatchCard({
             : isDone
             ? '✓ Finalizado'
             : match.scheduledAt
-            ? new Date(match.scheduledAt).toLocaleTimeString('es-MX', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
+            ? horaDeTorneo(match.scheduledAt)
             : 'Por programar'}
         </Text>
+
+        {/* La cancha solo cuando viene y el partido no ha terminado: en un
+            partido jugado ya no le sirve a nadie, y compite con el resultado. */}
+        {match.courtLabel && !isDone && (
+          <Text
+            style={{
+              fontFamily: font.body,
+              fontSize: 9,
+              color: color.champagne,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+            }}
+          >
+            {match.courtLabel}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -239,25 +270,22 @@ function MatchCard({
 // Componente principal
 // ───────────────────────────────────────────
 
-export default function LiveBracket({ categoryId, currentUserId }: LiveBracketProps) {
+export default function LiveBracket({
+  categoryId, currentUserId, partidos, vacio,
+}: LiveBracketProps) {
+  const inyectado = partidos !== undefined;
+
   const [matchesByStage, setMatchesByStage] = useState<
     Partial<Record<BracketStage, BracketMatch[]>>
   >({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!inyectado);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError(null);
       const all = await fetchBracketMatches(categoryId);
-
-      // Agrupar por stage
-      const grouped: Partial<Record<BracketStage, BracketMatch[]>> = {};
-      for (const m of all) {
-        if (!grouped[m.stage]) grouped[m.stage] = [];
-        grouped[m.stage]!.push(m);
-      }
-      setMatchesByStage(grouped);
+      setMatchesByStage(agruparPorEtapa(all));
     } catch (e) {
       setError('No se pudo cargar el cuadro.');
       console.error('[LiveBracket] fetch error:', e);
@@ -267,6 +295,11 @@ export default function LiveBracket({ categoryId, currentUserId }: LiveBracketPr
   }, [categoryId]);
 
   useEffect(() => {
+    // Con partidos inyectados no se consulta ni se suscribe: los datos son de
+    // quien llama, y abrir un canal por categoría en una vista con ocho tabs
+    // costaría ocho suscripciones para nada.
+    if (inyectado) return;
+
     load();
 
     const unsub = subscribeToTable<Record<string, unknown>>({
@@ -278,7 +311,9 @@ export default function LiveBracket({ categoryId, currentUserId }: LiveBracketPr
     });
 
     return unsub;
-  }, [categoryId, load]);
+  }, [categoryId, load, inyectado]);
+
+  const porEtapa = inyectado ? agruparPorEtapa(partidos!) : matchesByStage;
 
   if (loading) {
     return (
@@ -296,7 +331,10 @@ export default function LiveBracket({ categoryId, currentUserId }: LiveBracketPr
     );
   }
 
-  const activeStages = STAGE_ORDER.filter((s) => (matchesByStage[s]?.length ?? 0) > 0);
+  const activeStages = etapasActivas(porEtapa);
+  // La primera columna del cuadro es la que se alimenta de los grupos; las
+  // demás salen de la ronda anterior. Lo necesita el texto de los pendientes.
+  const primeraEtapa = activeStages[0];
 
   if (activeStages.length === 0) {
     return (
@@ -311,11 +349,13 @@ export default function LiveBracket({ categoryId, currentUserId }: LiveBracketPr
         }}
       >
         <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13 }}>
-          El cuadro eliminatorio aún no está disponible.
+          {vacio ?? 'El cuadro eliminatorio aún no está disponible.'}
         </Text>
-        <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 11, marginTop: 4 }}>
-          Se generará al cerrar la fase de grupos.
-        </Text>
+        {!vacio && (
+          <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 11, marginTop: 4 }}>
+            Se generará al cerrar la fase de grupos.
+          </Text>
+        )}
       </View>
     );
   }
@@ -342,8 +382,13 @@ export default function LiveBracket({ categoryId, currentUserId }: LiveBracketPr
 
             {/* Tarjetas de la ronda */}
             <View style={{ gap: 12 }}>
-              {(matchesByStage[stage] ?? []).map((m) => (
-                <MatchCard key={m.id} match={m} currentUserId={currentUserId} />
+              {(porEtapa[stage] ?? []).map((m) => (
+                <MatchCard
+                  key={m.id}
+                  match={m}
+                  currentUserId={currentUserId}
+                  primeraRonda={stage === primeraEtapa}
+                />
               ))}
             </View>
           </View>

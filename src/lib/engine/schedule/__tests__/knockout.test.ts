@@ -4,6 +4,8 @@ import {
   partidosPorRonda,
   etapaDeRonda,
   FACTOR_RETRASO,
+  finRealistaEncadenado,
+  cadenasDePartidos,
   byesDelCuadro,
   tamanoCuadro,
   parseHora,
@@ -440,5 +442,55 @@ describe('separacion de categorias hermanas', () => {
     });
     expect(r.cabe).toBe(true);
     expect(r.partidos).toHaveLength(28);
+  });
+});
+
+describe('retraso encadenado', () => {
+  it('el retraso se acumula por RONDA, no por partido suelto', () => {
+    // Una categoria de 4 rondas cuyo ultimo partido empieza a las 15:00:
+    // termina 16:00 planificada, y cada ronda arrastra 15 min (25% de 60).
+    // 16:00 + 4 x 15 = 17:00.
+    const min = finRealistaEncadenado(
+      [{ categoryId: 'a', rondas: 4, ultimoInicioMin: parseHora('15:00') }],
+      60,
+    );
+    expect(formatHora(min!)).toBe('17:00');
+  });
+
+  it('manda la categoria que peor acaba, no la que juega mas tarde', () => {
+    // 'corta' empieza su ultimo partido despues, pero encadena menos rondas.
+    const min = finRealistaEncadenado([
+      { categoryId: 'larga', rondas: 5, ultimoInicioMin: parseHora('15:00') },
+      { categoryId: 'corta', rondas: 1, ultimoInicioMin: parseHora('15:30') },
+    ], 60);
+    // larga: 16:00 + 75 = 17:15 · corta: 16:30 + 15 = 16:45
+    expect(formatHora(min!)).toBe('17:15');
+  });
+
+  it('un hueco ocioso NO hereda retraso', () => {
+    // Dos categorias identicas, una con su ultimo partido dos horas despues.
+    // El desfase se traslada tal cual: el hueco no multiplica nada.
+    const a = finRealistaEncadenado([{ categoryId: 'a', rondas: 2, ultimoInicioMin: parseHora('10:00') }], 60);
+    const b = finRealistaEncadenado([{ categoryId: 'b', rondas: 2, ultimoInicioMin: parseHora('12:00') }], 60);
+    expect(b! - a!).toBe(120);
+  });
+
+  it('sin cadenas no hay hora', () => {
+    expect(finRealistaEncadenado([], 60)).toBeNull();
+  });
+
+  it('cadenasDePartidos resume cada categoria por su peor caso', () => {
+    const r = programarEliminatorias(CIMEPA);
+    const cadenas = cadenasDePartidos(r.partidos);
+    expect(cadenas).toHaveLength(8);
+    const tresA = cadenas.find((c) => c.categoryId === '3a')!;
+    // 12 clasificados -> [4,4,2,1]: cuatro rondas encadenadas.
+    expect(tresA.rondas).toBe(4);
+  });
+
+  it('Cimepa: la realista sale de la cadena del plan', () => {
+    const r = programarEliminatorias(CIMEPA);
+    const esperado = finRealistaEncadenado(cadenasDePartidos(r.partidos), 60);
+    expect(r.finRealista).toBe(formatHora(esperado!));
   });
 });

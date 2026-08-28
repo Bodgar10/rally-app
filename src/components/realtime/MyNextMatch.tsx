@@ -18,6 +18,7 @@ import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
+import { fechaHoraDeTorneo } from '@/lib/fechas';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -56,15 +57,10 @@ interface MyNextMatchProps {
 // ───────────────────────────────────────────
 
 function formatScheduledAt(iso: string | null): string {
-  if (!iso) return 'Por definir';
-  const d = new Date(iso);
-  return d.toLocaleString('es-MX', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // En la zona del CLUB, no en la del dispositivo: un jugador que mire la app
+  // desde otro huso —o con el móvil mal configurado— tiene que leer la hora a
+  // la que se juega, no la que marca su reloj.
+  return fechaHoraDeTorneo(iso) || 'Por definir';
 }
 
 function stageLabel(stage: string): string {

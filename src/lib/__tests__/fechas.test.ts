@@ -26,6 +26,9 @@ import {
   INICIALES_SEMANA,
   diasHasta,
   cuentaAtras,
+  horaDeTorneo,
+  fechaHoraDeTorneo,
+  ZONA_TORNEO,
 } from '../fechas';
 
 describe('entorno de los tests', () => {
@@ -318,5 +321,47 @@ describe('cuentaAtras', () => {
 
   it('cadena vacía sin fecha', () => {
     expect(cuentaAtras(undefined)).toBe('');
+  });
+});
+
+describe('horas de torneo (timestamptz)', () => {
+  it('el caso del bug: PostgREST devuelve UTC y hay que leer la del club', () => {
+    // El scheduler escribió 08:00-06:00; la lectura llega como 14:00+00:00.
+    // Es el MISMO instante, y el club juega a las 8 de la mañana.
+    expect(horaDeTorneo('2026-09-13T14:00:00+00:00')).toBe('08:00');
+    expect(horaDeTorneo('2026-09-13T08:00:00-06:00')).toBe('08:00');
+    // Sin zona explícita en el ISO se interpreta como UTC, igual que arriba.
+    expect(horaDeTorneo('2026-09-13T14:00:00Z')).toBe('08:00');
+  });
+
+  it('da la misma hora venga el offset que venga', () => {
+    // Un usuario en Madrid, uno en Tokio y uno en el club leen 16:30.
+    const instante = '2026-09-13T22:30:00+00:00';
+    expect(horaDeTorneo(instante)).toBe('16:30');
+    expect(horaDeTorneo('2026-09-14T07:30:00+09:00')).toBe('16:30');
+    expect(horaDeTorneo('2026-09-14T00:30:00+02:00')).toBe('16:30');
+  });
+
+  it('cruza la medianoche sin perder el día', () => {
+    // 20:00 en el club es el día SIGUIENTE en UTC.
+    expect(horaDeTorneo('2026-09-14T02:00:00+00:00')).toBe('20:00');
+  });
+
+  it('vacío cuando no hay hora, para que decida quien llama', () => {
+    expect(horaDeTorneo(null)).toBe('');
+    expect(horaDeTorneo(undefined)).toBe('');
+    expect(horaDeTorneo('')).toBe('');
+    expect(horaDeTorneo('no es una fecha')).toBe('');
+  });
+
+  it('fechaHoraDeTorneo trae el día y la hora del club', () => {
+    const t = fechaHoraDeTorneo('2026-09-13T14:00:00+00:00');
+    expect(t).toContain('08:00');
+    expect(t).toContain('13');
+    expect(fechaHoraDeTorneo(null)).toBe('');
+  });
+
+  it('la zona vive en un solo sitio', () => {
+    expect(ZONA_TORNEO).toBe('America/Mexico_City');
   });
 });

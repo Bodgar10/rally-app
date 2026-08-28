@@ -29,7 +29,9 @@ import type { FormatType, KnockoutStart } from '../types';
 import {
   correrCalendario,
   programarEliminatorias,
-  FACTOR_RETRASO,
+  finRealistaEncadenado,
+  cadenasDePartidos,
+  formatHora,
   type CategoriaCuadro,
 } from '../schedule/knockout';
 
@@ -52,6 +54,18 @@ export interface Capacidad {
 export interface CategoriaEntrada {
   id: string;
   parejas: number;
+  /**
+   * Ids de los jugadores inscritos en la categoria.
+   *
+   * Sirve para una sola cosa: que el scheduler sepa que dos categorias
+   * comparten gente y no las ponga a la misma hora en rondas tempranas. Esa
+   * separacion alarga el dia, asi que sin este dato el planificador
+   * recomendaria un nivel de repesca que no cabe en el calendario real.
+   *
+   * Opcional: sin el, el planificador sigue funcionando como antes — pero
+   * decidiendo contra un calendario mas optimista que el que se va a jugar.
+   */
+  jugadores?: string[];
 }
 
 // ── Salida ──────────────────────────────────────────────────────────────────
@@ -317,10 +331,19 @@ function piso(cands: PlanCategoria[]): PlanCategoria {
  * Los cuadros de un conjunto de planes, en el formato que espera el scheduler.
  * Menos de 2 clasificados no es cuadro y no ocupa cancha.
  */
-function cuadrosDe(planes: Iterable<PlanCategoria>): CategoriaCuadro[] {
+function cuadrosDe(
+  planes: Iterable<PlanCategoria>,
+  jugadores?: Map<string, string[]>,
+): CategoriaCuadro[] {
   const out: CategoriaCuadro[] = [];
   for (const p of planes) {
-    if (p.clasificados >= 2) out.push({ id: p.categoryId, clasificados: p.clasificados });
+    if (p.clasificados >= 2) {
+      out.push({
+        id: p.categoryId,
+        clasificados: p.clasificados,
+        jugadores: jugadores?.get(p.categoryId),
+      });
+    }
   }
   return out;
 }
@@ -337,19 +360,24 @@ function horaFinRealista(
   planes: Iterable<PlanCategoria>,
   cap: Capacidad,
   ventana: VentanaDia,
+  jugadores?: Map<string, string[]>,
 ): string | null {
-  const cuadros = cuadrosDe(planes);
+  const cuadros = cuadrosDe(planes, jugadores);
   if (cuadros.length === 0) return null;
   try {
+    // Se planifica a la duracion NORMAL y luego se estira la cadena, con la
+    // misma funcion que usa programarEliminatorias. Replanificar a 75 minutos
+    // recompactaria el dia y daria una hora que nadie va a ver.
     const r = correrCalendario({
       canchas: cap.canchas,
       desde: ventana.desde,
       hasta: '23:59',
       categorias: cuadros,
-      minutosPorPartido: Math.round(cap.minutosPorPartido * FACTOR_RETRASO),
-      paso: 15,
+      minutosPorPartido: cap.minutosPorPartido,
     });
-    return r.cabe ? r.finEstimado : null;
+    if (!r.cabe) return null;
+    const min = finRealistaEncadenado(cadenasDePartidos(r.partidos), cap.minutosPorPartido);
+    return min === null ? null : formatHora(min);
   } catch {
     // Capacidad imposible (ventana invertida, duración fuera de rango). Quien
     // llama lo trata como "no cabe".
@@ -395,6 +423,15 @@ export function planTournament(
     ? totalSlots
     : slotsDeDia(cap.ventanas[dias - 1], cap);
 
+  // Quien juega en cada categoria, para que el scheduler pueda hermanarlas.
+  // Sin esto el planificador decide contra un calendario mas optimista que el
+  // que se va a jugar: es el mismo error de mirar un modelo que no refleja la
+  // realidad, un nivel mas arriba.
+  const jugadoresPorCat = new Map<string, string[]>();
+  for (const c of categorias) {
+    if (c.jugadores?.length) jugadoresPorCat.set(c.id, c.jugadores);
+  }
+
   // La ventana del último día: la de las eliminatorias. Con un solo día no hay
   // "último" que aislar y el criterio por hora no aplica (ver okElim).
   const ventanaElim = dias > 0 ? cap.ventanas[dias - 1] : null;
@@ -412,7 +449,7 @@ export function planTournament(
     const clave = cuadrosDe(planes).map((c) => c.clasificados).sort((a, b) => a - b).join(',');
     const ya = cacheHora.get(clave);
     if (ya !== undefined) return ya;
-    const fin = horaFinRealista(planes, cap, ventanaElim);
+    const fin = horaFinRealista(planes, cap, ventanaElim, jugadoresPorCat);
     cacheHora.set(clave, fin);
     return fin;
   };
@@ -572,7 +609,7 @@ export function planTournament(
   // configuración ya elegida. Dentro del bucle solo se corría la realista.
   let ultimoDia: HorasUltimoDia | null = null;
   if (ventanaElim) {
-    const cuadros = cuadrosDe(elegido.values());
+    const cuadros = cuadrosDe(elegido.values(), jugadoresPorCat);
     if (cuadros.length > 0) {
       try {
         const r = programarEliminatorias({

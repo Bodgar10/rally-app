@@ -748,9 +748,30 @@ export default function CerrarInscripcionesScreen() {
           fecha: w.dia, desde: w.desde, hasta: w.hasta,
         })),
       };
+      // Los jugadores de cada categoría: sin ellos el planificador decide
+      // contra un calendario más optimista que el real, porque el scheduler no
+      // puede separar categorías que comparten gente y las apila a la misma
+      // hora. Es el mismo error de mirar un modelo que no refleja lo que va a
+      // pasar, un nivel por encima del calendario.
+      const { data: parejasIds } = await supabase
+        .from('pairs').select('category_id, player1_id, player2_id')
+        .eq('tournament_id', tournamentId);
+
+      const jugadoresPorCat = new Map<string, string[]>();
+      for (const pr of parejasIds ?? []) {
+        const ya = jugadoresPorCat.get(pr.category_id);
+        const dos = [pr.player1_id, pr.player2_id];
+        if (ya) ya.push(...dos);
+        else jugadoresPorCat.set(pr.category_id, dos);
+      }
+
       const conCapacidad = planTournament(
         conConteos.filter((c) => c.status === 'open' && c.pagadas >= 3)
-          .map((c) => ({ id: c.id, parejas: c.pagadas })),
+          .map((c) => ({
+            id: c.id,
+            parejas: c.pagadas,
+            jugadores: jugadoresPorCat.get(c.id),
+          })),
         cap,
       );
       setCapacidad(conCapacidad);

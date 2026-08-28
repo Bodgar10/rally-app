@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase/client';
 import ScoreCapture from '@/components/judge/ScoreCapture';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { horaDeTorneo } from '@/lib/fechas';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -225,7 +226,7 @@ export default function JudgeTournamentScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted }}>
                     {item.scheduledAt
-                      ? new Date(item.scheduledAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                      ? horaDeTorneo(item.scheduledAt)
                       : 'Sin hora asignada'}
                   </Text>
                   <Text style={{ fontFamily: font.body, fontSize: 12, color: color.gold, fontWeight: '600' }}>
