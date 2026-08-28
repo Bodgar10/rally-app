@@ -4,6 +4,7 @@
 
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
+import { handleOptions, json } from "../_shared/cors.ts";
 import {
   computeFormat,
   generateRoundRobin,
@@ -15,8 +16,24 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY      = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+// `json` y `handleOptions` vienen de _shared/cors.ts, igual que en las otras
+// diez funciones que llama la app.
+//
+// EL BUG QUE ARREGLA: "Sin conexión con el servidor" al cerrar inscripciones.
+//   Esta función tenía su propio helper `json` SIN cabeceras CORS y sin
+//   manejar OPTIONS. La petición del navegador lleva Authorization, apikey y
+//   Content-Type: application/json — las tres obligan a preflight —, y el
+//   OPTIONS caía en el `if (req.method !== "POST")` de abajo, que devolvía 405
+//   pelado. Sin Access-Control-Allow-Origin el navegador bloquea la petición
+//   real y `fetch` LANZA, así que en la pantalla no llegaba ni un código de
+//   error: solo un throw que el catch traducía como falta de red.
+//
+//   Era la única de las cinco funciones que llama la app sin CORS. En nativo
+//   nunca se notó porque ahí no hay preflight.
+//
+//   El helper compartido pone las cabeceras en TODA respuesta, así que las
+//   ramas de error también salen legibles: un 400 sin CORS se vería igual de
+//   mudo que este 405.
 
 // Reparto determinista en grupos (el engine no expone uno propio — verificado en PASO 0.A).
 // Snake/serpiente sobre un orden estable para que mismas entradas -> mismos grupos.
@@ -39,6 +56,11 @@ function distributeSnake<T>(items: T[], sizes: number[]): T[][] {
 }
 
 serve(async (req) => {
+  // ANTES del check de método: un OPTIONS no es una llamada mal hecha, es el
+  // navegador preguntando si puede llamar.
+  const opt = handleOptions(req);
+  if (opt) return opt;
+
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   // 1) Autenticar al que llama (JWT del header) y resolver su user id.

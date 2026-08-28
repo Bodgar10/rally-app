@@ -639,7 +639,16 @@ type Fase =
   | { t: 'lista' }
   | { t: 'confirmando' }
   | { t: 'cerrando'; hecho: number; total: number; actual: string }
-  | { t: 'resultado'; cerradas: string[]; fallo: { nombre: string; motivo: string } | null };
+  | {
+      t: 'resultado';
+      /** Nombres leídos DE LA BASE, no acumulados por el bucle. */
+      cerradas: string[];
+      /** Las que siguen abiertas, también leídas de la base. */
+      abiertas: string[];
+      /** false si la relectura falló: entonces no se afirma nada del estado. */
+      verificado: boolean;
+      fallo: { nombre: string; motivo: string } | null;
+    };
 
 export default function CerrarInscripcionesScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
@@ -871,11 +880,38 @@ export default function CerrarInscripcionesScreen() {
   /** El plan efectivo: la alternativa elegida si era ambigua. */
   const planDe = planEfectivo;
 
+  /**
+   * Qué categorías están cerradas AHORA MISMO, según la base.
+   *
+   * La pantalla no puede afirmar estado que no ha comprobado. El bucle sabe
+   * qué llamadas devolvieron 200, que no es lo mismo: una respuesta perdida,
+   * un fallo entre la RPC y el retorno, o un error que no se propaga dejan al
+   * cliente creyendo cosas. Cuando hay que dar un parte, se pregunta.
+   */
+  async function leerEstadoReal(): Promise<{ cerradas: string[]; abiertas: string[] } | null> {
+    const { data, error: dbError } = await supabase
+      .from('categories').select('display_name, status').eq('tournament_id', tournamentId);
+    if (dbError || !data) {
+      console.error('[cerrar-inscripciones] no se pudo releer el estado:', dbError);
+      return null;
+    }
+    return {
+      cerradas: data.filter((c) => c.status !== 'open').map((c) => c.display_name),
+      abiertas: data.filter((c) => c.status === 'open').map((c) => c.display_name),
+    };
+  }
+
+  /** Cierra el parte con lo que diga la base, no con lo que crea el bucle. */
+  async function reportar(fallo: { nombre: string; motivo: string } | null) {
+    const real = await leerEstadoReal();
+    setFase(real
+      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallo }
+      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallo });
+  }
+
   async function cerrar() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setError('Tu sesión expiró. Vuelve a entrar.'); return; }
-
-    const cerradas: string[] = [];
 
     for (let i = 0; i < cerrables.length; i++) {
       const c = cerrables[i];
@@ -898,28 +934,31 @@ export default function CerrarInscripcionesScreen() {
         const json = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          // Las anteriores YA quedaron cerradas: la RPC es atómica por
-          // categoría, no entre categorías. Hay que decirlo tal cual.
-          setFase({
-            t: 'resultado',
-            cerradas,
-            fallo: { nombre: c.nombre, motivo: traducir(json?.error) },
+          console.error('[cerrar-inscripciones] close-registration respondió con error', {
+            categoria: c.nombre, categoryId: c.id, status: res.status, cuerpo: json,
           });
+          await reportar({ nombre: c.nombre, motivo: traducir(json?.error) });
           return;
         }
-
-        cerradas.push(c.nombre);
-      } catch {
-        setFase({
-          t: 'resultado',
-          cerradas,
-          fallo: { nombre: c.nombre, motivo: 'Sin conexión con el servidor.' },
+      } catch (e) {
+        // El error se CAPTURA y se registra. Antes este catch era desnudo y
+        // fijaba "Sin conexión con el servidor", que es una conclusión, no un
+        // hecho: durante meses tapó un preflight CORS que devolvía 405.
+        console.error('[cerrar-inscripciones] la llamada a close-registration lanzó', {
+          categoria: c.nombre, categoryId: c.id, error: e,
+        });
+        const detalle = e instanceof Error ? e.message : String(e);
+        await reportar({
+          nombre: c.nombre,
+          motivo: `La petición no llegó a completarse. Detalle: ${detalle}`,
         });
         return;
       }
     }
 
-    setFase({ t: 'resultado', cerradas, fallo: null });
+    // También en el camino feliz se relee: ocho respuestas 200 son ocho
+    // promesas, y el parte se da con hechos.
+    await reportar(null);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -940,18 +979,43 @@ export default function CerrarInscripcionesScreen() {
   }
 
   if (fase.t === 'resultado') {
+    // Todo lo que se afirma aquí sale de una relectura de la base. `ninguna`
+    // es el caso que antes se contaba al revés: el mensaje decía "las
+    // anteriores sí quedaron cerradas" incluso cuando la que falló era la
+    // PRIMERA y no se había cerrado nada.
+    const ninguna = fase.verificado && fase.cerradas.length === 0;
+
     return (
       <SafeAreaView style={s.safe}>
         <ScrollView contentContainerStyle={s.content}>
-          <Text style={s.eyebrow}>{fase.fallo ? 'CERRADO A MEDIAS' : 'LISTO'}</Text>
-          <Text style={s.title}>
-            {fase.fallo ? 'Algunas categorías no se cerraron' : 'Cuadros generados'}
+          <Text style={s.eyebrow}>
+            {!fase.fallo ? 'LISTO' : ninguna ? 'NO SE CERRÓ NADA' : 'CERRADO A MEDIAS'}
           </Text>
+          <Text style={s.title}>
+            {!fase.fallo
+              ? 'Cuadros generados'
+              : ninguna
+              ? 'No se cerró ninguna categoría'
+              : 'Algunas categorías no se cerraron'}
+          </Text>
+
+          {!fase.verificado && (
+            <View style={s.resumenFallo}>
+              <Text style={s.resumenFalloTitulo}>No se pudo comprobar el estado</Text>
+              <Text style={s.resumenLinea}>
+                La operación terminó pero no se pudo releer la base, así que no
+                sabemos qué quedó cerrado. Vuelve atrás y revisa la lista antes
+                de reintentar.
+              </Text>
+            </View>
+          )}
 
           {fase.cerradas.length > 0 && (
             <View style={s.resumenOk}>
               <Text style={s.resumenTitulo}>
-                Se cerraron {fase.cerradas.length} {fase.cerradas.length === 1 ? 'categoría' : 'categorías'}
+                {fase.cerradas.length === 1
+                  ? 'Hay 1 categoría cerrada'
+                  : `Hay ${fase.cerradas.length} categorías cerradas`}
               </Text>
               {fase.cerradas.map((n) => (
                 <Text key={n} style={s.resumenLinea}>· {n}</Text>
@@ -963,8 +1027,30 @@ export default function CerrarInscripcionesScreen() {
             <View style={s.resumenFallo}>
               <Text style={s.resumenFalloTitulo}>{fase.fallo.nombre} no se cerró</Text>
               <Text style={s.resumenLinea}>{fase.fallo.motivo}</Text>
-              <Text style={s.resumenLinea}>
-                Las anteriores sí quedaron cerradas. Puedes reintentar esta desde aquí.
+              {ninguna && (
+                <Text style={s.resumenLinea}>
+                  Ninguna otra categoría se cerró: el proceso se detuvo en la
+                  primera y no llegó a intentar las demás.
+                </Text>
+              )}
+            </View>
+          )}
+
+          {/* Las que siguen abiertas, con nombre. Es lo accionable: son las
+              que hay que reintentar. */}
+          {fase.verificado && fase.abiertas.length > 0 && (
+            <View style={s.resumenPendiente}>
+              <Text style={s.resumenTitulo}>
+                {fase.abiertas.length === 1
+                  ? 'Sigue abierta 1 categoría'
+                  : `Siguen abiertas ${fase.abiertas.length} categorías`}
+              </Text>
+              {fase.abiertas.map((n) => (
+                <Text key={n} style={s.resumenLinea}>· {n}</Text>
+              ))}
+              <Text style={s.resumenNota}>
+                Vuelve atrás para reintentarlas. Cerrar una categoría es
+                idempotente: las que ya están cerradas no se tocan.
               </Text>
             </View>
           )}
@@ -1272,6 +1358,8 @@ const s = StyleSheet.create({
   btnTextoInactivo: { color: color.muted },
 
   resumenOk:         { backgroundColor: color.surface, borderWidth: 1, borderColor: color.live, borderRadius: radius.md, padding: space[4], gap: space[1] },
+  resumenPendiente: { backgroundColor: color.surface, borderWidth: 1, borderColor: color.alive, borderRadius: radius.lg, padding: space[4], gap: space[1] },
+  resumenNota:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
   resumenFallo:      { backgroundColor: 'rgba(224,114,111,0.10)', borderWidth: 1, borderColor: color.danger, borderRadius: radius.md, padding: space[4], gap: space[1] },
   resumenTitulo:     { fontFamily: font.display, fontSize: fontSize.cardName, color: color.live },
   resumenFalloTitulo:{ fontFamily: font.display, fontSize: fontSize.cardName, color: color.danger },
