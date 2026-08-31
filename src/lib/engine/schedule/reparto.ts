@@ -85,17 +85,7 @@ export function repartirPorBloque<T>(
       const clave = bloqueDe(it) ?? SIN_BLOQUE;
       desde[clave] = (desde[clave] ?? 0) + 1;
     }
-    // Mayoría; empate al bloque más temprano. SIN_BLOQUE solo gana si es el
-    // único máximo: un horario real vale más que la ausencia de horario.
-    const orden = Object.keys(desde).sort((a, b) => {
-      const d = desde[b] - desde[a];
-      if (d !== 0) return d;
-      if (a === SIN_BLOQUE) return 1;
-      if (b === SIN_BLOQUE) return -1;
-      return a.localeCompare(b);
-    });
-    const ganador = orden[0];
-    return { items, bloqueId: ganador === SIN_BLOQUE ? null : ganador, desde };
+    return { items, bloqueId: bloqueDeGrupo(items.map(bloqueDe)), desde };
   };
 
   // 3. Grupos limpios: los que salen enteros de un solo bloque.
@@ -126,4 +116,35 @@ export function repartirPorBloque<T>(
   }
 
   return grupos;
+}
+
+/**
+ * A qué bloque pertenece un grupo, a partir de lo que eligió cada pareja.
+ *
+ * Mayoría; empate al bloque más temprano —los ids son `${dia}-${desde}`, así
+ * que alfabético es cronológico—. "Sin bloque" solo gana si es el único
+ * máximo: un horario real vale más que la ausencia de horario.
+ *
+ * VIVE AQUÍ Y SE EXPORTA porque hay DOS sitios que necesitan la respuesta y
+ * tienen que dar la misma. `close-registration` la usa al formar los grupos, y
+ * `schedule-groups` la vuelve a calcular al programar, porque el bloque del
+ * grupo no se guarda en ninguna columna (ver §8 de la especificación). Dos
+ * implementaciones de esta regla se desincronizarían el día que alguien toque
+ * una y no la otra, y el sintoma seria un torneo con horarios que no cuadran.
+ */
+export function bloqueDeGrupo(elecciones: (string | null)[]): string | null {
+  const cuenta: Record<string, number> = {};
+  for (const e of elecciones) {
+    const clave = e ?? SIN_BLOQUE;
+    cuenta[clave] = (cuenta[clave] ?? 0) + 1;
+  }
+  const orden = Object.keys(cuenta).sort((a, b) => {
+    const d = cuenta[b] - cuenta[a];
+    if (d !== 0) return d;
+    if (a === SIN_BLOQUE) return 1;
+    if (b === SIN_BLOQUE) return -1;
+    return a.localeCompare(b);
+  });
+  const ganador = orden[0];
+  return ganador === undefined || ganador === SIN_BLOQUE ? null : ganador;
 }

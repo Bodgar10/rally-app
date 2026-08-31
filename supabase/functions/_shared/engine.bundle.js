@@ -1060,6 +1060,439 @@ function etapaDeRonda(ronda, totalRondas) {
   }
 }
 
+// src/lib/engine/schedule/bloques.ts
+var PAREJAS_POR_GRUPO = 3;
+var PARTIDOS_POR_CARRIL = 3;
+var PARTIDOS_POR_GRUPO = PARTIDOS_POR_CARRIL;
+function parseHoraBloque(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) throw new Error(`Hora invalida: ${hhmm}`);
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) throw new Error(`Hora invalida: ${hhmm}`);
+  return h * 60 + min;
+}
+function formatHoraBloque(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+function esDiaValido(dia) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dia.trim());
+}
+function generarBloques(entrada) {
+  const partidosPorGrupo = entrada.partidosPorGrupo ?? PARTIDOS_POR_GRUPO;
+  const avisos = [];
+  if (!Number.isInteger(entrada.canchas) || entrada.canchas <= 0) {
+    throw new Error(`canchas debe ser un entero positivo: ${entrada.canchas}`);
+  }
+  if (!Number.isFinite(entrada.minutosPorPartido) || entrada.minutosPorPartido <= 0) {
+    throw new Error(`minutosPorPartido debe ser positivo: ${entrada.minutosPorPartido}`);
+  }
+  if (!Number.isInteger(partidosPorGrupo) || partidosPorGrupo <= 0) {
+    throw new Error(`partidosPorGrupo debe ser un entero positivo: ${partidosPorGrupo}`);
+  }
+  const minutosPorBloque = partidosPorGrupo * entrada.minutosPorPartido;
+  const ventanas = [...entrada.ventanas].sort(
+    (a, b) => a.dia.localeCompare(b.dia) || parseHoraBloque(a.desde) - parseHoraBloque(b.desde)
+  );
+  for (const v of ventanas) {
+    if (!esDiaValido(v.dia)) throw new Error(`Dia invalido: ${v.dia}`);
+  }
+  if (ventanas.length === 0) {
+    avisos.push("Sin ventanas: no hay bloques que ofrecer.");
+    return {
+      bloques: [],
+      minutosPorBloque,
+      capacidadCarriles: 0,
+      capacidadParejas: 0,
+      dias: [],
+      diaEliminatorias: null,
+      avisos
+    };
+  }
+  const diasUnicos = [];
+  for (const v of ventanas) if (!diasUnicos.includes(v.dia)) diasUnicos.push(v.dia);
+  const unicaVentana = diasUnicos.length === 1;
+  const diaEliminatorias = unicaVentana ? null : diasUnicos[diasUnicos.length - 1];
+  if (unicaVentana) {
+    avisos.push(
+      `Ventana unica (${diasUnicos[0]}): se generan bloques de grupos en el mismo dia de las eliminatorias.`
+    );
+  }
+  const bloques = [];
+  const dias = [];
+  const vistos = /* @__PURE__ */ new Set();
+  for (const dia of diasUnicos) {
+    if (dia === diaEliminatorias) {
+      dias.push({ dia, bloques: 0, minutosSobrantes: 0, eliminatorias: true });
+      continue;
+    }
+    let bloquesDelDia = 0;
+    let sobrantesDelDia = 0;
+    for (const v of ventanas.filter((x) => x.dia === dia)) {
+      const inicio = parseHoraBloque(v.desde);
+      const fin = parseHoraBloque(v.hasta);
+      if (fin <= inicio) {
+        avisos.push(`Ventana vacia o invertida en ${dia} (${v.desde}-${v.hasta}): 0 bloques.`);
+        continue;
+      }
+      let t = inicio;
+      while (t + minutosPorBloque <= fin) {
+        const id = `${dia}-${formatHoraBloque(t)}`;
+        if (vistos.has(id)) {
+          avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
+        } else {
+          vistos.add(id);
+          bloques.push({
+            id,
+            dia,
+            desde: formatHoraBloque(t),
+            hasta: formatHoraBloque(t + minutosPorBloque),
+            carriles: entrada.canchas
+          });
+          bloquesDelDia += 1;
+        }
+        t += minutosPorBloque;
+      }
+      sobrantesDelDia += fin - t;
+    }
+    if (bloquesDelDia === 0) {
+      avisos.push(`El dia ${dia} no alcanza para un bloque de ${minutosPorBloque} min.`);
+    }
+    if (sobrantesDelDia > 0) {
+      avisos.push(`Sobran ${sobrantesDelDia} min en ${dia}: no alcanzan para otro bloque.`);
+    }
+    dias.push({
+      dia,
+      bloques: bloquesDelDia,
+      minutosSobrantes: sobrantesDelDia,
+      eliminatorias: false
+    });
+  }
+  const capacidadCarriles = bloques.reduce((a, b) => a + b.carriles, 0);
+  return {
+    bloques,
+    minutosPorBloque,
+    capacidadCarriles,
+    capacidadParejas: capacidadCarriles * PAREJAS_POR_GRUPO,
+    dias,
+    diaEliminatorias,
+    avisos
+  };
+}
+function partidosDeGrupo(parejas) {
+  if (!Number.isInteger(parejas) || parejas < 0) {
+    throw new Error(`parejas debe ser un entero >= 0: ${parejas}`);
+  }
+  return parejas * (parejas - 1) / 2;
+}
+function carrilesDeGrupo(parejas, partidosPorCarril = PARTIDOS_POR_CARRIL) {
+  if (!Number.isInteger(partidosPorCarril) || partidosPorCarril <= 0) {
+    throw new Error(`partidosPorCarril debe ser un entero positivo: ${partidosPorCarril}`);
+  }
+  if (parejas <= 0) return 0;
+  return Math.max(1, Math.ceil(partidosDeGrupo(parejas) / partidosPorCarril));
+}
+
+// src/lib/engine/schedule/grupos.ts
+function huellaDeGrupo(partidos) {
+  const rondas = [...new Set(partidos.map((p) => p.ronda))].sort((a, b) => a - b);
+  const porRonda = rondas.map((r) => partidos.filter((p) => p.ronda === r));
+  return {
+    rondas: rondas.length,
+    anchura: porRonda.reduce((a, r) => Math.max(a, r.length), 0),
+    porRonda
+  };
+}
+function turnosDeBloque(bloque, minutosPorPartido) {
+  const dur = parseHoraBloque(bloque.hasta) - parseHoraBloque(bloque.desde);
+  return Math.floor(dur / minutosPorPartido);
+}
+function sonContiguos(a, b) {
+  return a.dia === b.dia && a.hasta === b.desde;
+}
+var claveCarril = (bloqueId, cancha) => `${bloqueId}#${cancha}`;
+function programarGrupos(entrada) {
+  const avisos = [];
+  const minutos = entrada.minutosPorPartido;
+  if (!Number.isFinite(minutos) || minutos <= 0) {
+    throw new Error(`minutosPorPartido debe ser positivo: ${minutos}`);
+  }
+  const bloques = [...entrada.bloques].sort(
+    (a, b) => a.dia.localeCompare(b.dia) || parseHoraBloque(a.desde) - parseHoraBloque(b.desde)
+  );
+  new Map(bloques.map((b, i) => [b.id, i]));
+  const partidos = [];
+  const sinProgramar = [];
+  const sobrevendidos = [];
+  if (bloques.length === 0) {
+    avisos.push("Sin bloques: falta capturar las canchas o los horarios del torneo.");
+    for (const g2 of ordenarGruposParaReporte(entrada.grupos)) {
+      sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "sin_bloque" });
+    }
+    return {
+      partidos,
+      sinProgramar,
+      empalmes: [],
+      sobrevendidos,
+      ocupacion: { canchasHoraUsadas: 0, canchasHoraDisponibles: 0, porcentaje: 0 },
+      ocupacionPorBloque: [],
+      avisos
+    };
+  }
+  const porBloque = /* @__PURE__ */ new Map();
+  for (const b of bloques) porBloque.set(b.id, []);
+  const bloquesMuertos = /* @__PURE__ */ new Set();
+  for (const g2 of ordenarGruposParaReporte(entrada.grupos)) {
+    if (g2.partidos.length === 0) {
+      sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "no_cabe_en_el_bloque" });
+      avisos.push(`El grupo ${g2.nombre} no tiene partidos que programar.`);
+      continue;
+    }
+    if (g2.bloqueId === null) {
+      sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "sin_bloque" });
+      continue;
+    }
+    if (!porBloque.has(g2.bloqueId)) {
+      sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "bloque_desconocido" });
+      bloquesMuertos.add(g2.bloqueId);
+      continue;
+    }
+    porBloque.get(g2.bloqueId).push(g2);
+  }
+  for (const id of [...bloquesMuertos].sort()) {
+    avisos.push(`El bloque ${id} ya no existe en el horario del torneo: sus grupos hay que reubicarlos.`);
+  }
+  const hermanas = grafoDeHermandad(
+    Object.entries(entrada.jugadoresPorCategoria ?? {}).map(([id, jugadores]) => ({
+      id,
+      clasificados: 0,
+      jugadores
+    }))
+  );
+  const empalmes = [];
+  for (const b of bloques) {
+    const cats = [...new Set(porBloque.get(b.id).map((g2) => g2.categoryId))].sort();
+    for (let i = 0; i < cats.length; i++) {
+      for (let j = i + 1; j < cats.length; j++) {
+        if (hermanas.get(cats[i])?.has(cats[j])) {
+          empalmes.push({ bloqueId: b.id, categoriaA: cats[i], categoriaB: cats[j] });
+        }
+      }
+    }
+  }
+  if (empalmes.length > 0) {
+    avisos.push(
+      `${empalmes.length} empalme${empalmes.length === 1 ? "" : "s"} entre categor\xEDas que comparten jugadores. No se pueden evitar sin cambiarle el horario a alguien: av\xEDsale t\xFA.`
+    );
+  }
+  const reservado = /* @__PURE__ */ new Map();
+  const canchasPrevias = /* @__PURE__ */ new Map();
+  for (let i = 0; i < bloques.length; i++) {
+    const bloque = bloques[i];
+    const delBloque = porBloque.get(bloque.id);
+    if (delBloque.length === 0) continue;
+    const turnos = turnosDeBloque(bloque, minutos);
+    if (turnos <= 0) {
+      for (const g2 of delBloque) {
+        sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "no_cabe_en_el_bloque" });
+      }
+      avisos.push(`El bloque ${bloque.id} no da ni para un partido de ${minutos} min.`);
+      continue;
+    }
+    const carrilesPedidos = delBloque.reduce((a, g2) => {
+      const h = huellaDeGrupo(g2.partidos);
+      return a + h.anchura * Math.ceil(h.rondas / turnos);
+    }, 0);
+    if (carrilesPedidos > bloque.carriles) {
+      sobrevendidos.push({
+        bloqueId: bloque.id,
+        carrilesPedidos,
+        carriles: bloque.carriles,
+        grupos: delBloque.length
+      });
+      avisos.push(
+        `${bloque.dia} ${bloque.desde}: hacen falta ${carrilesPedidos} canchas y hay ${bloque.carriles}. Abre otra cancha en ese horario o habla con las parejas que sobran.`
+      );
+    }
+    const canchasDelBloque = /* @__PURE__ */ new Map();
+    for (const g2 of ordenarDentroDelBloque(delBloque)) {
+      const huella = huellaDeGrupo(g2.partidos);
+      const bloquesNecesarios = Math.ceil(huella.rondas / turnos);
+      const tramo = [bloque];
+      while (tramo.length < bloquesNecesarios) {
+        const siguiente = bloques[i + tramo.length];
+        if (!siguiente || !sonContiguos(tramo[tramo.length - 1], siguiente)) break;
+        tramo.push(siguiente);
+      }
+      if (tramo.length < bloquesNecesarios) {
+        sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "no_cabe_en_el_bloque" });
+        avisos.push(
+          `El grupo ${g2.nombre} de ${g2.categoryId} necesita ${huella.rondas} turnos seguidos y desde ${bloque.dia} a las ${bloque.desde} solo quedan ${tramo.length * turnos} antes de que se acabe el d\xEDa.`
+        );
+        continue;
+      }
+      const canchas = elegirCanchas(
+        huella.anchura,
+        tramo,
+        bloque,
+        g2.categoryId,
+        reservado,
+        canchasPrevias
+      );
+      if (canchas === null) {
+        sinProgramar.push({ groupId: g2.id, categoryId: g2.categoryId, motivo: "bloque_sobrevendido" });
+        continue;
+      }
+      for (const b of tramo) {
+        for (const c of canchas) reservado.set(claveCarril(b.id, c), g2.id);
+      }
+      canchasDelBloque.set(
+        g2.categoryId,
+        [...canchasDelBloque.get(g2.categoryId) ?? [], ...canchas]
+      );
+      for (let r = 0; r < huella.porRonda.length; r++) {
+        const idxBloque = Math.floor(r / turnos);
+        const b = tramo[idxBloque];
+        const turno = r % turnos;
+        const inicioMin = parseHoraBloque(b.desde) + turno * minutos;
+        huella.porRonda[r].forEach((p, k) => {
+          partidos.push({
+            matchId: p.matchId,
+            groupId: g2.id,
+            categoryId: g2.categoryId,
+            bloqueId: b.id,
+            inicio: `${b.dia}T${formatHoraBloque(inicioMin)}`,
+            cancha: canchas[k] ?? canchas[canchas.length - 1],
+            ordenEnBloque: turno,
+            desplazado: b.id !== bloque.id
+          });
+        });
+      }
+    }
+    for (const [cat, canchas] of canchasDelBloque) {
+      canchasPrevias.set(cat, [...canchas].sort((x, y) => x - y));
+    }
+  }
+  const horasDisponibles = bloques.reduce(
+    (a, b) => a + b.carriles * (parseHoraBloque(b.hasta) - parseHoraBloque(b.desde)) / 60,
+    0
+  );
+  const horasUsadas = partidos.length * minutos / 60;
+  const usadasPorBloque = /* @__PURE__ */ new Map();
+  for (const p of partidos) {
+    if (!usadasPorBloque.has(p.bloqueId)) usadasPorBloque.set(p.bloqueId, /* @__PURE__ */ new Set());
+    usadasPorBloque.get(p.bloqueId).add(p.cancha);
+  }
+  partidos.sort(
+    (a, b) => a.bloqueId.localeCompare(b.bloqueId) || a.ordenEnBloque - b.ordenEnBloque || a.cancha - b.cancha || a.matchId.localeCompare(b.matchId)
+  );
+  sinProgramar.sort((a, b) => a.groupId.localeCompare(b.groupId));
+  return {
+    partidos,
+    sinProgramar,
+    empalmes,
+    sobrevendidos,
+    ocupacion: {
+      canchasHoraUsadas: horasUsadas,
+      canchasHoraDisponibles: horasDisponibles,
+      porcentaje: horasDisponibles > 0 ? Math.round(horasUsadas / horasDisponibles * 1e3) / 10 : 0
+    },
+    ocupacionPorBloque: bloques.map((b) => ({
+      bloqueId: b.id,
+      canchasUsadas: usadasPorBloque.get(b.id)?.size ?? 0,
+      carriles: b.carriles
+    })),
+    avisos
+  };
+}
+function ordenarGruposParaReporte(grupos) {
+  return [...grupos].sort(
+    (a, b) => a.categoryId.localeCompare(b.categoryId) || a.nombre.localeCompare(b.nombre) || a.id.localeCompare(b.id)
+  );
+}
+function ordenarDentroDelBloque(grupos) {
+  const cuantos = /* @__PURE__ */ new Map();
+  for (const g2 of grupos) cuantos.set(g2.categoryId, (cuantos.get(g2.categoryId) ?? 0) + 1);
+  return [...grupos].sort(
+    (a, b) => (cuantos.get(b.categoryId) ?? 0) - (cuantos.get(a.categoryId) ?? 0) || a.categoryId.localeCompare(b.categoryId) || a.nombre.localeCompare(b.nombre) || a.id.localeCompare(b.id)
+  );
+}
+function elegirCanchas(anchura, tramo, bloqueDelGrupo, categoryId, reservado, canchasPrevias) {
+  const libre = (c) => tramo.every((b) => !reservado.has(claveCarril(b.id, c)));
+  const todas = [];
+  for (let c = 1; c <= bloqueDelGrupo.carriles; c++) todas.push(c);
+  const previas = (canchasPrevias.get(categoryId) ?? []).filter((c) => c >= 1 && c <= bloqueDelGrupo.carriles);
+  const orden = [...previas, ...todas.filter((c) => !previas.includes(c))];
+  const elegidas = orden.filter(libre).slice(0, anchura);
+  return elegidas.length === anchura ? elegidas : null;
+}
+
+// src/lib/engine/schedule/reparto.ts
+var SIN_BLOQUE = "\0sin-bloque";
+function repartirPorBloque(parejas, bloqueDe, sizes) {
+  const cubos = /* @__PURE__ */ new Map();
+  for (const p of parejas) {
+    const clave = bloqueDe(p) ?? SIN_BLOQUE;
+    const ya = cubos.get(clave);
+    if (ya) ya.push(p);
+    else cubos.set(clave, [p]);
+  }
+  const claves = [...cubos.keys()].sort((a, b) => {
+    if (a === SIN_BLOQUE) return 1;
+    if (b === SIN_BLOQUE) return -1;
+    return a.localeCompare(b);
+  });
+  const pendientes = [...sizes].sort((a, b) => b - a);
+  const grupos = [];
+  const construir = (items) => {
+    const desde = {};
+    for (const it of items) {
+      const clave = bloqueDe(it) ?? SIN_BLOQUE;
+      desde[clave] = (desde[clave] ?? 0) + 1;
+    }
+    return { items, bloqueId: bloqueDeGrupo(items.map(bloqueDe)), desde };
+  };
+  for (const clave of claves) {
+    const cubo = cubos.get(clave);
+    let i = 0;
+    for (; ; ) {
+      const quedan = cubo.length - i;
+      const idx = pendientes.findIndex((s) => s <= quedan);
+      if (idx === -1) break;
+      const size = pendientes.splice(idx, 1)[0];
+      grupos.push(construir(cubo.slice(i, i + size)));
+      i += size;
+    }
+    cubos.set(clave, cubo.slice(i));
+  }
+  const restos = [];
+  for (const clave of claves) restos.push(...cubos.get(clave));
+  let j = 0;
+  for (const size of pendientes) {
+    grupos.push(construir(restos.slice(j, j + size)));
+    j += size;
+  }
+  return grupos;
+}
+function bloqueDeGrupo(elecciones) {
+  const cuenta = {};
+  for (const e of elecciones) {
+    const clave = e ?? SIN_BLOQUE;
+    cuenta[clave] = (cuenta[clave] ?? 0) + 1;
+  }
+  const orden = Object.keys(cuenta).sort((a, b) => {
+    const d = cuenta[b] - cuenta[a];
+    if (d !== 0) return d;
+    if (a === SIN_BLOQUE) return 1;
+    if (b === SIN_BLOQUE) return -1;
+    return a.localeCompare(b);
+  });
+  const ganador = orden[0];
+  return ganador === void 0 || ganador === SIN_BLOQUE ? null : ganador;
+}
+
 // src/lib/engine/rating/glicko2.ts
 var SCALE = 173.7178;
 var EPSILON = 1e-6;
@@ -1199,4 +1632,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generateRoundRobin, planAvance, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };

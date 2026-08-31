@@ -272,6 +272,331 @@ declare function planAvance(partidos: PartidoCuadro[], matchId: string, winnerPa
 tercerLugar?: boolean): PlanAvance;
 
 /**
+ * Partidos que caben en un carril de un bloque.
+ *
+ * Es la MISMA cifra que `partidosPorGrupo` de `generarBloques`, y no por
+ * casualidad: el bloque se dimensiona como "lo que tarda un grupo tipico", asi
+ * que un carril-bloque mide exactamente 3 partidos. Separarlas de nombre
+ * importa porque un grupo de 4 son 6 partidos y ya no cabe en un carril.
+ */
+declare const PARTIDOS_POR_CARRIL = 3;
+/**
+ * Ventana de juego de un dia.
+ *
+ * OJO CON `hasta`: es la hora a la que TERMINA el ultimo partido, no a la que
+ * empieza. Una ventana 14:00-23:00 con partidos de 60 min admite un partido
+ * que arranca a las 22:00 y cierra a las 23:00. Un bloque cabe si
+ * `desde + duracion <= hasta`.
+ */
+interface VentanaDia {
+    /** 'YYYY-MM-DD' */
+    dia: string;
+    /** Hora a la que empieza el primer partido. 'HH:MM' */
+    desde: string;
+    /** Hora a la que TERMINA el ultimo partido, no a la que empieza. 'HH:MM' */
+    hasta: string;
+}
+interface EntradaBloques {
+    ventanas: VentanaDia[];
+    canchas: number;
+    minutosPorPartido: number;
+    /** Default 3: grupo de 3 parejas, round robin. */
+    partidosPorGrupo?: number;
+}
+interface Bloque {
+    /** `${dia}-${desde}`, estable y determinista. */
+    id: string;
+    dia: string;
+    desde: string;
+    hasta: string;
+    /** Carriles simultaneos = canchas del club. Cada carril aloja un grupo. */
+    carriles: number;
+}
+interface DiaGenerado {
+    dia: string;
+    bloques: number;
+    /** Minutos de la ventana que no alcanzaron para un bloque entero. */
+    minutosSobrantes: number;
+    /** true cuando el dia se reservo para eliminatorias y no genero bloques. */
+    eliminatorias: boolean;
+}
+interface ReticulaBloques {
+    bloques: Bloque[];
+    /** Duracion de cada bloque en minutos. */
+    minutosPorBloque: number;
+    /** Suma de carriles de todos los bloques. */
+    capacidadCarriles: number;
+    /** Parejas que caben en total = carriles x 3. El llamador compara contra su inscripcion. */
+    capacidadParejas: number;
+    /** Un renglon por dia de la entrada, en orden. */
+    dias: DiaGenerado[];
+    /** Dia excluido por ser de eliminatorias. Null si no se excluyo ninguno. */
+    diaEliminatorias: string | null;
+    avisos: string[];
+}
+/**
+ * Construye la reticula de bloques a partir de las ventanas del torneo.
+ *
+ * Los bloques salen consecutivos desde `desde`. El ultimo que no quepa entero
+ * en la ventana se descarta y sus minutos se reportan en `dias[].minutosSobrantes`.
+ * `hasta` es la hora de FIN del ultimo partido: un bloque cabe mientras
+ * `inicio + minutosPorBloque <= hasta`.
+ *
+ * El ULTIMO dia del torneo es de eliminatorias y no genera bloques de grupos.
+ * Si solo hay una ventana si los genera, y lo dice en `avisos`.
+ */
+declare function generarBloques(entrada: EntradaBloques): ReticulaBloques;
+/**
+ * Carriles-bloque que consume un grupo de n parejas.
+ *
+ * ESTE ES EL ARREGLO. Antes se contaba en parejas —"3 parejas = 1 carril"— y
+ * eso solo es cierto para el grupo tipico. `computeFormat` produce grupos de 4
+ * cuando el numero de parejas no es multiplo de 3 (20 parejas -> [4,4,3,3,3,3]),
+ * y un grupo de 4 son SEIS partidos: dos bloques de 3 horas, no uno. Contarlo
+ * como un carril anunciaba capacidad que no existe.
+ *
+ * La cuenta correcta es en partidos: un carril-bloque son `partidosPorCarril`
+ * partidos, y un grupo cuesta `n(n-1)/2`.
+ *
+ *   3 parejas ->  3 partidos -> 1 carril
+ *   4 parejas ->  6 partidos -> 2 carriles
+ *   5 parejas -> 10 partidos -> 4 carriles
+ *   2 parejas ->  1 partido  -> 1 carril  (el minimo: el carril es la unidad
+ *                                          de reserva, no se parte)
+ */
+declare function carrilesDeGrupo(parejas: number, partidosPorCarril?: number): number;
+
+/**
+ * Scheduler de fase de grupos.
+ * Asigna cancha y hora a los partidos de cada grupo, DENTRO del bloque que el
+ * grupo ya tiene asignado. Logica pura y determinista: misma entrada -> misma
+ * salida. Sin dependencias mas alla del grafo de hermandad de `knockout.ts`.
+ *
+ * Especificacion: `docs/scheduler-fase-de-grupos.md`.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * LO QUE ESTE MOTOR NO DECIDE
+ *   En que bloque juega cada grupo. Eso lo eligio la pareja al inscribirse
+ *   (`pair_block_choices`) y lo materializo `repartirPorBloque` al cerrar. Aqui
+ *   entra hecho y no se toca. Es la unica promesa que se le hizo al jugador.
+ *
+ * LA HUELLA DE UN GRUPO SALE DE SUS RONDAS, NO DE UN NUMERO QUE LE PASEN
+ *   `generateRoundRobin` ya agrupa los partidos en RONDAS donde ninguna pareja
+ *   se repite. Eso da las dos medidas que hacen falta:
+ *
+ *     rondas  = cuantos turnos consecutivos ocupa el grupo
+ *     anchura = partidos de la ronda mas cargada = canchas simultaneas
+ *
+ *     3 parejas -> 3 rondas x 1 cancha  = 1 carril   (3 h)
+ *     4 parejas -> 3 rondas x 2 canchas = 2 carriles (3 h en DOS canchas)
+ *     5 parejas -> 5 rondas x 2 canchas = 4 carriles (2 bloques)
+ *     2 parejas -> 1 ronda  x 1 cancha  = 1 carril   (sobran 2 h)
+ *
+ *   Coincide con `carrilesDeGrupo` de `bloques.ts` en los cuatro casos, y es
+ *   preferible a recibir `carriles` como dato: un numero que el llamador puede
+ *   equivocarse al calcular es un numero que acabara desincronizado.
+ *
+ *   El grupo de 4 sale asi en DOS canchas del mismo bloque —3 horas, no 6—,
+ *   que es la forma que pide la especificacion (§6.4 A) y la que respeta el
+ *   trato de Cimepa: la gente esta 3 horas en el club.
+ *
+ * EL CARRIL ES LA UNIDAD DE RESERVA, Y NO SE PARTE
+ *   Un grupo de 2 ocupa una cancha las 3 horas aunque solo juegue una. Rellenar
+ *   ese hueco con otro grupo rompe la continuidad de categoria (§2.1) y le
+ *   complica la vida al juez por una hora de cancha.
+ *
+ * LA OCUPACION ES UN DATO, NO UN OBJETIVO
+ *   Sale de dividir los partidos colocados entre la capacidad de la reticula
+ *   ENTERA. Cimepa: 165 partidos sobre 192 canchas-hora = 85,9 %. Ese numero no
+ *   se puede subir programando mejor —los partidos son los que son—, solo
+ *   usando menos bloques, que es exactamente lo que no hay que hacer: las horas
+ *   ociosas del viernes por la tarde son las horas a las que la gente trabaja.
+ */
+
+/** Un partido tal como lo emitio `generateRoundRobin`, ya creado en `matches`. */
+interface PartidoDeEntrada {
+    matchId: string;
+    pairAId: string;
+    pairBId: string;
+    /** 1-based. Dentro de una ronda ninguna pareja se repite. */
+    ronda: number;
+}
+interface GrupoAProgramar {
+    /** groups.id */
+    id: string;
+    categoryId: string;
+    /** 'A', 'B', … Solo para desempatar de forma estable y para los avisos. */
+    nombre: string;
+    partidos: PartidoDeEntrada[];
+    /**
+     * Bloque en el que juega, ya resuelto por `repartirPorBloque`. Null solo si
+     * ninguna de sus parejas eligio horario: entonces sale sin programar y no
+     * estorba al resto.
+     */
+    bloqueId: string | null;
+}
+interface EntradaSchedulerGrupos {
+    /** La reticula tal cual la emite `generarBloques`. No se recalcula aqui. */
+    bloques: Bloque[];
+    minutosPorPartido: number;
+    grupos: GrupoAProgramar[];
+    /** Por categoria, los jugadores que la juegan. Alimenta el grafo de hermandad. */
+    jugadoresPorCategoria?: Record<string, string[]>;
+    /**
+     * Solo 'corrido'. El modo 'espaciado' de la especificacion (§5.4) exigiria
+     * sacar partidos del bloque que la pareja eligio, que es justo lo que este
+     * motor no hace. Queda documentado como conflicto abierto, no implementado a
+     * medias.
+     */
+    modo?: 'corrido';
+}
+interface PartidoDeGrupo {
+    matchId: string;
+    groupId: string;
+    categoryId: string;
+    bloqueId: string;
+    /** 'YYYY-MM-DDTHH:MM', hora local del club. La zona la pone el llamador. */
+    inicio: string;
+    /** 1..carriles. Se escribe como `Cancha ${n}`, igual que el knockout. */
+    cancha: number;
+    /** Turno dentro del bloque, 0-based. */
+    ordenEnBloque: number;
+    /**
+     * El partido cayo en un bloque distinto al del grupo. Solo puede pasar en
+     * grupos que necesitan mas turnos de los que tiene un bloque (5 parejas).
+     */
+    desplazado: boolean;
+}
+type MotivoSinProgramar = 'sin_bloque' | 'bloque_desconocido' | 'bloque_sobrevendido' | 'no_cabe_en_el_bloque';
+interface GrupoSinProgramar {
+    groupId: string;
+    categoryId: string;
+    motivo: MotivoSinProgramar;
+}
+interface Empalme {
+    bloqueId: string;
+    categoriaA: string;
+    categoriaB: string;
+}
+interface BloqueSobrevendido {
+    bloqueId: string;
+    /** Carriles que exigen los grupos asignados a este bloque. */
+    carrilesPedidos: number;
+    /** Carriles que tiene: una cancha por carril. */
+    carriles: number;
+    grupos: number;
+}
+interface CalendarioGrupos {
+    partidos: PartidoDeGrupo[];
+    sinProgramar: GrupoSinProgramar[];
+    empalmes: Empalme[];
+    sobrevendidos: BloqueSobrevendido[];
+    /** Dato, nunca objetivo. Ver la cabecera. */
+    ocupacion: {
+        canchasHoraUsadas: number;
+        canchasHoraDisponibles: number;
+        /** 0..100, con un decimal. */
+        porcentaje: number;
+    };
+    /** Canchas ocupadas en cada turno de cada bloque. Para pintar el calendario. */
+    ocupacionPorBloque: {
+        bloqueId: string;
+        canchasUsadas: number;
+        carriles: number;
+    }[];
+    avisos: string[];
+}
+interface HuellaGrupo {
+    /** Turnos consecutivos que ocupa. */
+    rondas: number;
+    /** Canchas simultaneas: los partidos de la ronda mas cargada. */
+    anchura: number;
+    /** Los partidos de cada ronda, en orden de ronda y estable dentro de ella. */
+    porRonda: PartidoDeEntrada[][];
+}
+/**
+ * Cuantos turnos y cuantas canchas necesita un grupo.
+ *
+ * Las rondas se toman como vienen de `generateRoundRobin` y se renumeran a
+ * 0..n-1 por si llegan con huecos: lo que importa es el ORDEN, no la etiqueta.
+ * Dentro de una ronda el orden es el de entrada, que ya es determinista.
+ */
+declare function huellaDeGrupo(partidos: PartidoDeEntrada[]): HuellaGrupo;
+/**
+ * Coloca cada grupo en su bloque: cancha (o canchas) y turno de cada partido.
+ *
+ * No lanza nunca por datos de torneo: un grupo que no cabe sale en
+ * `sinProgramar` y el resto del calendario se hace igual. Un grupo sin horario
+ * no puede impedir que los otros 54 tengan el suyo.
+ */
+declare function programarGrupos(entrada: EntradaSchedulerGrupos): CalendarioGrupos;
+
+/**
+ * Reparto de parejas en grupos, POR BLOQUE.
+ *
+ * Lo consume `close-registration` al cerrar una categoria. Logica pura y
+ * determinista: misma entrada -> misma salida. Sin dependencias.
+ *
+ * ANTES ERA UN SNAKE SOBRE created_at Y ROMPÍA LA ELECCIÓN DE HORARIO
+ *   La pareja elige su bloque al inscribirse (`pair_block_choices`, migración
+ *   051) y un grupo se juega como un bloque de 3 horas seguidas en una cancha.
+ *   El snake repartía sobre la categoría entera ordenada por fecha de alta, así
+ *   que un grupo podía acabar con tres parejas de tres bloques distintos: tres
+ *   personas citadas a horas diferentes para jugar entre ellas. Con eso, el
+ *   scheduler de fase de grupos no habría podido programar casi nada.
+ *
+ * LO QUE NO CAMBIA: EL NÚMERO Y EL TAMAÑO DE LOS GRUPOS
+ *   `plan.groupSizes` no es negociable aquí. De su LONGITUD salen el cuadro de
+ *   eliminatorias, `advancePerGroup` y `bestExtraQualifiers`, todos calculados
+ *   ya por `computeFormat`. Este reparto decide QUIÉN va con quién, nunca
+ *   cuántos grupos hay ni de qué tamaño.
+ *
+ *   Por eso el snake ya no hace falta para equilibrar: el equilibrio vive en
+ *   `groupSizes`. Dentro de un bloque el orden sigue siendo `created_at`.
+ *
+ * EL CASO DE LOS RESTOS
+ *   Un bloque con 7 parejas de una categoría da dos grupos —de 4 y de 3, o dos
+ *   de 3— y puede dejar una suelta. Esa pareja se junta con los restos de los
+ *   otros bloques de SU categoría y forman un grupo mezclado, cuyo bloque es el
+ *   de la mayoría. Se marca y se reporta.
+ *
+ *   NUNCA se deja una pareja sin grupo: sin grupo no juega, y ya pagó. Un
+ *   horario incómodo se negocia; quedarse fuera del torneo, no.
+ */
+interface GrupoRepartido<T> {
+    items: T[];
+    /** Bloque del grupo: el de sus parejas, o el de la mayoría si vienen de varios. */
+    bloqueId: string | null;
+    /** Parejas que aporta cada bloque. Con más de una entrada, el grupo es mezclado. */
+    desde: Record<string, number>;
+}
+/**
+ * Reparte `parejas` en grupos de los tamaños EXACTOS de `sizes`, agrupando por
+ * bloque siempre que se pueda. Determinista: mismo orden de entrada -> misma
+ * salida.
+ *
+ * Precondición: `sum(sizes) === parejas.length`. La valida el llamador; aquí se
+ * asume, y es lo que garantiza que los restos encajen justo en los tamaños que
+ * sobran.
+ */
+declare function repartirPorBloque<T>(parejas: T[], bloqueDe: (p: T) => string | null, sizes: number[]): GrupoRepartido<T>[];
+/**
+ * A qué bloque pertenece un grupo, a partir de lo que eligió cada pareja.
+ *
+ * Mayoría; empate al bloque más temprano —los ids son `${dia}-${desde}`, así
+ * que alfabético es cronológico—. "Sin bloque" solo gana si es el único
+ * máximo: un horario real vale más que la ausencia de horario.
+ *
+ * VIVE AQUÍ Y SE EXPORTA porque hay DOS sitios que necesitan la respuesta y
+ * tienen que dar la misma. `close-registration` la usa al formar los grupos, y
+ * `schedule-groups` la vuelve a calcular al programar, porque el bloque del
+ * grupo no se guarda en ninguna columna (ver §8 de la especificación). Dos
+ * implementaciones de esta regla se desincronizarían el día que alguien toque
+ * una y no la otra, y el sintoma seria un torneo con horarios que no cuadran.
+ */
+declare function bloqueDeGrupo(elecciones: (string | null)[]): string | null;
+
+/**
  * Scheduler de eliminatorias.
  * Asigna hora y cancha a cada partido del último día del torneo.
  * Lógica pura y determinista: misma entrada -> misma salida. Sin dependencias.
@@ -440,4 +765,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type BracketMatch, type Calendario, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type KnockoutStart, type MatchResultInput, type MatchStage, type NextMatch, type PartidoCuadro, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generateRoundRobin, planAvance, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { type AdvanceResult, type Bloque, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoSinProgramar, type NextMatch, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };

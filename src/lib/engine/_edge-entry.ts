@@ -19,6 +19,22 @@ export { advanceBracket, thirdPlaceFromSemis } from './bracket';
 // Plan de avance al capturar: qué crear y qué reapuntar en el cuadro.
 export { planAvance, etiquetaDeRonda } from './bracket/avance-captura';
 
+// Scheduler de la fase de grupos (lo consume schedule-groups) + la reticula de
+// bloques y la regla de a que bloque pertenece un grupo, que schedule-groups
+// tiene que recalcular porque no se guarda en ninguna columna.
+export { programarGrupos, huellaDeGrupo } from './schedule/grupos';
+export type {
+  EntradaSchedulerGrupos,
+  GrupoAProgramar,
+  PartidoDeEntrada,
+  PartidoDeGrupo,
+  CalendarioGrupos,
+  MotivoSinProgramar,
+} from './schedule/grupos';
+export { generarBloques, carrilesDeGrupo, PARTIDOS_POR_CARRIL } from './schedule/bloques';
+export type { Bloque, VentanaDia as VentanaBloques, ReticulaBloques } from './schedule/bloques';
+export { bloqueDeGrupo, repartirPorBloque } from './schedule/reparto';
+
 // Scheduler del dia de eliminatorias (lo consume schedule-knockout)
 export { programarEliminatorias, etapaDeRonda } from './schedule/knockout';
 export type {
