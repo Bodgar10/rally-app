@@ -90,11 +90,13 @@ describe('capacidadDelTorneo', () => {
     expect(cap.carrilesNecesarios).toBe(17);
     expect(cap.faltanCarriles).toBe(1);
     expect(cap.palancas).toHaveLength(3);
-    // 1 carril de deficit / 4 bloques = 1 cancha mas, que aporta 4 carriles.
+    // 1 carril de deficit / 4 bloques = 1 cancha mas, que da 4 huecos de grupo.
+    // Se dice en CANCHAS y PAREJAS, nunca en carriles: el organizador compra
+    // canchas y cuenta parejas, y "carril" no significa nada en su pantalla.
     expect(cap.palancas[0]).toContain('1 cancha');
-    expect(cap.palancas[0]).toContain('4 carriles');
-    // Las parejas se dicen con la mezcla REAL: 51 parejas en 17 carriles = 3.
+    // Las parejas salen de la mezcla REAL: 51 parejas en 17 carriles = 3.
     expect(cap.palancas[0]).toContain('12 parejas');
+    expect(cap.palancas.some((p) => /carril/i.test(p))).toBe(false);
     // 1 carril / 4 canchas = 1 bloque mas = 3 h.
     expect(cap.palancas[1]).toContain('3 h en total');
     expect(cap.palancas[2]).toContain('un día más de 3 h');

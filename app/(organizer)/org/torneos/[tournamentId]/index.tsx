@@ -250,9 +250,11 @@ export default function OrgTournamentScreen() {
     }
   })();
 
+  // En parejas y en horas, que es lo que el organizador cuenta. "Lugares" y
+  // "bloques" son unidades del motor y en su panel no significan nada.
   const resumenBloques = !capacidadBloques || capacidadBloques.bloques.length === 0
     ? 'Faltan canchas u horarios'
-    : `${pairCount} de ${capacidadBloques.capacidadParejas} lugares · ${capacidadBloques.bloques.length} bloques`;
+    : `${pairCount} de ${capacidadBloques.capacidadParejas} parejas · ${capacidadBloques.bloques.length} horarios`;
 
   /** El aviso se enciende ANTES de llenarse del todo: al 90 % ya hay que mover algo. */
   const bloquesApretados = !!capacidadBloques
@@ -378,7 +380,7 @@ export default function OrgTournamentScreen() {
               ve si lo capturado alcanza para la gente que se está inscribiendo. */}
           <SettingRow
             icon="grid"
-            title="Ocupación por bloque"
+            title="Horarios de la fase de grupos"
             value={resumenBloques}
             iconColor={bloquesApretados || !capacidadBloques ? color.alive : undefined}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/bloques`)}

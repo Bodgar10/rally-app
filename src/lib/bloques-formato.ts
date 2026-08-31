@@ -139,9 +139,11 @@ export interface Capacidad {
  *   parejas caben en 20 lugares, y no es verdad.
  *
  * Las palancas son las tres cosas que el organizador puede mover de verdad:
- * más canchas, más horas en los días que ya juega, o un día más. Se expresan
- * en carriles —que es lo que se compra— y las parejas van como aproximación,
- * calculada con la mezcla real de este torneo y no con un 3 supuesto.
+ * más canchas, más horas en los días que ya juega, o un día más. Se dicen en
+ * CANCHAS, HORAS y PAREJAS, que es lo que él compra y lo que él cuenta. Nunca
+ * en carriles: eso es una unidad del motor y en su pantalla no significa nada.
+ * Las parejas van como aproximación —"unas 12"— calculada con la mezcla real
+ * de este torneo y no con un 3 supuesto.
  */
 export function capacidadDelTorneo(args: {
   reticula: ReticulaBloques;
@@ -183,8 +185,7 @@ export function capacidadDelTorneo(args: {
       const canchasExtra = Math.ceil(faltanCarriles / nBloques);
       palancas.push(
         `Conseguir ${canchasExtra} cancha${canchasExtra === 1 ? '' : 's'} más: ` +
-        `cada cancha añade ${nBloques} carril${nBloques === 1 ? '' : 'es'} ` +
-        `(unas ${enParejas(nBloques)} parejas).`,
+        `caben unas ${enParejas(nBloques * canchasExtra)} parejas más.`,
       );
     }
     if (canchas > 0) {
@@ -197,8 +198,7 @@ export function capacidadDelTorneo(args: {
       );
       palancas.push(
         `Abrir un día más de ${horas} h de juego: con tus ${canchas} cancha` +
-        `${canchas === 1 ? '' : 's'} suma ${bloquesExtra * canchas} carriles ` +
-        `(unas ${enParejas(bloquesExtra * canchas)} parejas).`,
+        `${canchas === 1 ? '' : 's'} caben unas ${enParejas(bloquesExtra * canchas)} parejas más.`,
       );
     }
   }
