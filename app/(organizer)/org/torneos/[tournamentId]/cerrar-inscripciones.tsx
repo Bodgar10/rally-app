@@ -713,7 +713,7 @@ export default function CerrarInscripcionesScreen() {
           single: () => Promise<{ data: { name: string; courts: number | null; match_minutes: number | null } | null }>;
         } };
       })('tournaments')
-        .select('name, courts, match_minutes').eq('id', tournamentId).single(),
+        .select('name, courts, match_minutes, tercer_lugar').eq('id', tournamentId).single(),
       supabase.from('categories')
         .select('id, display_name, status, num_groups, advance_per_group, best_extra_qualifiers')
         .eq('tournament_id', tournamentId).order('division'),
@@ -778,6 +778,11 @@ export default function CerrarInscripcionesScreen() {
       const cap: Capacidad = {
         canchas: t.courts,
         minutosPorPartido: t.match_minutes ?? 60,
+        // Se lee del torneo, no se deja al default del motor: desde la 057 el
+        // default de la columna es `false` y el del motor sigue siendo `true`.
+        // Sin esta línea el planificador reservaría cancha para ocho partidos
+        // que `generate-bracket` no va a crear.
+        tercerLugar: (t as { tercer_lugar?: boolean | null }).tercer_lugar !== false,
         ventanas: ventanasCrudas.map((w) => ({
           fecha: w.dia, desde: w.desde, hasta: w.hasta,
         })),
