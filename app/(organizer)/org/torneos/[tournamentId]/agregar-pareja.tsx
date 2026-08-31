@@ -25,6 +25,14 @@
  *   de la pareja, quedarían cuentas fantasma. La función compensa borrando lo
  *   que creó. Además, crear usuarios exige service_role, que nunca puede vivir
  *   en el bundle.
+ *
+ * EL BLOQUE HORARIO, Y POR QUÉ AQUÍ SÍ SE PUEDE ELEGIR UNO LLENO
+ *   El jugador solo ve los bloques con cupo; los agotados se le ocultan. El
+ *   organizador ve TODOS y puede meter una pareja en uno lleno, porque esa
+ *   pareja ya le pagó y decirle que no cabe no es una respuesta. Lo que se le
+ *   debe es el aviso de la consecuencia ANTES de guardar —quedaría sin grupo
+ *   completo— y que la fila quede marcada como forzada, para que la pantalla de
+ *   ocupación pueda explicar después por qué ese bloque está sobrevendido.
  */
 
 import { useCallback, useState } from 'react';
@@ -39,6 +47,12 @@ import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
+import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
+import {
+  cargarBloquesDelTorneo, guardarEleccionDeBloque, rangoLegible,
+  type BloquesDelTorneo,
+} from '@/lib/bloques-torneo';
+import { formatearConDia } from '@/lib/fechas';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -61,7 +75,7 @@ type Slot =
   | { t: 'existente'; u: UsuarioEncontrado }
   | { t: 'nuevo';     d: Nuevo };
 
-type Paso = 'categoria' | 'jugadores' | 'confirmar' | 'guardando' | 'listo';
+type Paso = 'categoria' | 'jugadores' | 'bloque' | 'confirmar' | 'guardando' | 'listo';
 
 /** Estado de un correo en public.email_outbox. Ver migración 037. */
 interface FilaCorreo {
@@ -123,6 +137,12 @@ export default function AgregarParejaScreen() {
   const [categoria, setCategoria]   = useState<Categoria | null>(null);
   const [slot1, setSlot1]           = useState<Slot>({ t: 'vacio' });
   const [slot2, setSlot2]           = useState<Slot>({ t: 'vacio' });
+  // Bloque horario. Con la lista vacía —sin canchas ni horarios capturados—
+  // el paso se salta y la pareja queda registrada sin bloque.
+  const [bloques, setBloques]       = useState<BloquesDelTorneo | null>(null);
+  const [bloqueId, setBloqueId]     = useState<string | null>(null);
+  /** El bloque elegido no tenía cupo. Solo el organizador puede llegar aquí. */
+  const [forzado, setForzado]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [correos, setCorreos]       = useState<FilaCorreo[]>([]);
   // Los ids se guardan aparte y NO se derivan de `correos`: si la primera
@@ -142,6 +162,7 @@ export default function AgregarParejaScreen() {
     ]);
     if (t) setNombre(t.name);
     setCategorias(cats ?? []);
+    setBloques(await cargarBloquesDelTorneo(tournamentId));
   }, [tournamentId]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
@@ -151,10 +172,19 @@ export default function AgregarParejaScreen() {
     setCategoria(null);
     setSlot1({ t: 'vacio' });
     setSlot2({ t: 'vacio' });
+    setBloqueId(null);
+    setForzado(false);
+    // Se relee: la pareja que se acaba de registrar ya ocupa un lugar.
+    void cargarBloquesDelTorneo(tournamentId).then(setBloques);
     setError(null);
     setCorreos([]);
     setOutboxIds([]);
   }
+
+  /** Hay algo que elegir. Con `false` el paso del bloque no existe. */
+  const hayBloques = (bloques?.bloques.length ?? 0) > 0;
+
+  const bloqueElegido = bloques?.bloques.find((b) => b.id === bloqueId) ?? null;
 
   async function guardar() {
     if (!categoria || !resuelto(slot1) || !resuelto(slot2)) return;
@@ -212,6 +242,18 @@ export default function AgregarParejaScreen() {
         setError(MENSAJE[codigo] ?? MENSAJE_GENERICO);
         setPaso('confirmar');
         return;
+      }
+
+      // El bloque se aparta con el id de la pareja recién creada. Si falla, la
+      // pareja NO se deshace: queda sin bloque y sale así en la ocupación.
+      if (hayBloques && bloqueId && json.pair_id) {
+        const fallo = await guardarEleccionDeBloque({
+          pairId:       json.pair_id as string,
+          tournamentId: tournamentId as string,
+          bloqueId,
+          forzado,
+        });
+        if (fallo) setError(fallo);
       }
 
       setPaso('listo');
@@ -279,8 +321,17 @@ export default function AgregarParejaScreen() {
         <ScrollView contentContainerStyle={s.contenido}>
           <Text style={s.exitoTitulo}>Pareja inscrita</Text>
           <Text style={s.exitoCuerpo}>
-            {nombreDe(slot1)} y {nombreDe(slot2)} ya están en {categoria?.display_name}.
+            {nombreDe(slot1)} y {nombreDe(slot2)} ya están en {categoria?.display_name}
+            {bloqueElegido
+              ? `, el ${formatearConDia(bloqueElegido.dia)} de ${rangoLegible(bloqueElegido.desde, bloqueElegido.hasta)}.`
+              : '.'}
           </Text>
+
+          {error && (
+            <View style={s.errorCaja}>
+              <Text style={s.errorTexto}>{error}</Text>
+            </View>
+          )}
 
           <EstadoCorreos
             filas={correos}
@@ -315,7 +366,7 @@ export default function AgregarParejaScreen() {
           cuenta, se la creas aquí mismo.
         </Text>
 
-        <Pasos actual={paso} />
+        <Pasos actual={paso} conBloque={hayBloques} />
 
         {error && (
           <View style={s.errorCaja}>
@@ -368,7 +419,7 @@ export default function AgregarParejaScreen() {
             />
 
             <Pressable
-              onPress={() => { setError(null); setPaso('confirmar'); }}
+              onPress={() => { setError(null); setPaso(hayBloques ? 'bloque' : 'confirmar'); }}
               disabled={!resuelto(slot1) || !resuelto(slot2)}
               style={({ pressed }) => [
                 s.btnDorado,
@@ -387,15 +438,63 @@ export default function AgregarParejaScreen() {
           </View>
         )}
 
-        {/* ── 3. Confirmar ── */}
+        {/* ── 3. Bloque horario ──
+            Solo aparece si el torneo tiene canchas y horarios. `permitirLlenos`
+            es la única diferencia con la pantalla del jugador: el organizador
+            ve los agotados y puede elegirlos. */}
+        {paso === 'bloque' && categoria && (
+          <View style={s.bloque}>
+            <Text style={s.seccion}>3 · HORARIO</Text>
+            <Text style={s.categoriaElegida}>
+              {categoria.display_name}
+              {'  '}
+              <Text style={s.cambiar} onPress={() => setPaso('jugadores')}>Cambiar</Text>
+            </Text>
+
+            <SelectorDeBloque
+              bloques={bloques!.bloques}
+              ocupacion={bloques!.ocupacion}
+              categoriaId={categoria.id}
+              valor={bloqueId}
+              permitirLlenos
+              onCambio={(id, cupo) => { setBloqueId(id); setForzado(cupo <= 0); }}
+            />
+
+            <Pressable
+              onPress={() => { setError(null); setPaso('confirmar'); }}
+              disabled={!bloqueId}
+              style={({ pressed }) => [
+                s.btnDorado, !bloqueId && s.btnInactivo, pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={[s.btnDoradoTexto, !bloqueId && s.btnTextoInactivo]}>Continuar</Text>
+            </Pressable>
+
+            <Pressable onPress={() => setPaso('jugadores')} style={s.volverPaso} accessibilityRole="button">
+              <Text style={s.volverPasoTexto}>Volver a los jugadores</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── 4. Confirmar ── */}
         {paso === 'confirmar' && categoria && (
           <View style={s.bloque}>
-            <Text style={s.seccion}>3 · CONFIRMAR</Text>
+            <Text style={s.seccion}>{hayBloques ? '4' : '3'} · CONFIRMAR</Text>
 
             <View style={s.resumen}>
               <FilaResumen etiqueta="Categoría" valor={categoria.display_name} />
               <FilaResumen etiqueta="Jugador 1" valor={nombreDe(slot1)} nota={notaSlot(slot1)} />
               <FilaResumen etiqueta="Jugador 2" valor={nombreDe(slot2)} nota={notaSlot(slot2)} />
+              {hayBloques && (
+                <FilaResumen
+                  etiqueta="Horario"
+                  valor={bloqueElegido
+                    ? `${formatearConDia(bloqueElegido.dia)}, ${rangoLegible(bloqueElegido.desde, bloqueElegido.hasta)}`
+                    : 'Sin bloque'}
+                  nota={forzado ? 'BLOQUE LLENO · se registra como forzada' : undefined}
+                />
+              )}
               <FilaResumen etiqueta="Pago" valor="Recibido fuera de la plataforma" />
             </View>
 
@@ -431,8 +530,14 @@ export default function AgregarParejaScreen() {
               <Text style={s.btnDoradoTexto}>Confirmar e inscribir</Text>
             </Pressable>
 
-            <Pressable onPress={() => setPaso('jugadores')} style={s.volverPaso} accessibilityRole="button">
-              <Text style={s.volverPasoTexto}>Volver a los jugadores</Text>
+            <Pressable
+              onPress={() => setPaso(hayBloques ? 'bloque' : 'jugadores')}
+              style={s.volverPaso}
+              accessibilityRole="button"
+            >
+              <Text style={s.volverPasoTexto}>
+                {hayBloques ? 'Volver al horario' : 'Volver a los jugadores'}
+              </Text>
             </Pressable>
           </View>
         )}
@@ -606,8 +711,12 @@ function Campo({
   );
 }
 
-function Pasos({ actual }: { actual: Paso }) {
-  const orden: Paso[] = ['categoria', 'jugadores', 'confirmar'];
+function Pasos({ actual, conBloque }: { actual: Paso; conBloque: boolean }) {
+  // Sin canchas ni horarios capturados no hay paso de bloque, y los puntos
+  // tienen que contar los pasos que de verdad se van a recorrer.
+  const orden: Paso[] = conBloque
+    ? ['categoria', 'jugadores', 'bloque', 'confirmar']
+    : ['categoria', 'jugadores', 'confirmar'];
   const i = orden.indexOf(actual);
   return (
     <View style={s.pasos}>
