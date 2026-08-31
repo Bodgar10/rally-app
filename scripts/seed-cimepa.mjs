@@ -591,7 +591,16 @@ async function main() {
   console.log(`  Para borrar: node scripts/clean-qa.mjs\n`);
 }
 
-// Solo al ejecutar el script; importarlo (para verificar aplicarCruces) no siembra nada.
-if (process.argv[1] && process.argv[1].endsWith('seed-cimepa.mjs')) {
+// Solo al ejecutar el script; importarlo no siembra nada.
+//
+// COMPARACIÓN DE RUTA EXACTA, NO endsWith.
+//   El guard decía `process.argv[1].endsWith('seed-cimepa.mjs')`, y
+//   'reseed-cimepa.mjs'.endsWith('seed-cimepa.mjs') es TRUE — "re" + el nombre
+//   entero. Mientras nadie importaba este módulo daba igual; en cuanto
+//   reseed-cimepa.mjs pasó a importar `esCorreoDeCimepa`, correrlo disparaba
+//   el seed completo antes de su propio main.
+const invocadoDirecto = process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invocadoDirecto) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
