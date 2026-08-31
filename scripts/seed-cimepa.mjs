@@ -203,6 +203,51 @@ function nombreDe(indice, esMujer) {
 const correoDe = (i) => `qa_${String(i).padStart(4, '0')}@rally.test`;
 
 /**
+ * Qué correos son de Cimepa. LO DECIDE ESTE ARCHIVO, que es quien los crea.
+ *
+ * EL PROBLEMA QUE RESUELVE
+ *   `reseed-cimepa.mjs` llevaba su propia copia escrita a mano:
+ *
+ *       /^qa_(1\d{3}|cantillo|tapia|robelo|minana|mandujano|paz|edgar)@rally\.test$/
+ *
+ *   Siete nombres y un rango, repetidos. En cuanto aquí se añadiera una persona
+ *   a PERSONAS o una categoría con `base` fuera del rango, el reseed dejaría de
+ *   reconocer a esos usuarios — y no fallaría: los saltaría en silencio. El
+ *   borrado se quedaría a medias y la siguiente siembra los encontraría ya
+ *   creados, con sus parejas viejas colgando. `pairs.player1_id` es `on delete
+ *   restrict`, así que el residuo bloquea el borrado siguiente y el fallo
+ *   aparece lejos de su causa.
+ *
+ * CÓMO SE DERIVA
+ *   Los nombres salen de las claves de PERSONAS. El rango numérico sale de los
+ *   `base` de CATEGORIAS: bloques de 100 documentados arriba, así que la
+ *   ventana es [min(base), max(base) + 100). Añadir una categoría con base 1800
+ *   la extiende sola.
+ *
+ *   `seed-qa.mjs` usa 100..799 y por eso el rango tiene que ser concreto: un
+ *   `qa_%@rally.test` a secas se llevaría por delante el otro juego de datos.
+ */
+const BASES = CATEGORIAS.map((c) => c.base);
+const RANGO_CIMEPA = { desde: Math.min(...BASES), hasta: Math.max(...BASES) + 100 };
+
+export const NOMBRES_PROPIOS_CIMEPA = Object.keys(PERSONAS);
+
+/** True si ese correo lo creó este seed. */
+export function esCorreoDeCimepa(correo) {
+  if (typeof correo !== 'string') return false;
+  const m = /^qa_([^@]+)@rally\.test$/.exec(correo);
+  if (!m) return false;
+  const local = m[1];
+  if (NOMBRES_PROPIOS_CIMEPA.includes(local)) return true;
+  if (!/^\d{4}$/.test(local)) return false;
+  const n = Number(local);
+  return n >= RANGO_CIMEPA.desde && n < RANGO_CIMEPA.hasta;
+}
+
+/** Los límites, para que quien los use pueda decirlos por pantalla. */
+export const RANGO_CORREOS_CIMEPA = RANGO_CIMEPA;
+
+/**
  * Género de cada jugador de una pareja.
  *
  * En mixto la pareja es un hombre y una mujer — no es un detalle cosmético:

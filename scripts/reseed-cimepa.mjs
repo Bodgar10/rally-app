@@ -37,6 +37,15 @@ import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
 
 import { NOMBRE_TORNEO_CIMEPA } from './qa-config.mjs';
+// Qué correos son de Cimepa lo decide `seed-cimepa.mjs`, que es quien los crea.
+//
+// Aquí vivía una copia del patrón escrita a mano —el rango 1000+ y los siete
+// nombres propios— y era el punto más frágil de este script: añadir una persona
+// o una categoría allí lo dejaba desincronizado sin que nada fallara. Los
+// usuarios no reconocidos se saltaban en silencio, el borrado se quedaba a
+// medias, y como `pairs.player1_id` es `on delete restrict`, el residuo
+// reventaba el borrado SIGUIENTE, lejos de la causa.
+import { esCorreoDeCimepa, RANGO_CORREOS_CIMEPA } from './seed-cimepa.mjs';
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -52,11 +61,6 @@ const CONCURRENCIA = 6;
  */
 const ESTADOS_QA = ['draft', 'registration_open', 'registration_closed', 'in_progress'];
 
-/**
- * Los correos que crea seed-cimepa: el rango numérico 1000+ y los siete con
- * nombre propio. seed-qa.mjs usa 100..799, por eso el patrón es tan concreto.
- */
-const RE_CIMEPA = /^qa_(1\d{3}|cantillo|tapia|robelo|minana|mandujano|paz|edgar)@rally\.test$/;
 
 // ── Utilidades ──────────────────────────────────────────────────────────────
 
@@ -151,6 +155,7 @@ async function main() {
   // inscribió de verdad en este torneo, el script para.
   const { data: usuariosQA } = await supa
     .from('users').select('id, email').like('email', 'qa_%@rally.test');
+  // El filtro fino lo hace esCorreoDeCimepa: `like` solo acota la consulta.
   const esQA = new Map((usuariosQA ?? []).map((u) => [u.id, u.email]));
 
   const intrusos = [...jugadores].filter((id) => !esQA.has(id));
@@ -182,7 +187,7 @@ async function main() {
 
   // Los usuarios de Cimepa: SOLO el rango de este seed. Los de seed-qa.mjs
   // comparten el prefijo qa_ y no se tocan.
-  const usuariosCimepa = (usuariosQA ?? []).filter((u) => RE_CIMEPA.test(u.email));
+  const usuariosCimepa = (usuariosQA ?? []).filter((u) => esCorreoDeCimepa(u.email));
   const otrosQA = (usuariosQA ?? []).length - usuariosCimepa.length;
 
   console.log('  SE VA A BORRAR:');
