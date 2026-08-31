@@ -136,7 +136,12 @@ export default function InscripcionScreen() {
   const [miId, setMiId] = useState<string | undefined>(undefined);
 
   /** Se creó la cuenta de la pareja: hay que decirle a quien inscribe cómo entra. */
-  const [cuentaCreada, setCuentaCreada] = useState<{ nombre: string; siguiente: () => void } | null>(null);
+  const [cuentaCreada, setCuentaCreada] = useState<{
+    nombre: string;
+    /** EL CORREO, a la vista. Es donde se caza un dedazo antes de que cueste. */
+    correo: string;
+    siguiente: () => void;
+  } | null>(null);
 
   /**
    * La pareja quedó inscrita pero el horario no se apartó. No se puede volver a
@@ -341,7 +346,11 @@ export default function InscripcionScreen() {
       // Si se creó la cuenta, primero hay que decirle cómo entra: el correo
       // puede no llegarle, y quien inscribe la tiene delante ahora mismo.
       if (json.partner_is_new) {
-        setCuentaCreada({ nombre: partner.mode === 'new' ? partner.full_name : '', siguiente });
+        setCuentaCreada({
+          nombre: partner.mode === 'new' ? partner.full_name : '',
+          correo: partner.mode === 'new' ? partner.email.trim().toLowerCase() : '',
+          siguiente,
+        });
         return;
       }
 
@@ -398,13 +407,31 @@ export default function InscripcionScreen() {
 
           <View style={s.comoEntrarCaja}>
             <Text style={s.comoEntrarTitulo}>Dile cómo entrar</Text>
+
+            {/* EL CORREO, GRANDE Y A LA VISTA.
+                Es el único momento en que quien inscribe puede cazar un dedazo:
+                después, su compañero simplemente nunca aparece y nadie sabe por
+                qué. La cuenta se creó CON ESTE correo, así que si está mal, la
+                invitación se fue a una dirección que no existe. */}
+            {!!cuentaCreada.correo && (
+              <View style={s.correoCaja}>
+                <Text style={s.correoEtiqueta}>LE ENVIAMOS LA INVITACIÓN A</Text>
+                <Text style={s.correoValor} selectable>{cuentaCreada.correo}</Text>
+                <Text style={s.correoAviso}>
+                  Revísalo. Si está mal escrito, {cuentaCreada.nombre || 'tu compañero'} no
+                  recibirá nada y tendrás que avisarle al organizador.
+                </Text>
+              </View>
+            )}
+
             <Text style={s.comoEntrarTexto}>
-              Que entre a <Text style={s.comoEntrarFuerte}>{SITIO}</Text> y ponga
-              su correo. La app la reconoce y le pide crear su contraseña. Nada más.
+              Si no le llega, que entre a <Text style={s.comoEntrarFuerte}>{SITIO}</Text> y
+              ponga <Text style={s.comoEntrarFuerte}>{cuentaCreada.correo || 'su correo'}</Text>.
+              La app la reconoce y le pide crear su contraseña. No necesita el correo
+              para entrar.
             </Text>
             <Text style={s.comoEntrarNota}>
-              También le mandamos un correo con estos datos, pero es más rápido
-              decírselo tú.
+              Es más rápido decírselo tú que esperar a que le llegue.
             </Text>
           </View>
 
@@ -851,6 +878,11 @@ const s = StyleSheet.create({
   comoEntrarTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne },
   comoEntrarTexto:  { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 22 },
   comoEntrarFuerte: { color: color.goldBright, fontWeight: '600' },
+  correoCaja:     { backgroundColor: color.surface2, borderRadius: radius.md, borderWidth: 1, borderColor: color.line, padding: space[3], gap: space[1] },
+  correoEtiqueta: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne, letterSpacing: 1.2 },
+  correoValor:    { fontFamily: font.display, fontSize: fontSize.cardName, color: color.goldBright },
+  correoAviso:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+
   comoEntrarNota:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
   notFoundText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 18 },
 

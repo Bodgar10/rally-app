@@ -29,6 +29,8 @@ interface Pareja {
   jugador2:  string;
   categoria: string;
   pago:      string;
+  /** Quiénes de los dos no han entrado nunca a la app. */
+  sinEntrar: string[];
 }
 
 /** Enum de BD → lo que entiende un organizador. */
@@ -38,6 +40,28 @@ const PAGO: Record<string, { texto: string; tinte: string }> = {
   comp:         { texto: 'Cortesía',          tinte: color.champagne },
   pending:      { texto: 'Pago pendiente',    tinte: color.alive  },
 };
+
+interface FilaPareja {
+  pair_id:          string | null;
+  payment_status:   string | null;
+  category_id:      string | null;
+  player1_name:     string | null;
+  player2_name:     string | null;
+  player1_activado: boolean | null;
+  player2_activado: boolean | null;
+}
+
+const vistaParejas = (cliente: typeof supabase) =>
+  (cliente.from as unknown as (v: string) => {
+    select: (cols: string) => {
+      eq: (c: string, v: string) => {
+        order: (c: string, o: { ascending: boolean }) => Promise<{
+          data: FilaPareja[] | null;
+          error: { message: string } | null;
+        }>;
+      };
+    };
+  })('organizer_pairs_admin');
 
 export default function ParejasTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
@@ -54,9 +78,12 @@ export default function ParejasTorneoScreen() {
       // embed: ese embed pasaba por users_select_own, que solo deja leer la
       // propia fila, así que el organizador veía '—' en TODOS los jugadores de
       // su propio torneo. La vista ya está acotada al owner por dentro.
-      supabase
-        .from('organizer_pairs_admin')
-        .select('pair_id, payment_status, category_id, player1_name, player2_name')
+      // `player1_activado` / `player2_activado` son de la migración 058 y
+      // todavía no están en `database.types.ts`: hay que correr
+      // `npm run types:db` después de aplicarla. Hasta entonces, el cast —
+      // acotado a lo que de verdad se lee, para que siga habiendo tipo.
+      vistaParejas(supabase)
+        .select('pair_id, payment_status, category_id, player1_name, player2_name, player1_activado, player2_activado')
         .eq('tournament_id', tournamentId)
         .order('created_at', { ascending: true }),
     ]);
@@ -82,6 +109,13 @@ export default function ParejasTorneoScreen() {
           jugador2:  row.player2_name ?? '—',
           categoria: nombreCat.get(row.category_id ?? '') ?? '—',
           pago:      row.payment_status ?? 'pending',
+          // Migración 058. `!== false` y no `=== false`: si la columna no
+          // llega —vista vieja, tipos sin regenerar— se asume activado y no se
+          // marca a nadie por error.
+          sinEntrar: [
+            ...(row.player1_activado === false ? [row.player1_name ?? 'Jugador 1'] : []),
+            ...(row.player2_activado === false ? [row.player2_name ?? 'Jugador 2'] : []),
+          ],
         })),
     );
     setCargando(false);
@@ -135,6 +169,17 @@ export default function ParejasTorneoScreen() {
                         {p.jugador1} · {p.jugador2}
                       </Text>
                       <Text style={[s.filaPago, { color: pago.tinte }]}>{pago.texto}</Text>
+                      {/* Quien no ha entrado nunca no verá su horario el día del
+                          torneo, y no se enterará hasta llegar al club. Si la
+                          invitación no le llegó, el que lo inscribió sí está
+                          dentro y lo conoce: por ahí se le avisa. */}
+                      {p.sinEntrar.length > 0 && (
+                        <Text style={s.filaSinEntrar}>
+                          {p.sinEntrar.length === 2
+                            ? 'Ninguno ha entrado todavía a la app'
+                            : `${p.sinEntrar[0]} no ha entrado todavía a la app`}
+                        </Text>
+                      )}
                     </View>
                   </View>
                 );
@@ -175,6 +220,7 @@ const s = StyleSheet.create({
   filaIcono:   { width: 24, alignItems: 'center', flexShrink: 0 },
   filaTextos:  { flex: 1, minWidth: 0, gap: 2 },
   filaNombres: { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 20 },
+  filaSinEntrar: { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 17 },
   filaPago:    { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600' },
 
   btnSecundario: {
