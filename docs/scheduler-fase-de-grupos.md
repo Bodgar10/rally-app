@@ -1,7 +1,7 @@
 # Scheduler de fase de grupos
 
-**Estado:** especificación. No hay código todavía.
-**Módulo previsto:** `src/lib/engine/schedule/grupos.ts` — lógica pura y determinista, sin dependencias, como `bloques.ts` y `knockout.ts`.
+**Estado:** implementado en `src/lib/engine/schedule/grupos.ts`, con tests en `__tests__/grupos.test.ts` y `__tests__/grupos-cimepa.test.ts`.
+**Módulo:** lógica pura y determinista, como `bloques.ts` y `knockout.ts`. Su única dependencia es `grafoDeHermandad`, que se exporta de `knockout.ts` sin cambiarla.
 **Hermano:** el scheduler de eliminatorias (`src/lib/engine/schedule/knockout.ts`), que reparte el ÚLTIMO día. Este reparte los anteriores.
 
 ---
@@ -79,7 +79,9 @@ Con 3 parejas y 3 partidos, alguna encadena dos. Siempre.
 
 Cimepa **aceptó ese costo a propósito**: a cambio, la pareja está 3 horas en el club y no 6. Es una preferencia legítima de un torneo amateur donde la gente tiene sábado y familia.
 
-**Consecuencia para el scheduler:** el bloque corrido es el modo por defecto, pero la alternativa —espaciar los partidos del grupo a lo largo del día para que nadie encadene— tiene que existir como **opción explícita del organizador**, no quedar prohibida por el diseño. El motor expone la preferencia; no arbitra cuál es la correcta.
+**Consecuencia para el scheduler:** el bloque corrido es el único modo. La alternativa —espaciar los partidos a lo largo del día para que nadie encadene— se descartó al implementar: ver §5.4. No cabe dentro de un bloque, así que espaciar significa sacar partidos del horario que la pareja eligió, y eso rompe lo único que se le prometió.
+
+En cada grupo de 3 encadenan **dos** de las tres parejas, no una. Con tres turnos y dos partidos por pareja, dos de ellas caen en turnos seguidos por aritmética pura. La descripción de arriba —"el del medio comparte pareja con el de antes y el de después"— es correcta; lo que no se puede es contarlo como un solo encadenamiento.
 
 ### 2.4 Los grupos no se parten, salvo cuando la cancha se ocupa
 
@@ -95,9 +97,18 @@ El mismo concepto que ya resuelve `knockout.ts`: **dos categorías son hermanas 
 
 En fase de grupos el conflicto es peor: no es un partido de una hora, son **tres horas seguidas**. Si sus dos grupos caen en el mismo bloque, esa persona no puede jugar ninguno de los dos completos.
 
-**Consecuencia para el scheduler:** dos grupos de categorías hermanas no deben coincidir en el mismo bloque si se puede evitar. Se reutiliza `grafoDeHermandad` de `knockout.ts` sin cambiarlo — hoy es privada; habrá que exportarla o levantarla a un módulo compartido.
+**Consecuencia para el scheduler: detectar y avisar. Nada más.** No hay nada que optimizar, y conviene entender por qué, porque en eliminatorias sí lo había.
 
-Y el mismo límite que allí: es una **preferencia fuerte, no una restricción**. Un grafo de hermandad denso no puede dejar carriles vacíos indefinidamente. Cuando no se puede evitar, se coloca igual y se reporta el empalme.
+En el cuadro, separar es barato: cada categoría ocupa pocas franjas del último día, así que mover una ronda media hora casi siempre encuentra hueco. En fase de grupos **cada categoría tiene un grupo en casi todos los bloques** —Cimepa: 2ª y 3ª Fuerza comparten 7 de los 8—, así que coincidir es la norma, no la excepción.
+
+Y dentro de un bloque el conflicto es irreducible por dos razones que se acumulan:
+
+1. Todos los grupos del bloque ocupan **las mismas tres horas**, en canchas distintas. Cambiar de cancha no cambia la hora.
+2. Reordenar los partidos tampoco: en un grupo de 3, cada pareja juega **2 de los 3 turnos**, y dos subconjuntos de tamaño 2 sobre 3 elementos siempre se cruzan. No existe el orden que salve a esa persona.
+
+Moverlo de bloque sí lo arreglaría, y por eso está prohibido: deshace el horario que la pareja eligió, que es la única promesa que se le hizo (§9).
+
+Así que se detecta con `grafoDeHermandad` —exportada de `knockout.ts` sin tocarla—, se nombra el par de categorías y el bloque, y se avisa. **La persona que juega dos categorías va a tener que elegir, y quien se lo dice es el organizador, no el algoritmo.**
 
 ---
 
@@ -108,9 +119,11 @@ export interface GrupoAProgramar {
   id:          string;   // groups.id
   categoryId:  string;
   nombre:      string;   // 'A', 'B', …
-  /** Ids de pareja. 3 en el caso normal, 4 o 5 en categorías chicas (§6.4). */
-  parejas:     string[];
-  /** Los partidos ya creados, tal como los emitió `generateRoundRobin`. */
+  /**
+   * Los partidos ya creados, tal como los emitió `generateRoundRobin`, CON su
+   * número de ronda. De ahí sale la huella del grupo — ver §5.0 —, así que las
+   * parejas y los carriles no hacen falta como entrada: se derivan.
+   */
   partidos:    { matchId: string; pairAId: string; pairBId: string; ronda: number }[];
   /**
    * Bloque en el que juega. Lo fija `close-registration`: el de sus parejas, o
@@ -118,8 +131,6 @@ export interface GrupoAProgramar {
    * Null solo si ninguna de sus parejas eligió horario (§6.2).
    */
   bloqueId:    string | null;
-  /** Carriles que consume: `carrilesDeGrupo(parejas.length)`. 3→1, 4→2, 5→4. */
-  carriles:    number;
 }
 
 export interface EntradaSchedulerGrupos {
@@ -129,12 +140,8 @@ export interface EntradaSchedulerGrupos {
   grupos:      GrupoAProgramar[];
   /** Por categoría, los jugadores que la juegan. Alimenta el grafo de hermandad. */
   jugadoresPorCategoria: Record<string, string[]>;
-  /**
-   * 'corrido'  — los partidos del grupo seguidos (por defecto, lo de Cimepa).
-   * 'espaciado' — un partido por ronda a lo largo del día, nadie encadena.
-   * Ver §2.3: es decisión del organizador, no del motor.
-   */
-  modo?: 'corrido' | 'espaciado';
+  /** Solo 'corrido'. Ver §5.4: el modo espaciado se descartó. */
+  modo?: 'corrido';
 }
 ```
 
@@ -161,30 +168,42 @@ export interface PartidoDeGrupo {
   inicio:     string;
   /** 1..canchas. Se escribe como `Cancha ${n}`, igual que el knockout. */
   cancha:     number;
-  /** 0, 1 o 2: posición dentro del bloque. */
+  /** Turno DENTRO DEL BLOQUE, 0-based. No es el índice del partido en el grupo:
+   *  un grupo de 4 juega dos partidos en el mismo turno, en dos canchas. */
   ordenEnBloque: number;
-  /** true si se desplazó fuera de su bloque por falta de carril. Ver §5.5. */
+  /** El partido cayó en un bloque posterior al del grupo. Solo grupos de 5. Ver §5.5. */
   desplazado: boolean;
 }
+
+export type MotivoSinProgramar =
+  | 'sin_bloque'            // ninguna de sus parejas eligió horario (§6.2)
+  | 'bloque_desconocido'    // eligieron un bloque que ya no existe (§6.2)
+  | 'bloque_sobrevendido'   // el bloque no tiene carriles libres (§6.1)
+  | 'no_cabe_en_el_bloque'; // necesita más turnos de los que quedan (§5.5)
 
 export interface CalendarioGrupos {
   partidos: PartidoDeGrupo[];
 
   /** Grupos que no se pudieron colocar. Vacío es el caso bueno. */
-  sinProgramar: { groupId: string; motivo: 'sin_bloque' | 'bloque_sobrevendido' }[];
+  sinProgramar: { groupId: string; categoryId: string; motivo: MotivoSinProgramar }[];
 
-  /** Grupos de categorías hermanas que aun así quedaron en el mismo bloque. */
+  /** Categorías hermanas con grupos en el mismo bloque. Informativo: ver §2.5. */
   empalmes: { bloqueId: string; categoriaA: string; categoriaB: string }[];
 
-  /** Bloques con más grupos que carriles. Ver §5.4. */
-  sobrevendidos: { bloqueId: string; grupos: number; carriles: number }[];
+  /** Bloques que piden más carriles de los que tienen. Ver §6.1. */
+  sobrevendidos: { bloqueId: string; carrilesPedidos: number; carriles: number; grupos: number }[];
 
   /** Dato, no objetivo. Ver §2.2. */
   ocupacion: { canchasHoraUsadas: number; canchasHoraDisponibles: number; porcentaje: number };
 
+  /** Canchas ocupadas en cada bloque, para pintar el calendario. */
+  ocupacionPorBloque: { bloqueId: string; canchasUsadas: number; carriles: number }[];
+
   avisos: string[];
 }
 ```
+
+**`bloque_desconocido` y `no_cabe_en_el_bloque` no estaban en la primera versión.** Se separaron de `sin_bloque` al implementar porque son problemas distintos con soluciones distintas: uno se arregla reubicando a esa gente tras un cambio de horarios; el otro, alargando el día o partiendo la categoría de otra forma. Meterlos bajo el mismo nombre escondía cuál de los dos había pasado.
 
 ### Dónde se escribe
 
@@ -195,6 +214,24 @@ Directo en `matches.scheduled_at` y `matches.court_label`. **No** en `match_sche
 ## 5. El algoritmo
 
 Determinista: misma entrada, misma salida. El orden de la entrada no debe cambiar el resultado — se ordena canónicamente antes de empezar, como hace `generarBloques` con las ventanas.
+
+### 5.0 La huella de un grupo se deriva, no se recibe
+
+Antes de repartir nada hay que saber cuánto ocupa cada grupo. Sale de las rondas que `generateRoundRobin` ya emite, donde por construcción ninguna pareja se repite:
+
+```
+rondas  = cuántos turnos consecutivos ocupa el grupo
+anchura = partidos de la ronda más cargada = canchas simultáneas
+```
+
+| Parejas | Rondas × anchura | Carriles | En el club |
+|---|---|---|---|
+| 2 | 1 × 1 | 1 | 1 h, y el carril no se reparte |
+| 3 | 3 × 1 | 1 | 3 h |
+| 4 | 3 × 2 | 2 | 3 h en **dos** canchas (§6.4 A) |
+| 5 | 5 × 2 | 4 | 5 turnos: dos bloques |
+
+Coincide con `carrilesDeGrupo` de `bloques.ts` en los cuatro casos. La primera versión de esta especificación pedía `carriles` como campo de entrada; se derivó en su lugar, porque un número que el llamador puede calcular mal es un número que acabará desincronizado. De paso, el grupo de 4 sale en la forma A de §6.4 sin ninguna rama especial.
 
 ### 5.1 Agrupar por bloque
 
@@ -212,10 +249,9 @@ Bloques en orden cronológico. Dentro de cada bloque, los grupos se ordenan por:
 Para cada bloque, en orden, y para cada grupo:
 
 1. **Continuidad de categoría (§2.1).** Si esta categoría ocupó canchas en el bloque anterior y alguna sigue libre, se prefiere esa. Es lo que produce el patrón "Mixtos D en la Cancha 8 todo el sábado".
-2. **Hermandad (§2.5).** Si en este bloque ya hay un grupo de una categoría hermana, se intenta mover este grupo al **siguiente bloque con carril libre**. El desplazamiento tiene tope: si a los `MAX_BLOQUES_ESPERA` bloques siguientes no hay hueco limpio, se coloca aquí igual y se anota en `empalmes`. Mismo criterio que `MAX_ESPERA_POR_EMPALME` en el knockout: dejar carriles ociosos esperando un hueco perfecto es peor que el empalme que evita.
+2. **Primer carril libre.** Si lo anterior no aplica, el de número más bajo.
 
-   Un grupo desplazado por hermandad **cambia de bloque**, lo cual contradice la elección de sus parejas. Por eso el desplazamiento por hermandad se hace **solo si el bloque destino tiene carril libre y el grupo no tenía preferencia firme**, y en la práctica esto casi nunca se activa: lo normal es que la hermandad se resuelva reordenando dentro del bloque, no moviendo de bloque. Cuando no se puede, gana la elección de la pareja y se reporta el empalme. **La elección del jugador pesa más que la comodidad del calendario.**
-3. **Primer carril libre.** Si nada de lo anterior aplica, el de número más bajo.
+**La hermandad NO entra en esta decisión.** Por §2.5 no hay cancha ni orden que evite el choque, y mover de bloque está prohibido. Se calcula aparte, sobre los grupos ya repartidos, y sale en `empalmes` y en `avisos`. El calendario es idéntico con hermandad y sin ella — hay un test que lo comprueba.
 
 Un grupo que consume más de un carril (§6.4) los reserva **juntos**: dos canchas del mismo bloque si las hay, y si no, la misma cancha en dos bloques consecutivos. Repartirlos sueltos deja al grupo jugando en horas inconexas, que es justo lo que el bloque existe para evitar.
 
@@ -231,13 +267,17 @@ t+2·min    partidos[2]
 
 en el orden que emitió `generateRoundRobin`, que ya es determinista (método del círculo). No se reordena para "repartir" el descanso: como dice §2.3, alguien encadena sí o sí, y reordenar solo cambia a quién le toca sin reducir el total.
 
-Modo `espaciado`: el partido de la ronda *k* de todos los grupos de la categoría va en el bloque *k*. Nadie encadena, y a cambio la pareja pasa el día entero en el club. Esta rama consume tantos bloques como rondas tenga el grupo, así que la capacidad se divide por ese número — hay que decírselo al organizador antes de que la elija, no después.
+**El modo `espaciado` se descartó.** La idea era poner el partido de la ronda *k* en el bloque *k* para que nadie encadenara. No cabe: un grupo de 3 tiene 3 partidos y un bloque tiene 3 turnos, así que "espaciar" significa necesariamente **sacar partidos del bloque que la pareja eligió**. Eso rompe la única promesa del diseño (§1, §9) para ahorrarle a alguien una hora de espera, y además dividiría la capacidad entre tres. El tipo de entrada acepta solo `'corrido'`.
 
-### 5.5 Cuando el carril no alcanza: se mueve el ÚLTIMO (§2.4)
+### 5.5 Cuando el grupo no cabe en un bloque
 
-Si un bloque tiene un carril que solo cabe parcialmente —porque la ventana del día se acaba, o porque el organizador ocupó la cancha para otra cosa—, se programan los partidos que caben y el **último** se desplaza al primer hueco libre posterior, marcado `desplazado: true`. En un grupo de 3 es el tercero; en uno de 4, el sexto.
+Solo pasa con grupos que necesitan más turnos de los que tiene un bloque: **el de 5 parejas**, con sus 5 rondas contra los 3 turnos de un bloque de 3 h. Se estira al bloque siguiente, en las **mismas canchas**, y los partidos que caen allí salen marcados `desplazado: true`.
 
-Nunca el primero, nunca los del medio. La regla no tiene excepciones: en las dos veces que pasó en Cimepa se movió el último, y es la única opción que no obliga a todas las parejas del grupo a esperar.
+El tramo tiene que ser **contiguo y del mismo día**. Dormir en medio de un round robin no es partir un bloque, es partir el torneo: si el grupo empieza en el último bloque del día, no se parte — sale a `sinProgramar` con motivo `no_cabe_en_el_bloque` y se dice por qué.
+
+Se mueve siempre la cola, nunca el principio ni el medio, que es la regla de §2.4.
+
+**Fuera de alcance: la cancha que se cae a media tarde.** La primera versión de esta sección también contemplaba que el organizador ocupara una cancha para otra cosa. Eso no es planificación, es **reprogramación en vivo**: hay partidos ya jugándose y jugadores en el club. Va por el validador de movimientos, con la realidad delante, no por una entrada más de este motor. `generarBloques` solo emite bloques que caben enteros, así que desde aquí ese caso no existe.
 
 ---
 
@@ -305,54 +345,81 @@ Idempotente sobre la misma entrada: mismo reparto, mismas canchas, mismas horas.
 
 ## 7. Verificación contra Cimepa
 
-El seed `scripts/seed-cimepa.mjs` reproduce el torneo: 165 parejas, 8 categorías, 8 canchas, 60 min. Las cifras de la retícula ya están fijadas como test en `src/lib/__tests__/bloques-cimepa.test.ts`:
+El seed `scripts/seed-cimepa.mjs` reproduce el torneo: 165 parejas en ocho categorías de **21, 30, 30, 30, 15, 12, 18 y 9**, 8 canchas, 60 min por partido, viernes de 14:00 a 23:00 y sábado de 08:00 a 23:00.
 
-| Dato | Valor | Estado |
-|---|---|---|
-| Bloques | 8 (3 el viernes, 5 el sábado) | ✅ verificado |
-| Domingo | 0 bloques — es el día de eliminatorias | ✅ verificado |
-| Carriles | 64 (8 bloques × 8 canchas) | ✅ verificado |
-| Capacidad | 192 parejas | ✅ verificado |
-| Carriles que exigen 165 parejas | 59 de 64 | ✅ verificado |
-| Minutos desperdiciados en las ventanas | 0 | ✅ verificado |
+Todas esas cifras son múltiplos de 3, así que `computeFormat` no produce **ni un solo grupo de 4**: son **55 grupos de 3 y 165 partidos**, uno por carril.
 
-**Por qué 59 y no 55.** Dividir 165 entre 3 da 55 y anuncia capacidad que no existe. La cuenta sale del reparto real de `computeFormat`:
+### La retícula — `src/lib/__tests__/bloques-cimepa.test.ts`
 
-- Las cinco categorías de 21 parejas se reparten en sietes de 3 → 7 carriles cada una → **35**
-- Las tres de 20 parejas dan `[4,4,3,3,3,3]`, y cada grupo de 4 vale dos carriles → 8 cada una → **24**
-
-Una pareja *menos* puede costar un carril *más*: 21 cierra en grupos de 3 y 20 obliga a dos de 4. No es un error de redondeo, es la forma del reparto.
-
-El scheduler tendrá que reproducir además:
-
-| Comprobación | Criterio de aceptación |
+| Dato | Valor |
 |---|---|
-| Grupos en un solo bloque | ≥ 52 de 55 grupos con sus partidos en el mismo bloque y consecutivos |
-| Grupos mezclados | Los que salgan del reparto por restos, cada uno programado en el bloque de su mayoría |
-| Grupos partidos | ≤ 3, y en todos el desplazado es `ordenEnBloque === 2` |
-| Continuidad de categoría | Mixtos D y 2ª Fuerza cada una en una sola cancha durante el sábado |
-| Ocupación | ≈ 85 %. **Un resultado muy por encima es sospechoso**, no una mejora: significa que se compactó el viernes por la tarde, que es la hora a la que la gente trabaja |
-| Encadenamientos | En modo `corrido`, exactamente 1 por grupo. Si sale 0, hay un error: es aritméticamente imposible |
-| Empalmes de hermanas | 0 en el caso de Cimepa. Si aparecen, se listan con nombre |
-| Determinismo | Dos corridas sobre la misma entrada, byte a byte iguales |
+| Bloques | 8 (3 el viernes, 5 el sábado) |
+| Domingo | 0 bloques — es el día de eliminatorias |
+| Carriles | 64 (8 bloques × 8 canchas) |
+| Capacidad nominal | 192 parejas |
+| Carriles que exigen las 165 parejas | **55 de 64** |
+| Minutos desperdiciados en las ventanas | 0 |
 
-La comprobación de ocupación es la que más fácil se lee al revés. Está escrita como cota superior a propósito: **el scheduler no está compitiendo por llenar canchas.**
+> **Corregido.** Una versión anterior decía 59, calculado sobre ocho categorías inventadas de 20 y 21 parejas que sumaban 165 y nada más. Los 20 obligan a dos grupos de 4 y cada uno vale dos carriles; el torneo real no tuvo ninguna categoría así. El test que decía "Cimepa" con esos datos también estaba mal y se arregló.
+>
+> Que 55 coincida con 165/3 es una propiedad de **estas** categorías, no una regla. Con 20 parejas la cuenta sube a 8 carriles: una pareja menos puede costar un carril más.
+
+### El calendario — `src/lib/engine/schedule/__tests__/grupos-cimepa.test.ts`
+
+| Comprobación | Resultado |
+|---|---|
+| Partidos colocados | **165 de 165**, ninguno sin programar |
+| Grupos en un solo bloque y una sola cancha | **55 de 55** |
+| Grupos partidos | **0** — ninguno de 5 parejas, así que ninguno se estira |
+| Ocupación | **85,9 %** (165 de 192 canchas-hora) |
+| Continuidad de categoría | Mixtos D y 2ª Fuerza, **una sola cancha el sábado entero** |
+| Categorías en el mínimo de canchas posible | 7 de 8 |
+| Encadenamientos | **2 por grupo** de 3 |
+| Empalmes de hermanas | **7 entre 2ª y 3ª**, más 3ª↔Mixtos C y 5ª Fem↔Mixtos D |
+| Determinismo | Idéntico byte a byte, y el orden de la entrada no influye |
+
+Canchas ocupadas por franja:
+
+| Franja | Canchas | |
+|---|---|---|
+| Vie 14:00–17:00 | 3 / 8 | a esa hora la gente trabaja |
+| Vie 17:00–20:00 | 8 / 8 | |
+| Vie 20:00–23:00 | 8 / 8 | |
+| Sáb 08:00–11:00 | 8 / 8 | |
+| Sáb 11:00–14:00 | 7 / 8 | |
+| Sáb 14:00–17:00 | 7 / 8 | |
+| Sáb 17:00–20:00 | 7 / 8 | |
+| Sáb 20:00–23:00 | 7 / 8 | |
+
+### Dos cifras que la primera versión tenía mal
+
+**Los encadenamientos son 2 por grupo, no 1.** Con tres turnos y dos partidos por pareja, dos de las tres caen en turnos seguidos. Con los partidos que emite `generateRoundRobin` para `[a,b,c]` —`b-c`, `a-c`, `a-b`— encadenan *a* (turnos 1 y 2) y *c* (turnos 0 y 1). La descripción de §2.3 era correcta; la cuenta no.
+
+**Los empalmes de hermanas NO son 0, y no pueden serlo.** Cada categoría tiene un grupo en casi todos los bloques, así que dos hermanas coinciden casi siempre: 2ª y 3ª Fuerza comparten 7 de los 8. No es un fallo del reparto ni algo que el scheduler pueda mejorar — ver §2.5. Se listan con nombre y se avisa.
+
+### La ocupación se lee al revés
+
+165 partidos entre 192 canchas-hora **es una identidad, no un logro**: los partidos son los que son y la retícula es la que es. Lo único que subiría ese número es usar menos bloques, o sea, mover gente del horario que eligió. Por eso el test la fija como **cota superior** (`< 90 %`) y no como objetivo.
 
 ---
 
-## 8. Pendientes antes de escribir el motor
+## 8. Estado de los pendientes
 
 ### Cerrados
 
-1. ~~`close-registration` tiene que formar grupos por bloque.~~ **Hecho.** `repartirPorBloque` (`src/lib/engine/schedule/reparto.ts`) arma los grupos dentro de cada bloque, junta los restos y nunca deja una pareja fuera. Con tests. Era el bloqueante real.
-2. ~~`cupoDeBloque` asume grupos de 3.~~ **Hecho.** El coste se cuenta en partidos: `carrilesDeGrupo(n) = ceil(n(n−1)/2 / partidosPorCarril)`. La pantalla de ocupación ya no anuncia lugares que no existen.
+1. ~~`close-registration` tiene que formar grupos por bloque.~~ **Hecho.** `repartirPorBloque` (`src/lib/engine/schedule/reparto.ts`) arma los grupos dentro de cada bloque, junta los restos y nunca deja una pareja fuera.
+2. ~~`cupoDeBloque` asume grupos de 3.~~ **Hecho.** El coste se cuenta en partidos: `carrilesDeGrupo(n) = ceil(n(n−1)/2 / partidosPorCarril)`.
+3. ~~`grafoDeHermandad` es privada en `knockout.ts`.~~ **Hecho.** Se exportó tal cual, sin tocar su cuerpo ni sus tests.
+4. ~~Decidir dónde vive el disparador.~~ **Hecho.** Edge Function `schedule-groups`, simétrica a `schedule-knockout`, y `close-registration` dispara las dos al terminar.
 
 ### Abiertos
 
-1. **`grafoDeHermandad` es privada en `knockout.ts`.** Hay que exportarla o levantarla a un módulo compartido. No cambiarla: funciona y tiene tests.
-2. **El grupo mezclado no queda registrado en ningún sitio consultable.** Hoy el aviso vive en la respuesta de `close-registration` y se enseña una vez, en el parte del cierre. Si se quiere que la pareja se entere sola del cambio de hora, hace falta una columna de bloque en `groups` (una migración) o un correo al cerrar. Decisión de producto, no de motor.
-3. **Zona horaria.** `matches.scheduled_at` es `timestamptz` y los bloques son horas locales del club. Ya existe `ZONA_TORNEO = 'America/Mexico_City'` en `src/lib/fechas.ts`; el motor debe emitir hora local y dejar la conversión al llamador, como hace el knockout.
-4. **Decidir dónde vive el disparador.** El knockout va por la Edge Function `schedule-knockout`. Lo simétrico es una `schedule-groups`, lo cual obliga a regenerar `engine.bundle.js` (`npm run build:engine`). Ojo: `close-registration` no usa el bundle sino su propio shim, así que el reparto por bloque no lo necesitó.
+1. **El grupo mezclado no queda registrado en ningún sitio consultable.** Hoy el aviso vive en la respuesta de `close-registration` y se enseña una vez, en el parte del cierre. Si se quiere que la pareja se entere sola del cambio de hora, hace falta una columna de bloque en `groups` (una migración) o un correo al cerrar. Decisión de producto, no de motor.
+2. **Zona horaria.** El motor emite hora local del club (`'YYYY-MM-DDTHH:MM'`) y la conversión a `timestamptz` la hace el llamador con `ZONA_TORNEO = 'America/Mexico_City'`, igual que el knockout.
+
+### Fuera de alcance
+
+**La cancha que el organizador ocupa a media tarde.** Es reprogramación en vivo, con partidos jugándose y jugadores en el club, no planificación. Va por el validador de movimientos. Ver §5.5.
 
 ---
 
