@@ -42,13 +42,57 @@ Deno.serve(async (req) => {
 
     // ───────────────────────── SEED ─────────────────────────
     if (action === 'seed') {
+      // GUARD: la fase de grupos tiene que estar COMPLETA.
+      //
+      // Sin esto, `seed` leía group_standings como estuviera y sembraba el
+      // cuadro con las posiciones a medias, sin error: los clasificados salían
+      // del orden provisional de una tabla que todavía iba a cambiar. Se
+      // comprueba aquí, en el servidor, porque el botón de la app no es la
+      // única forma de llamar a esta función.
+      const { data: grpMatches, error: gme } = await admin
+        .from('matches')
+        .select('id, status, group_id')
+        .eq('category_id', category_id)
+        .eq('stage', 'group');
+      if (gme) return json({ error: 'group_matches_read_failed', detail: gme.message }, 500);
+      if (!grpMatches || grpMatches.length === 0) {
+        return json({ error: 'no_group_stage', detail: 'la categoría no tiene fase de grupos generada' }, 400);
+      }
+      const pendientes = grpMatches.filter((m: any) => m.status !== 'finished');
+      if (pendientes.length > 0) {
+        const gruposPendientes = new Set(pendientes.map((m: any) => m.group_id)).size;
+        return json({
+          error: 'group_stage_incomplete',
+          pending_matches: pendientes.length,
+          total_matches: grpMatches.length,
+          pending_groups: gruposPendientes,
+          detail: `Faltan ${pendientes.length} de ${grpMatches.length} partidos de grupos en ${gruposPendientes} grupo(s).`,
+        }, 409);
+      }
+
+      // No re-sembrar encima de un cuadro que ya existe.
+      const { data: yaCuadro, error: yce } = await admin
+        .from('matches')
+        .select('id')
+        .eq('category_id', category_id)
+        .neq('stage', 'group')
+        .limit(1);
+      if (yce) return json({ error: 'bracket_read_failed', detail: yce.message }, 500);
+      if (yaCuadro && yaCuadro.length > 0) {
+        return json({ error: 'bracket_already_seeded', detail: 'el cuadro de esta categoría ya está sembrado' }, 409);
+      }
+
       // Standings de TODOS los grupos de la categoría (con dif. para el desempate)
-      const { data: rows } = await admin
+      const { data: rows, error: gse } = await admin
         .from('group_standings')
         .select('pair_id, position, points, sets_won, sets_lost, games_won, games_lost, group_id, groups!inner(category_id)')
         .eq('groups.category_id', category_id);
+      if (gse) return json({ error: 'standings_read_failed', detail: gse.message }, 500);
+      if (!rows || rows.length === 0) {
+        return json({ error: 'standings_empty', detail: 'no hay tabla de posiciones que sembrar' }, 500);
+      }
 
-      const standings = (rows ?? []).map((r: any) => ({
+      const standings = rows.map((r: any) => ({
         pairId: r.pair_id, groupId: r.group_id, position: r.position, points: r.points,
         setsWon: r.sets_won, setsLost: r.sets_lost, gamesWon: r.games_won, gamesLost: r.games_lost,
       }));
@@ -108,12 +152,17 @@ Deno.serve(async (req) => {
     // El siguiente cuadro tiene 2× los partidos de la siguiente ronda (next.length partidos → 2·next.length parejas).
     const nextStage = stageForBracketSize(res.next.length * 2); // 1 partido → final(2); 2 → semi(4); etc.
     // stage: string (no MatchStage) para admitir el push de 'third_place' (stage válido en BD, fuera del mapeo de bracket).
-    const toPersist: Array<{ stage: string; round_label: string; pair_a_id: string | null; pair_b_id: string | null }> =
+    // source_match_ids: el enlace explícito del árbol (migración 049). El motor
+    // ya lo calculaba y aquí se tiraba; sin él la base no puede responder "¿qué
+    // partido depende de éste?", que es lo que hace falta para corregir un
+    // resultado de eliminatorias sin pisar algo ya jugado.
+    const toPersist: Array<{ stage: string; round_label: string; pair_a_id: string | null; pair_b_id: string | null; source_match_ids: string[] | null }> =
       res.next.map((mt: any, i: number) => ({
         stage: nextStage as string,
         round_label: `${nextStage}-${String(i + 1).padStart(2, '0')}`,
         pair_a_id: mt.pairAId ?? null,
         pair_b_id: mt.pairBId ?? null,
+        source_match_ids: mt.sourceMatchIds ?? null,
       }));
 
     // 3.er lugar: solo al avanzar SEMIS (las 2 semis → tupla). thirdPlaceFromSemis([semi1, semi2]).
@@ -127,6 +176,7 @@ Deno.serve(async (req) => {
         round_label: 'third_place-1',
         pair_a_id: third.pairAId ?? null,
         pair_b_id: third.pairBId ?? null,
+        source_match_ids: third.sourceMatchIds ?? null,
       });
     }
 

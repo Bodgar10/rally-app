@@ -39,8 +39,10 @@ const CAPACIDAD = {
   canchas: 8,
   minutos: 60,
   ventanas: [
-    { dia: '2026-09-11', desde: '14:00', hasta: '22:00' },   //  8 h → 64 slots
-    { dia: '2026-09-12', desde: '08:00', hasta: '22:00' },   // 14 h → 112
+    // `hasta` es la hora a la que TERMINA el último partido, no a la que
+    // empieza. En el torneo real hubo partidos arrancando a las 22:00.
+    { dia: '2026-09-11', desde: '14:00', hasta: '23:00' },   //  9 h → 72 slots
+    { dia: '2026-09-12', desde: '08:00', hasta: '23:00' },   // 15 h → 120
     { dia: '2026-09-13', desde: '08:00', hasta: '20:00' },   // 12 h → 96
   ],
 };

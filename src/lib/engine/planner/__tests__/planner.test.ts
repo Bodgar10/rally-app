@@ -12,8 +12,10 @@ const CIMEPA: Capacidad = {
   canchas: 8,
   minutosPorPartido: 60,
   ventanas: [
-    { fecha: '2026-03-13', desde: '14:00', hasta: '22:00' }, //  8 h → 64
-    { fecha: '2026-03-14', desde: '08:00', hasta: '22:00' }, // 14 h → 112
+    // `hasta` es la hora a la que TERMINA el último partido, no a la que
+    // empieza: en Cimepa hubo partidos arrancando a las 22:00.
+    { fecha: '2026-03-13', desde: '14:00', hasta: '23:00' }, //  9 h → 72
+    { fecha: '2026-03-14', desde: '08:00', hasta: '23:00' }, // 15 h → 120
     { fecha: '2026-03-15', desde: '08:00', hasta: '20:00' }, // 12 h → 96
   ],
 };
@@ -32,7 +34,7 @@ const CATEGORIAS_CIMEPA = [
 describe('presupuesto (§4)', () => {
   it('reparte los días: todos menos el último a grupos, el último a eliminatorias', () => {
     const r = planTournament(CATEGORIAS_CIMEPA, CIMEPA);
-    expect(r.grupos.presupuesto).toBe(176);       // 64 + 112
+    expect(r.grupos.presupuesto).toBe(192);       // 72 + 120
     expect(r.eliminacion.presupuesto).toBe(96);   // 12 h × 8
   });
 
@@ -128,9 +130,11 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
   const r = planTournament(CATEGORIAS_CIMEPA, CIMEPA);
 
   it('cabe, pero la fase de grupos va al límite', () => {
+    // 165 de 192 slots = 86%. Sigue por encima del umbral del 85%, así que la
+    // zona no cambia: con las ventanas hasta las 22:00 eran 165 de 176 (94%).
     expect(r.cabe).toBe(true);
     expect(r.grupos.usados).toBe(165);
-    expect(Math.round(r.grupos.ocupacion * 100)).toBe(94);
+    expect(Math.round(r.grupos.ocupacion * 100)).toBe(86);
     expect(r.grupos.zona).toBe('limite');
   });
 

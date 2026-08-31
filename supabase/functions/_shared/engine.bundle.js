@@ -630,6 +630,106 @@ function thirdPlaceFromSemis(semis) {
   return { pairAId: la, pairBId: lb, sourceMatchIds: [semis[0].matchId, semis[1].matchId] };
 }
 
+// src/lib/engine/bracket/avance-captura.ts
+var ETIQUETA_TERCERO = "third_place-1";
+var etiquetaDeRonda = (stage, indice) => `${stage}-${String(indice + 1).padStart(2, "0")}`;
+function ganadorDe(m) {
+  if (m.winnerPairId) return m.winnerPairId;
+  if (m.pairAId && !m.pairBId) return m.pairAId;
+  if (m.pairBId && !m.pairAId) return m.pairBId;
+  return null;
+}
+function mismosOrigenes(a, b) {
+  if (!a || a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((x, i) => x === sb[i]);
+}
+function buscarExistente(partidos, stage, roundLabel, origenes) {
+  return partidos.find((p) => p.stage === stage && mismosOrigenes(p.sourceMatchIds, origenes)) ?? partidos.find((p) => p.stage === stage && p.roundLabel === roundLabel);
+}
+function planAvance(partidos, matchId, winnerPairId) {
+  const partido = partidos.find((p) => p.id === matchId);
+  if (!partido) {
+    return { ok: false, motivo: "match_not_found", detalle: `El partido ${matchId} no est\xE1 en el cuadro.` };
+  }
+  if (partido.stage === "group") {
+    return { ok: false, motivo: "not_a_bracket_match", detalle: "Es un partido de fase de grupos." };
+  }
+  if (!partido.pairAId || !partido.pairBId) {
+    return { ok: false, motivo: "is_a_bye", detalle: "Ese cruce es un bye: no se juega ni se captura." };
+  }
+  if (winnerPairId !== partido.pairAId && winnerPairId !== partido.pairBId) {
+    return { ok: false, motivo: "winner_not_in_match", detalle: "El ganador no es ninguna de las dos parejas del partido." };
+  }
+  const esCorreccion = partido.status === "finished";
+  if (partido.stage === "third_place" || partido.stage === "final") {
+    return {
+      ok: true,
+      esCorreccion,
+      rondaCompleta: true,
+      siguienteEtapa: null,
+      crear: [],
+      reapuntar: []
+    };
+  }
+  const ronda = partidos.filter((p) => p.stage === partido.stage && p.stage !== "third_place").sort((a, b) => (a.roundLabel ?? "").localeCompare(b.roundLabel ?? "") || (a.id < b.id ? -1 : 1));
+  const rondaConResultado = ronda.map((p) => ({
+    matchId: p.id,
+    pairAId: p.pairAId,
+    pairBId: p.pairBId,
+    winnerPairId: p.id === matchId ? winnerPairId : p.winnerPairId
+  }));
+  const rondaCompleta = rondaConResultado.every((m) => ganadorDe(m) !== null);
+  if (!rondaCompleta || rondaConResultado.length < 2 || rondaConResultado.length % 2 !== 0) {
+    return {
+      ok: true,
+      esCorreccion,
+      rondaCompleta: false,
+      siguienteEtapa: null,
+      crear: [],
+      reapuntar: []
+    };
+  }
+  const { next } = advanceBracket(rondaConResultado);
+  const siguienteEtapa = stageForBracketSize(next.length * 2);
+  const crear = [];
+  const reapuntar = [];
+  const bloqueadoPor = [];
+  const encajar = (stage, roundLabel, pairAId, pairBId, origenes) => {
+    const existente = buscarExistente(partidos, stage, roundLabel, origenes);
+    if (!existente) {
+      crear.push({ stage, roundLabel, pairAId, pairBId, sourceMatchIds: origenes });
+      return;
+    }
+    const igual = existente.pairAId === pairAId && existente.pairBId === pairBId;
+    if (igual) return;
+    if (existente.status === "finished") {
+      bloqueadoPor.push(existente.id);
+      return;
+    }
+    reapuntar.push({ matchId: existente.id, pairAId, pairBId });
+  };
+  next.forEach((cruce, i) => {
+    encajar(siguienteEtapa, etiquetaDeRonda(siguienteEtapa, i), cruce.pairAId, cruce.pairBId, cruce.sourceMatchIds);
+  });
+  if (partido.stage === "semi" && rondaConResultado.length === 2) {
+    const tercero = thirdPlaceFromSemis([rondaConResultado[0], rondaConResultado[1]]);
+    if (tercero) {
+      encajar("third_place", ETIQUETA_TERCERO, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);
+    }
+  }
+  if (bloqueadoPor.length > 0) {
+    return {
+      ok: false,
+      motivo: "downstream_already_played",
+      detalle: `La correcci\xF3n cambiar\xEDa qui\xE9n juega ${bloqueadoPor.length === 1 ? "un partido" : `${bloqueadoPor.length} partidos`} que ya se jug\xF3. An\xFAlalo primero o resu\xE9lvelo como organizador.`,
+      bloqueadoPor
+    };
+  }
+  return { ok: true, esCorreccion, rondaCompleta: true, siguienteEtapa, crear, reapuntar };
+}
+
 // src/lib/engine/schedule/knockout.ts
 var DISTANCIA_MINIMA_SEPARACION = 2;
 var MAX_ESPERA_POR_EMPALME = 4;
@@ -1077,4 +1177,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, generateRoundRobin, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generateRoundRobin, planAvance, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };

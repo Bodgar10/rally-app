@@ -211,6 +211,61 @@ declare function thirdPlaceFromSemis(semis: [RoundMatch, RoundMatch]): {
     sourceMatchIds: [string, string];
 } | null;
 
+/** Partido de cuadro tal y como está hoy en la base. */
+interface PartidoCuadro {
+    id: string;
+    stage: string;
+    roundLabel: string | null;
+    pairAId: string | null;
+    pairBId: string | null;
+    winnerPairId: string | null;
+    status: string;
+    /** Partidos de la ronda previa que lo alimentan. Null en la ronda sembrada. */
+    sourceMatchIds: string[] | null;
+}
+/** Partido de la ronda siguiente que hay que CREAR. */
+interface CrearPartido {
+    stage: MatchStage | 'third_place';
+    roundLabel: string;
+    pairAId: string | null;
+    pairBId: string | null;
+    sourceMatchIds: [string, string];
+}
+/** Partido que ya existe y al que hay que cambiarle las parejas. */
+interface ReapuntarPartido {
+    matchId: string;
+    pairAId: string | null;
+    pairBId: string | null;
+}
+interface PlanOk {
+    ok: true;
+    /** El partido ya estaba capturado: esto es una corrección. */
+    esCorreccion: boolean;
+    /** Con este resultado, la ronda queda completa. */
+    rondaCompleta: boolean;
+    /** Etapa que se crea, si toca. Null si no hay avance. */
+    siguienteEtapa: MatchStage | null;
+    crear: CrearPartido[];
+    reapuntar: ReapuntarPartido[];
+}
+interface PlanRechazo {
+    ok: false;
+    motivo: 'match_not_found' | 'not_a_bracket_match' | 'is_a_bye' | 'winner_not_in_match' | 'downstream_already_played';
+    detalle: string;
+    /** Ids de los partidos ya jugados que bloquean la corrección. */
+    bloqueadoPor?: string[];
+}
+type PlanAvance = PlanOk | PlanRechazo;
+/** `${stage}-01`. Con cero delante: así el orden lexicográfico es el numérico. */
+declare const etiquetaDeRonda: (stage: string, indice: number) => string;
+/**
+ * Qué escribir en el cuadro al capturar `matchId` con `winnerPairId`.
+ *
+ * `partidos` son TODOS los partidos de eliminatorias de la categoría, tal como
+ * están hoy. No se muta nada.
+ */
+declare function planAvance(partidos: PartidoCuadro[], matchId: string, winnerPairId: string): PlanAvance;
+
 /**
  * Scheduler de eliminatorias.
  * Asigna hora y cancha a cada partido del último día del torneo.
@@ -371,4 +426,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type BracketMatch, type Calendario, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type KnockoutStart, type MatchResultInput, type MatchStage, type NextMatch, type PartidoProgramado, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, generateRoundRobin, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { type AdvanceResult, type BracketMatch, type Calendario, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type KnockoutStart, type MatchResultInput, type MatchStage, type NextMatch, type PartidoCuadro, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, advanceBracket, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generateRoundRobin, planAvance, programarEliminatorias, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };

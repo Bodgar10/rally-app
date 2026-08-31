@@ -15,6 +15,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
+import { mensajeDeCaptura } from '@/lib/captura-errores';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -36,14 +37,46 @@ const emptySet = (): SetScore => ({
   tiebreakB: '',
 });
 
+/** Set ya guardado, tal como viene de `match_sets`. */
+export interface SetGuardado {
+  set_number: number;
+  games_a: number;
+  games_b: number;
+  is_super_tiebreak: boolean;
+  tiebreak_a: number | null;
+  tiebreak_b: number | null;
+}
+
 export interface ScoreCaptureProps {
   matchId: string;
   pairAId: string;
   pairBId: string;
   pairAName: string; // "Jugador1 / Jugador2"
   pairBName: string;
+  /**
+   * Marcador ya capturado, para CORREGIRLO. La RPC regraba sets y standings,
+   * así que reabrir un partido y volver a enviarlo es una corrección legítima.
+   */
+  setsIniciales?: SetGuardado[];
+  /** Ganador ya guardado, para precargar el selector al corregir. */
+  ganadorInicial?: string | null;
   /** Callback cuando el resultado fue aceptado exitosamente. */
   onSuccess: () => void;
+}
+
+/** `match_sets` (snake, números) -> estado del formulario (strings). */
+function aFormulario(guardados: SetGuardado[]): SetScore[] {
+  return [...guardados]
+    .sort((a, b) => a.set_number - b.set_number)
+    .map((g) => ({
+      // En un super muerte los games son el marcador 1-0 y no se muestran:
+      // el formulario pide PUNTOS. Ver el contrato en handleSubmit.
+      gamesA: g.is_super_tiebreak ? '' : String(g.games_a),
+      gamesB: g.is_super_tiebreak ? '' : String(g.games_b),
+      isSuperTiebreak: g.is_super_tiebreak,
+      tiebreakA: g.tiebreak_a != null ? String(g.tiebreak_a) : '',
+      tiebreakB: g.tiebreak_b != null ? String(g.tiebreak_b) : '',
+    }));
 }
 
 // ───────────────────────────────────────────
@@ -56,10 +89,15 @@ export default function ScoreCapture({
   pairBId,
   pairAName,
   pairBName,
+  setsIniciales,
+  ganadorInicial,
   onSuccess,
 }: ScoreCaptureProps) {
-  const [sets, setSets] = useState<SetScore[]>([emptySet(), emptySet()]);
-  const [winnerPairId, setWinnerPairId] = useState<string | null>(null);
+  const corrigiendo = !!setsIniciales && setsIniciales.length > 0;
+  const [sets, setSets] = useState<SetScore[]>(() =>
+    corrigiendo ? aFormulario(setsIniciales!) : [emptySet(), emptySet()],
+  );
+  const [winnerPairId, setWinnerPairId] = useState<string | null>(ganadorInicial ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -96,19 +134,53 @@ export default function ScoreCapture({
       return;
     }
 
-    // Construir payload de sets
-    const setsPayload = sets.map((s, i) => ({
-      set_number: i + 1,
-      games_a: parseInt(s.gamesA, 10),
-      games_b: parseInt(s.gamesB, 10),
-      is_super_tiebreak: s.isSuperTiebreak,
-      tiebreak_a: s.isSuperTiebreak ? parseInt(s.tiebreakA, 10) || null : null,
-      tiebreak_b: s.isSuperTiebreak ? parseInt(s.tiebreakB, 10) || null : null,
-    }));
+    // Construir payload de sets.
+    //
+    // FORMATO DE LA SUPER MUERTE — el contrato con el engine:
+    //   Los PUNTOS van en tiebreak_a/tiebreak_b. `games_a/games_b` llevan el
+    //   marcador 1-0 del lado que ganó, nunca los puntos.
+    //
+    //   `computeStandings` con superTiebreakGames:'one' (el default) ignora
+    //   games_a/b en un super muerte y deriva 1-0 de los tiebreaks, y
+    //   `superSetWinner` lee `tiebreakA ?? gamesA`. Mandar los puntos en games
+    //   inflaría la diferencia de games que desempata la tabla.
+    //
+    //   Antes esta rama dejaba games_a/games_b en NaN (la UI de super muerte
+    //   no pide games) y la validación de abajo cortaba el envío: el tercer
+    //   set decisivo era IMPOSIBLE de capturar. Los tests del engine
+    //   (score.test.ts, 'contrato de super muerte') fijan este formato.
+    const setsPayload = sets.map((s, i) => {
+      if (s.isSuperTiebreak) {
+        const tA = parseInt(s.tiebreakA, 10);
+        const tB = parseInt(s.tiebreakB, 10);
+        const validos = !isNaN(tA) && !isNaN(tB);
+        return {
+          set_number: i + 1,
+          games_a: validos && tA > tB ? 1 : 0,
+          games_b: validos && tB > tA ? 1 : 0,
+          is_super_tiebreak: true,
+          tiebreak_a: isNaN(tA) ? null : tA,
+          tiebreak_b: isNaN(tB) ? null : tB,
+        };
+      }
+      return {
+        set_number: i + 1,
+        games_a: parseInt(s.gamesA, 10),
+        games_b: parseInt(s.gamesB, 10),
+        is_super_tiebreak: false,
+        tiebreak_a: null,
+        tiebreak_b: null,
+      };
+    });
 
-    // Validación básica de números
+    // Validación básica de números: al super muerte se le piden PUNTOS, no games.
     for (const [i, s] of setsPayload.entries()) {
-      if (isNaN(s.games_a) || isNaN(s.games_b)) {
+      if (s.is_super_tiebreak) {
+        if (s.tiebreak_a === null || s.tiebreak_b === null) {
+          setValidationError(`Set ${i + 1}: ingresa los puntos de la super muerte.`);
+          return;
+        }
+      } else if (isNaN(s.games_a) || isNaN(s.games_b)) {
         setValidationError(`Set ${i + 1}: ingresa los games correctamente.`);
         return;
       }
@@ -137,12 +209,12 @@ export default function ScoreCapture({
         }
       );
 
-      const json = await response.json();
+      const json = await response.json().catch(() => null);
 
       if (!response.ok) {
-        // La Edge Function retorna el motivo de rechazo (marcador inválido, etc.)
-        const msg = json?.error ?? json?.message ?? 'Resultado rechazado por el servidor.';
-        setValidationError(msg);
+        // La clave de la Edge Function se traduce y el `detail` del engine se
+        // conserva: es lo que le dice al juez QUÉ set está mal.
+        setValidationError(mensajeDeCaptura(json));
         return;
       }
 
@@ -176,6 +248,11 @@ export default function ScoreCapture({
           }}
         >
           Ganador
+        </Text>
+        {/* El servidor contrasta esta elección contra el ganador que deriva del
+            marcador y rechaza el envío si no coinciden. Antes se ignoraba. */}
+        <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, marginBottom: 8 }}>
+          Se comprueba contra el marcador: si no coinciden, no se guarda.
         </Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {[
@@ -383,7 +460,7 @@ export default function ScoreCapture({
           opacity: submitting ? 0.7 : 1,
         })}
         accessibilityRole="button"
-        accessibilityLabel="Confirmar resultado"
+        accessibilityLabel={corrigiendo ? 'Guardar corrección' : 'Confirmar resultado'}
         accessibilityState={{ disabled: submitting }}
       >
         {submitting ? (
@@ -397,7 +474,7 @@ export default function ScoreCapture({
               color: color.onGold,
             }}
           >
-            Confirmar resultado
+            {corrigiendo ? 'Guardar corrección' : 'Confirmar resultado'}
           </Text>
         )}
       </Pressable>

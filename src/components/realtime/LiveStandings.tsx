@@ -44,13 +44,27 @@ interface StandingRow {
   player2_id: string | null;
 }
 
-interface LiveStandingsProps {
+export interface LiveStandingsProps {
   groupId: string;
   /** ID del jugador autenticado para resaltar su fila. */
   currentUserId?: string;
   /** Cuántas parejas pasan de este grupo (para línea de corte visual). */
   advanceCount?: number;
+  /**
+   * Filas ya resueltas por quien llama. Si se pasan, el componente NO consulta
+   * ni se suscribe a Realtime.
+   *
+   * Existe para la pantalla de grupos del organizador, que pinta hasta diez
+   * grupos a la vez: diez componentes autoabasteciéndose serían diez consultas
+   * y diez suscripciones para datos que se traen de una en una sola consulta
+   * por categoría.
+   *
+   * Sin la prop, el comportamiento es el de siempre — la rama del jugador.
+   */
+  filas?: StandingRow[];
 }
+
+export type { StandingRow };
 
 // ───────────────────────────────────────────
 // Colores semánticos (de design-tokens.ts)
@@ -120,9 +134,12 @@ export default function LiveStandings({
   groupId,
   currentUserId,
   advanceCount = 2,
+  filas,
 }: LiveStandingsProps) {
+  const inyectado = filas !== undefined;
+
   const [rows, setRows] = useState<StandingRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!inyectado);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -139,6 +156,9 @@ export default function LiveStandings({
   }, [groupId]);
 
   useEffect(() => {
+    // Con filas inyectadas los datos son de quien llama: ni consulta ni canal.
+    if (inyectado) return;
+
     load();
 
     // Suscripción Realtime a cambios de group_standings del grupo
@@ -156,7 +176,17 @@ export default function LiveStandings({
     });
 
     return unsub;
-  }, [groupId, load]);
+  }, [groupId, load, inyectado]);
+
+  const datos = inyectado ? filas! : rows;
+
+  // ¿Ya se jugó algo en este grupo?
+  //
+  // Con cero partidos jugados TODAS las filas traen position 0 y puntos 0: no
+  // hay orden, hay empate absoluto. Numerar eso sería inventar una
+  // clasificación, y dibujar la línea de corte separaría parejas por un
+  // criterio que todavía no existe.
+  const hayResultados = datos.some((r) => r.played > 0);
 
   if (loading) {
     return (
@@ -205,7 +235,7 @@ export default function LiveStandings({
           borderBottomColor: color.lineSoft,
         }}
       >
-        <Text style={[styles.headerCell, { flex: 0.35 }]}>#</Text>
+        {hayResultados && <Text style={[styles.headerCell, { flex: 0.35 }]}>#</Text>}
         <Text style={[styles.headerCell, { flex: 2 }]}>PAREJA</Text>
         <Text style={[styles.headerCell, { flex: 0.5, textAlign: 'center' }]}>PJ</Text>
         <Text style={[styles.headerCell, { flex: 0.5, textAlign: 'center' }]}>G</Text>
@@ -215,13 +245,14 @@ export default function LiveStandings({
       </View>
 
       {/* Filas */}
-      {rows.map((row, idx) => {
+      {datos.map((row, idx) => {
         // Antes era `row.player1_name !== '—'`, un placeholder que resaltaba
         // TODAS las filas con nombre. Ahora se compara por id, que además no
         // falla con homónimos.
         const isMe = !!currentUserId
           && (row.player1_id === currentUserId || row.player2_id === currentUserId);
-        const isCutoff = idx === advanceCount - 1;
+        // La línea de corte solo cuando hay un orden que cortar.
+        const isCutoff = hayResultados && idx === advanceCount - 1;
         const clinchColor = CLINCH_COLORS[row.clinch_status];
         const clinchBg = CLINCH_BG[row.clinch_status];
         const setDiff = row.sets_won - row.sets_lost;
@@ -237,19 +268,21 @@ export default function LiveStandings({
                 backgroundColor: isMe ? 'rgba(212,175,55,0.07)' : 'transparent',
               }}
             >
-              {/* Posición */}
-              <View style={{ flex: 0.35, alignItems: 'flex-start' }}>
-                <Text
-                  style={{
-                    fontFamily: font.display,
-                    fontSize: 16,
-                    fontWeight: '600',
-                    color: row.position <= advanceCount ? color.gold : color.muted,
-                  }}
-                >
-                  {row.position}
-                </Text>
-              </View>
+              {/* Posición. Sin resultados no se pinta: serían ceros en fila. */}
+              {hayResultados && (
+                <View style={{ flex: 0.35, alignItems: 'flex-start' }}>
+                  <Text
+                    style={{
+                      fontFamily: font.display,
+                      fontSize: 16,
+                      fontWeight: '600',
+                      color: row.position <= advanceCount ? color.gold : color.muted,
+                    }}
+                  >
+                    {row.position}
+                  </Text>
+                </View>
+              )}
 
               {/* Pareja + badge clinch */}
               <View style={{ flex: 2 }}>
@@ -264,7 +297,9 @@ export default function LiveStandings({
                 >
                   {row.player1_name} / {row.player2_name}
                 </Text>
-                {/* Badge de clinch */}
+                {/* Badge de clinch. Sin resultados todas las parejas están
+                    'alive' y repetir "En juego" ocho veces no dice nada. */}
+                {hayResultados && (
                 <View
                   style={{
                     marginTop: 3,
@@ -292,6 +327,7 @@ export default function LiveStandings({
                       : 'En juego'}
                   </Text>
                 </View>
+                )}
               </View>
 
               {/* PJ */}
@@ -356,6 +392,16 @@ export default function LiveStandings({
         <View style={{ padding: 20, alignItems: 'center' }}>
           <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 12 }}>
             Sin partidos jugados aún.
+          </Text>
+        </View>
+      )}
+
+      {/* Sin resultados no hay orden que enseñar. Se dice, en vez de dejar
+          una tabla de ceros que parece un error de carga. */}
+      {!hayResultados && (
+        <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: color.lineSoft }}>
+          <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, lineHeight: 16 }}>
+            El orden se define al jugar.
           </Text>
         </View>
       )}

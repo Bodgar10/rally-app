@@ -2,15 +2,36 @@
  * app/(judge)/juez/[tournamentId].tsx
  *
  * RALLY · Pantalla de captura de resultados para un torneo.
- * Lista de partidos pendientes → seleccionar → ScoreCapture → match-result.
+ * Lista de partidos → seleccionar → ScoreCapture → match-result.
+ *
+ * TRES COSAS QUE ESTABAN ROTAS Y AQUÍ SE ARREGLAN
+ *
+ *   1. NO SE PODÍA CORREGIR UN RESULTADO. La lista filtraba
+ *      `.neq('status','finished')`, así que al capturar un partido desaparecía
+ *      de la única pantalla que existe. La RPC sí sabe regrabar sets y
+ *      standings; era la UI la que no dejaba llegar. Ahora hay filtro de estado
+ *      (pendientes / capturados / todos) y los capturados se reabren con el
+ *      marcador precargado.
+ *
+ *   2. 165 TARJETAS PLANAS. Sin `scheduled_at` —y hoy los partidos de grupo no
+ *      lo tienen— el orden quedaba indefinido y todas las tarjetas decían "Sin
+ *      hora asignada". Hay filtro por categoría y por grupo, y un orden estable
+ *      categoría → grupo → ronda que no depende de la hora.
+ *
+ *   3. UN FALLO DE CARGA SE VEÍA COMO "TODO AL DÍA". `fetchPendingMatches`
+ *      logueaba el error y devolvía [], y la pantalla pintaba el mismo
+ *      "✓ Todo al día" que cuando de verdad no queda trabajo. Un juez con la
+ *      sesión caducada creía haber terminado. Ahora el error tiene su propio
+ *      estado, con su causa y su botón de reintentar.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   SafeAreaView,
+  ScrollView,
   Text,
   View,
   Modal,
@@ -18,16 +39,17 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
-import ScoreCapture from '@/components/judge/ScoreCapture';
+import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { horaDeTorneo } from '@/lib/fechas';
+import { ordenarPartidos, type PartidoOrdenable } from '@/lib/juez/orden-partidos';
 
 // ───────────────────────────────────────────
 // Tipos
 // ───────────────────────────────────────────
 
-interface PendingMatch {
+interface JudgeMatch extends PartidoOrdenable {
   id: string;
   stage: string;
   roundLabel: string | null;
@@ -36,9 +58,18 @@ interface PendingMatch {
   pairBId: string;
   pairAName: string;
   pairBName: string;
+  categoryId: string;
   categoryName: string;
+  groupId: string | null;
+  groupName: string | null;
   scheduledAt: string | null;
+  winnerPairId: string | null;
+  sets: SetGuardado[];
+  /** '6-4 7-5' · '6-3 4-6 [10-7]'. Null si no hay marcador guardado. */
+  marcador: string | null;
 }
+
+type FiltroEstado = 'pendientes' | 'capturados' | 'todos';
 
 const STAGE_LABEL: Record<string, string> = {
   group: 'Grupos',
@@ -50,11 +81,33 @@ const STAGE_LABEL: Record<string, string> = {
   third_place: '3er lugar',
 };
 
+const TODAS = '__todas__';
+
+/**
+ * '6-4 7-5' · '6-3 4-6 [10-7]'.
+ * El super muerte va con sus PUNTOS entre corchetes, no con el 1-0 que cuenta
+ * para la tabla. Mismo formato que la pantalla de grupos del organizador.
+ */
+function marcadorDe(sets: SetGuardado[]): string | null {
+  if (sets.length === 0) return null;
+  return [...sets]
+    .sort((a, b) => a.set_number - b.set_number)
+    .map((st) =>
+      st.is_super_tiebreak && st.tiebreak_a != null && st.tiebreak_b != null
+        ? `[${st.tiebreak_a}-${st.tiebreak_b}]`
+        : `${st.games_a}-${st.games_b}`)
+    .join(' ');
+}
+
 // ───────────────────────────────────────────
-// Fetch partidos pendientes
+// Fetch
 // ───────────────────────────────────────────
 
-async function fetchPendingMatches(tournamentId: string): Promise<PendingMatch[]> {
+/**
+ * Devuelve los partidos O LANZA. No se traga el error: quien llama distingue
+ * "falló" de "no hay nada", que es justo lo que antes se confundía.
+ */
+async function fetchMatches(tournamentId: string): Promise<JudgeMatch[]> {
   const { data, error } = await supabase
     .from('matches')
     // Sin embed de `pairs → users`: users_select_own solo deja leer la propia
@@ -62,26 +115,27 @@ async function fetchPendingMatches(tournamentId: string): Promise<PendingMatch[]
     // todos los partidos que iba a arbitrar. Los nombres van por
     // bracket_pairs_public. Ver src/lib/parejas-publicas.ts.
     //
-    // El embed de `categories` SÍ se queda: categories_select deja leerlo a
-    // cualquier autenticado.
+    // `categories`, `groups` y `match_sets` SÍ se embeben: la migración 040 los
+    // deja leer a cualquiera en un torneo publicado.
     .select(
       `id, stage, round_label, status, pair_a_id, pair_b_id, scheduled_at,
-       categories:category_id ( display_name )`
+       category_id, group_id, winner_pair_id,
+       categories:category_id ( display_name ),
+       groups:group_id ( name ),
+       match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`
     )
-    .eq('tournament_id', tournamentId)
-    .neq('status', 'finished')
-    .order('scheduled_at', { ascending: true, nullsFirst: false });
+    .eq('tournament_id', tournamentId);
 
-  if (error) {
-    console.error('[JudgeTournament] fetch error:', error);
-    return [];
-  }
+  if (error) throw new Error(error.message);
 
   const filas = (data ?? []) as unknown as Array<{
     id: string; stage: string; round_label: string | null;
     status: string; pair_a_id: string; pair_b_id: string;
-    scheduled_at: string | null;
-    categories: { display_name: string };
+    scheduled_at: string | null; category_id: string; group_id: string | null;
+    winner_pair_id: string | null;
+    categories: { display_name: string } | null;
+    groups: { name: string } | null;
+    match_sets: SetGuardado[] | null;
   }>;
 
   // Una consulta para los dos lados de todos los partidos: el helper deduplica,
@@ -90,18 +144,29 @@ async function fetchPendingMatches(tournamentId: string): Promise<PendingMatch[]
     filas.flatMap((r) => [r.pair_a_id, r.pair_b_id]),
   );
 
-  return filas.map((row) => ({
-    id: row.id,
-    stage: row.stage,
-    roundLabel: row.round_label,
-    status: row.status,
-    pairAId: row.pair_a_id,
-    pairBId: row.pair_b_id,
-    pairAName: nombreDePareja(parejas.get(row.pair_a_id)),
-    pairBName: nombreDePareja(parejas.get(row.pair_b_id)),
-    categoryName: row.categories?.display_name ?? '—',
-    scheduledAt: row.scheduled_at,
-  }));
+  const salida: JudgeMatch[] = filas.map((row) => {
+    const sets = row.match_sets ?? [];
+    return {
+      id: row.id,
+      stage: row.stage,
+      roundLabel: row.round_label,
+      status: row.status,
+      pairAId: row.pair_a_id,
+      pairBId: row.pair_b_id,
+      pairAName: nombreDePareja(parejas.get(row.pair_a_id)),
+      pairBName: nombreDePareja(parejas.get(row.pair_b_id)),
+      categoryId: row.category_id,
+      categoryName: row.categories?.display_name ?? '—',
+      groupId: row.group_id,
+      groupName: row.groups?.name ?? null,
+      scheduledAt: row.scheduled_at,
+      winnerPairId: row.winner_pair_id,
+      sets,
+      marcador: marcadorDe(sets),
+    };
+  });
+
+  return ordenarPartidos(salida);
 }
 
 // ───────────────────────────────────────────
@@ -110,32 +175,83 @@ async function fetchPendingMatches(tournamentId: string): Promise<PendingMatch[]
 
 export default function JudgeTournamentScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
-  const [matches, setMatches] = useState<PendingMatch[]>([]);
+  const [matches, setMatches] = useState<JudgeMatch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMatch, setSelectedMatch] = useState<PendingMatch | null>(null);
-  const [successId, setSuccessId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<JudgeMatch | null>(null);
+
+  const [estado, setEstado] = useState<FiltroEstado>('pendientes');
+  const [catId, setCatId] = useState<string>(TODAS);
+  const [grupoId, setGrupoId] = useState<string>(TODAS);
 
   const load = useCallback(async () => {
     if (!tournamentId) return;
-    const data = await fetchPendingMatches(tournamentId);
-    setMatches(data);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      setMatches(await fetchMatches(tournamentId));
+    } catch (e) {
+      // NO se degrada a lista vacía: eso pintaba "Todo al día" sobre un fallo.
+      console.error('[JudgeTournament] fetch error:', e);
+      setMatches([]);
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   }, [tournamentId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   function handleSuccess() {
-    if (selectedMatch) setSuccessId(selectedMatch.id);
     setSelectedMatch(null);
-    load(); // refrescar lista
+    void load(); // refrescar lista
   }
+
+  // ── Filtros ──────────────────────────────────────────────────────────────
+
+  const categorias = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const x of matches) m.set(x.categoryId, x.categoryName);
+    return [...m.entries()].map(([id, nombre]) => ({ id, nombre }));
+  }, [matches]);
+
+  // Los grupos dependen de la categoría elegida: enseñar los 55 de golpe sería
+  // el mismo problema que la lista plana.
+  const grupos = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const x of matches) {
+      if (!x.groupId || !x.groupName) continue;
+      if (catId !== TODAS && x.categoryId !== catId) continue;
+      m.set(x.groupId, x.groupName);
+    }
+    return [...m.entries()]
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
+  }, [matches, catId]);
+
+  const visibles = useMemo(() => matches.filter((m) => {
+    if (estado === 'pendientes' && m.status === 'finished') return false;
+    if (estado === 'capturados' && m.status !== 'finished') return false;
+    if (catId !== TODAS && m.categoryId !== catId) return false;
+    if (grupoId !== TODAS && m.groupId !== grupoId) return false;
+    return true;
+  }), [matches, estado, catId, grupoId]);
+
+  const pendientes = useMemo(
+    () => matches.filter((m) => m.status !== 'finished').length,
+    [matches],
+  );
+
+  function elegirCategoria(id: string) {
+    setCatId(id);
+    setGrupoId(TODAS); // el grupo elegido puede no existir en la nueva categoría
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
-      {/* Header */}
       {/* Cabecera fuera del FlatList: no hereda la columna centrada del
-          contentContainerStyle, así que la aporta ella misma. Sin esto, el
-          "← Volver" y el título se pegan al borde izquierdo en escritorio. */}
+          contentContainerStyle, así que la aporta ella misma. */}
       <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 12, ...webContentColumn }}>
         <Pressable
           onPress={() => router.back()}
@@ -146,97 +262,160 @@ export default function JudgeTournamentScreen() {
           <Text style={{ color: color.gold, fontFamily: font.body, fontSize: 15 }}>← Volver</Text>
         </Pressable>
         <Text
-          style={{
-            fontFamily: font.display,
-            fontSize: 18,
-            fontWeight: '600',
-            color: color.text,
-            flex: 1,
-          }}
+          style={{ fontFamily: font.display, fontSize: 18, fontWeight: '600', color: color.text, flex: 1 }}
           numberOfLines={1}
         >
-          Partidos pendientes
+          Partidos
         </Text>
+        {!loading && !loadError && (
+          <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>
+            {pendientes} por capturar
+          </Text>
+        )}
       </View>
 
       {loading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={color.gold} />
         </View>
-      ) : matches.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Text style={{ color: color.live, fontFamily: font.display, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
-            ✓ Todo al día
+      ) : loadError ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
+          <Text style={{ color: color.danger, fontFamily: font.display, fontSize: 18, fontWeight: '600' }}>
+            No se pudieron cargar los partidos
           </Text>
           <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
-            No hay partidos pendientes de captura en este torneo.
+            Esto NO quiere decir que no haya trabajo pendiente: la consulta falló.
           </Text>
+          <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 11, textAlign: 'center' }}>
+            {loadError}
+          </Text>
+          <Pressable
+            onPress={() => { setLoading(true); void load(); }}
+            style={{ marginTop: 8, paddingHorizontal: 20, paddingVertical: 12, borderRadius: radius.sm, backgroundColor: color.gold }}
+            accessibilityRole="button"
+            accessibilityLabel="Reintentar"
+          >
+            <Text style={{ fontFamily: font.body, fontSize: 14, fontWeight: '600', color: color.onGold }}>
+              Reintentar
+            </Text>
+          </Pressable>
         </View>
       ) : (
-        <FlatList
-          data={matches}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 18, gap: 10, paddingBottom: bottomInset, ...webContentColumn }}
-          renderItem={({ item }) => {
-            const isDone = successId === item.id;
-            return (
-              <Pressable
-                onPress={() => setSelectedMatch(item)}
-                style={({ pressed }) => ({
-                  backgroundColor: pressed ? color.surface2 : color.surface,
-                  borderRadius: radius.xl,
-                  padding: 14,
-                  borderWidth: 1,
-                  borderColor: item.status === 'in_progress' ? color.line : color.lineSoft,
-                  opacity: isDone ? 0.5 : 1,
-                })}
-                accessibilityRole="button"
-                accessibilityLabel={`Partido: ${item.pairAName} vs ${item.pairBName}`}
-                disabled={isDone}
-              >
-                {/* Stage badge */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <View
-                    style={{
-                      backgroundColor: color.surface2,
-                      borderRadius: radius.pill,
-                      paddingHorizontal: 8,
-                      paddingVertical: 3,
-                    }}
+        <>
+          {/* Filtros */}
+          <View style={{ paddingHorizontal: 18, gap: 8, ...webContentColumn }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {([
+                ['pendientes', 'Pendientes'],
+                ['capturados', 'Capturados'],
+                ['todos', 'Todos'],
+              ] as [FiltroEstado, string][]).map(([id, etiqueta]) => (
+                <Chip
+                  key={id}
+                  texto={etiqueta}
+                  activo={estado === id}
+                  onPress={() => setEstado(id)}
+                />
+              ))}
+            </View>
+
+            {categorias.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
+                <Chip texto="Todas" activo={catId === TODAS} onPress={() => elegirCategoria(TODAS)} />
+                {categorias.map((c) => (
+                  <Chip key={c.id} texto={c.nombre} activo={catId === c.id} onPress={() => elegirCategoria(c.id)} />
+                ))}
+              </ScrollView>
+            )}
+
+            {grupos.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
+                <Chip texto="Todos los grupos" activo={grupoId === TODAS} onPress={() => setGrupoId(TODAS)} />
+                {grupos.map((g) => (
+                  <Chip key={g.id} texto={`Grupo ${g.nombre}`} activo={grupoId === g.id} onPress={() => setGrupoId(g.id)} />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+
+          {visibles.length === 0 ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+              <Text style={{ color: estado === 'pendientes' ? color.live : color.muted, fontFamily: font.display, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
+                {estado === 'pendientes' ? '✓ Todo al día' : 'Nada que mostrar'}
+              </Text>
+              <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
+                {estado === 'pendientes'
+                  ? 'No hay partidos pendientes con estos filtros.'
+                  : 'Ningún partido coincide con los filtros elegidos.'}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={visibles}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ padding: 18, gap: 10, paddingBottom: bottomInset, ...webContentColumn }}
+              renderItem={({ item }) => {
+                const capturado = item.status === 'finished';
+                const ganador = capturado && item.winnerPairId
+                  ? (item.winnerPairId === item.pairAId ? item.pairAName : item.pairBName)
+                  : null;
+                return (
+                  <Pressable
+                    onPress={() => setSelectedMatch(item)}
+                    style={({ pressed }) => ({
+                      backgroundColor: pressed ? color.surface2 : color.surface,
+                      borderRadius: radius.xl,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: capturado ? color.lineSoft : color.line,
+                    })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${capturado ? 'Corregir' : 'Capturar'}: ${item.pairAName} vs ${item.pairBName}`}
                   >
-                    <Text style={{ fontFamily: font.display, fontSize: 10, color: color.champagne, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                      {STAGE_LABEL[item.stage] ?? item.stage}
+                    {/* Contexto: etapa · categoría · grupo */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <View style={{ backgroundColor: color.surface2, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={{ fontFamily: font.display, fontSize: 10, color: color.champagne, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                          {STAGE_LABEL[item.stage] ?? item.stage}
+                        </Text>
+                      </View>
+                      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted }}>
+                        {item.categoryName}
+                        {item.groupName ? ` · Grupo ${item.groupName}` : ''}
+                      </Text>
+                      {capturado && (
+                        <Text style={{ fontFamily: font.body, fontSize: 11, color: color.live }}>✓ capturado</Text>
+                      )}
+                    </View>
+
+                    {/* Parejas */}
+                    <Text style={{ fontFamily: font.display, fontSize: 14, fontWeight: '600', color: ganador === item.pairAName ? color.goldBright : color.text, marginBottom: 2 }}>
+                      {item.pairAName}
                     </Text>
-                  </View>
-                  <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted }}>
-                    {item.categoryName}
-                  </Text>
-                </View>
+                    <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, marginBottom: 2 }}>vs</Text>
+                    <Text style={{ fontFamily: font.display, fontSize: 14, fontWeight: '600', color: ganador === item.pairBName ? color.goldBright : color.text, marginBottom: 8 }}>
+                      {item.pairBName}
+                    </Text>
 
-                {/* Parejas */}
-                <Text style={{ fontFamily: font.display, fontSize: 14, fontWeight: '600', color: color.text, marginBottom: 2 }}>
-                  {item.pairAName}
-                </Text>
-                <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, marginBottom: 2 }}>vs</Text>
-                <Text style={{ fontFamily: font.display, fontSize: 14, fontWeight: '600', color: color.text, marginBottom: 8 }}>
-                  {item.pairBName}
-                </Text>
-
-                {/* Hora + acción */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted }}>
-                    {item.scheduledAt
-                      ? horaDeTorneo(item.scheduledAt)
-                      : 'Sin hora asignada'}
-                  </Text>
-                  <Text style={{ fontFamily: font.body, fontSize: 12, color: color.gold, fontWeight: '600' }}>
-                    Capturar resultado →
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          }}
-        />
+                    {/* Hora / marcador + acción */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, flex: 1 }} numberOfLines={1}>
+                        {item.marcador
+                          ? item.marcador
+                          : item.scheduledAt
+                            ? horaDeTorneo(item.scheduledAt)
+                            : 'Sin hora asignada'}
+                      </Text>
+                      <Text style={{ fontFamily: font.body, fontSize: 12, color: color.gold, fontWeight: '600' }}>
+                        {capturado ? 'Corregir →' : 'Capturar resultado →'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              }}
+            />
+          )}
+        </>
       )}
 
       {/* Modal de captura */}
@@ -248,20 +427,15 @@ export default function JudgeTournamentScreen() {
       >
         {selectedMatch && (
           <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
-            {/* Header del modal */}
             <View
               style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 18,
-                paddingVertical: 14,
-                borderBottomWidth: 1,
-                borderBottomColor: color.lineSoft,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                paddingHorizontal: 18, paddingVertical: 14,
+                borderBottomWidth: 1, borderBottomColor: color.lineSoft,
               }}
             >
               <Text style={{ fontFamily: font.display, fontSize: 17, fontWeight: '600', color: color.text }}>
-                Capturar resultado
+                {selectedMatch.status === 'finished' ? 'Corregir resultado' : 'Capturar resultado'}
               </Text>
               <Pressable
                 onPress={() => setSelectedMatch(null)}
@@ -273,10 +447,12 @@ export default function JudgeTournamentScreen() {
               </Pressable>
             </View>
 
-            {/* Nombres del partido */}
             <View style={{ paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: color.lineSoft }}>
               <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted, marginBottom: 6 }}>
-                {selectedMatch.categoryName} · {STAGE_LABEL[selectedMatch.stage] ?? selectedMatch.stage}
+                {selectedMatch.categoryName}
+                {selectedMatch.groupName ? ` · Grupo ${selectedMatch.groupName}` : ''}
+                {' · '}
+                {STAGE_LABEL[selectedMatch.stage] ?? selectedMatch.stage}
               </Text>
               <Text style={{ fontFamily: font.display, fontSize: 15, fontWeight: '600', color: color.text }}>
                 {selectedMatch.pairAName}
@@ -285,22 +461,55 @@ export default function JudgeTournamentScreen() {
               <Text style={{ fontFamily: font.display, fontSize: 15, fontWeight: '600', color: color.text }}>
                 {selectedMatch.pairBName}
               </Text>
+              {selectedMatch.marcador && (
+                <Text style={{ fontFamily: font.body, fontSize: 12, color: color.champagne, marginTop: 6 }}>
+                  Guardado: {selectedMatch.marcador}
+                </Text>
+              )}
             </View>
 
-            {/* ScoreCapture */}
-            <View style={{ flex: 1, padding: 18 }}>
+            <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: bottomInset }}>
               <ScoreCapture
                 matchId={selectedMatch.id}
                 pairAId={selectedMatch.pairAId}
                 pairBId={selectedMatch.pairBId}
                 pairAName={selectedMatch.pairAName}
                 pairBName={selectedMatch.pairBName}
+                setsIniciales={selectedMatch.sets}
+                ganadorInicial={selectedMatch.winnerPairId}
                 onSuccess={handleSuccess}
               />
-            </View>
+            </ScrollView>
           </SafeAreaView>
         )}
       </Modal>
     </SafeAreaView>
+  );
+}
+
+// ───────────────────────────────────────────
+// Chip de filtro
+// ───────────────────────────────────────────
+
+function Chip({ texto, activo, onPress }: { texto: string; activo: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: activo ? color.gold : color.lineSoft,
+        backgroundColor: activo ? 'rgba(212,175,55,0.12)' : color.surface,
+      }}
+      accessibilityRole="button"
+      accessibilityState={{ selected: activo }}
+      accessibilityLabel={texto}
+    >
+      <Text style={{ fontFamily: font.body, fontSize: 12, color: activo ? color.goldBright : color.muted, fontWeight: activo ? '600' : '400' }}>
+        {texto}
+      </Text>
+    </Pressable>
   );
 }

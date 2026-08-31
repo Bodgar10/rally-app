@@ -16,6 +16,8 @@ export { computeClinch } from './clinch';
 export { computeSeeding, selectQualifiers, stageForBracketSize } from './seeding';
 export type { QualifierStanding, MatchStage } from './seeding';
 export { advanceBracket, thirdPlaceFromSemis } from './bracket';
+// Plan de avance al capturar: qué crear y qué reapuntar en el cuadro.
+export { planAvance, etiquetaDeRonda } from './bracket/avance-captura';
 
 // Scheduler del dia de eliminatorias (lo consume schedule-knockout)
 export { programarEliminatorias, etapaDeRonda } from './schedule/knockout';
@@ -48,6 +50,9 @@ export type { StandingsConfig } from './standings';
 export type { ClinchResult } from './clinch';
 export type { SeedInput, BracketMatch, SeedingResult } from './seeding';
 export type { RoundMatch, NextMatch, AdvanceResult } from './bracket';
+export type {
+  PartidoCuadro, CrearPartido, ReapuntarPartido, PlanAvance, PlanOk, PlanRechazo,
+} from './bracket/avance-captura';
 export type {
   Division,
   FormatType,

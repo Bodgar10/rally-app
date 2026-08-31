@@ -32,3 +32,6 @@ export * from './fixtures';
 
 // Avance de cuadro eliminatorio (Doc A §4.9)
 export * from './bracket';
+
+// Plan de avance al capturar un resultado de eliminatorias
+export * from './bracket/avance-captura';
