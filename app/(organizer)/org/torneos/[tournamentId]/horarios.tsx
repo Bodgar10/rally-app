@@ -23,6 +23,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { generarBloques } from '@/lib/engine/schedule/bloques';
 import { parseFechaISO, aFechaISO, formatearConDia } from '@/lib/fechas';
+import { normalizarHora, formatearMientrasEscribe, esHoraValida } from '@/lib/hora-campo';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -35,7 +36,17 @@ interface Ventana {
   activo: boolean;
 }
 
-const RE_HORA = /^([01]\d|2[0-3]):([0-5]\d)$/;
+/**
+ * EL CAMPO DE HORA NO CASTIGA.
+ *
+ * Antes exigía `HH:MM` exacto y "22" daba "Revisa las horas del sábado: usa el
+ * formato 14:00". El organizador no se había equivocado: escribió la hora bien
+ * y la app le dijo que no.
+ *
+ * Ahora se acepta lo que una persona escribe —"22", "2200", "22.30", "9:5"— y
+ * se normaliza al salir del campo. La validación de abajo trabaja sobre lo YA
+ * normalizado, así que solo se queja de lo que de verdad no es una hora.
+ */
 
 const DEFECTO_DESDE = '09:00';
 const DEFECTO_HASTA = '21:00';
@@ -55,6 +66,9 @@ const minutos = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
 };
+
+/** Lo que se guarda de un día: la hora normalizada, o la cruda si no se pudo. */
+const normalizada = (v: string) => normalizarHora(v) ?? v.trim();
 
 export default function HorariosScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
@@ -123,10 +137,14 @@ export default function HorariosScreen() {
     }
     if (activas.length === 0) return 'Marca al menos un día.';
     for (const v of activas) {
-      if (!RE_HORA.test(v.desde) || !RE_HORA.test(v.hasta)) {
-        return `Revisa las horas del ${formatearConDia(v.dia)}: usa el formato 14:00.`;
+      // Se valida lo NORMALIZADO: "22" ya es 22:00 y no tiene por qué fallar.
+      // Solo se queja de lo que de verdad no es una hora.
+      const desde = normalizarHora(v.desde);
+      const hasta = normalizarHora(v.hasta);
+      if (!desde || !hasta) {
+        return `Revisa las horas del ${formatearConDia(v.dia)}: escribe una hora del día, como 22 o 14:30.`;
       }
-      if (minutos(v.hasta) <= minutos(v.desde)) {
+      if (minutos(hasta) <= minutos(desde)) {
         return `El ${formatearConDia(v.dia)} termina antes de empezar.`;
       }
     }
@@ -156,11 +174,13 @@ export default function HorariosScreen() {
     const ins = await (supabase.from as unknown as (v: string) => {
       insert: (rows: unknown[]) => Promise<{ error: { message?: string } | null }>;
     })('tournament_windows').insert(
+      // Se guarda lo NORMALIZADO: en la base entra 'HH:MM:SS' siempre, escriba
+      // lo que escriba el organizador.
       activas.map((v) => ({
         tournament_id: tournamentId,
         dia:   v.dia,
-        desde: `${v.desde}:00`,
-        hasta: `${v.hasta}:00`,
+        desde: `${normalizada(v.desde)}:00`,
+        hasta: `${normalizada(v.hasta)}:00`,
       })),
     );
 
@@ -208,14 +228,17 @@ export default function HorariosScreen() {
    */
   const bloquesTardios = (() => {
     const validas = activas.filter(
-      (v) => RE_HORA.test(v.desde) && RE_HORA.test(v.hasta) && minutos(v.hasta) > minutos(v.desde),
+      (v) => esHoraValida(normalizada(v.desde)) && esHoraValida(normalizada(v.hasta))
+        && minutos(normalizada(v.hasta)) > minutos(normalizada(v.desde)),
     );
     if (validas.length === 0) return [];
     const dur = Number(duracion);
     if (!Number.isFinite(dur) || dur < 30 || dur > 180) return [];
     try {
       return generarBloques({
-        ventanas: validas.map((v) => ({ dia: v.dia, desde: v.desde, hasta: v.hasta })),
+        ventanas: validas.map((v) => ({
+          dia: v.dia, desde: normalizada(v.desde), hasta: normalizada(v.hasta),
+        })),
         canchas: 1,                    // el número no importa: solo las horas
         minutosPorPartido: dur,
       }).bloques.filter((b) => b.seSaleDeLaVentana);
@@ -225,7 +248,9 @@ export default function HorariosScreen() {
   })();
 
   const total = activas.reduce((a, v) => {
-    const m = minutos(v.hasta) - minutos(v.desde);
+    const d = normalizarHora(v.desde), h = normalizarHora(v.hasta);
+    if (!d || !h) return a;
+    const m = minutos(h) - minutos(d);
     return a + (m > 0 ? m : 0);
   }, 0);
 
@@ -238,7 +263,7 @@ export default function HorariosScreen() {
         <Text style={s.titulo}>Horarios</Text>
         <Text style={s.subtitulo}>
           A qué hora se juega cada día. Marca solo los días que de verdad vas a
-          usar.
+          usar, y escribe la hora como quieras: «22» son las 22:00.
         </Text>
 
         <View style={s.lista}>
@@ -262,31 +287,51 @@ export default function HorariosScreen() {
               </Pressable>
 
               {v.activo && (
-                <View style={s.horas}>
-                  <TextInput
-                    style={s.hora}
-                    value={v.desde}
-                    onChangeText={(x) => editar(v.dia, { desde: x })}
-                    placeholder="09:00"
-                    placeholderTextColor={color.muted}
-                    keyboardType="numbers-and-punctuation"
-                    maxLength={5}
-                    selectionColor={color.gold}
-                    accessibilityLabel={`Hora de inicio del ${formatearConDia(v.dia)}`}
-                  />
-                  <Text style={s.guion}>a</Text>
-                  <TextInput
-                    style={s.hora}
-                    value={v.hasta}
-                    onChangeText={(x) => editar(v.dia, { hasta: x })}
-                    placeholder="21:00"
-                    placeholderTextColor={color.muted}
-                    keyboardType="numbers-and-punctuation"
-                    maxLength={5}
-                    selectionColor={color.gold}
-                    accessibilityLabel={`Hora de fin del ${formatearConDia(v.dia)}`}
-                  />
-                </View>
+                <>
+                  <View style={s.horas}>
+                    {/* Los dos puntos los mete `formatearMientrasEscribe` en
+                        cuanto hacen falta, y al salir del campo se completa la
+                        hora. Teclear "22" y ver cómo se convierte en 22:00 es
+                        la prueba de que la app entendió, no de que se corrigió
+                        un error. `keyboardType` numérico: aquí no hay letras. */}
+                    <TextInput
+                      style={s.hora}
+                      value={v.desde}
+                      onChangeText={(x) => editar(v.dia, { desde: formatearMientrasEscribe(x) })}
+                      onBlur={() => editar(v.dia, { desde: normalizada(v.desde) })}
+                      placeholder="9"
+                      placeholderTextColor={color.muted}
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      selectionColor={color.gold}
+                      accessibilityLabel={`Hora de inicio del ${formatearConDia(v.dia)}`}
+                      accessibilityHint="Escribe la hora. Puedes poner solo el número: 9 son las 9:00."
+                    />
+                    <Text style={s.guion}>a</Text>
+                    <TextInput
+                      style={s.hora}
+                      value={v.hasta}
+                      onChangeText={(x) => editar(v.dia, { hasta: formatearMientrasEscribe(x) })}
+                      onBlur={() => editar(v.dia, { hasta: normalizada(v.hasta) })}
+                      placeholder="21"
+                      placeholderTextColor={color.muted}
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      selectionColor={color.gold}
+                      accessibilityLabel={`Hora de fin del ${formatearConDia(v.dia)}`}
+                      accessibilityHint="Escribe la hora. Puedes poner solo el número: 22 son las 22:00."
+                    />
+                  </View>
+
+                  {/* Lo que se va a guardar, dicho mientras se escribe. Quita
+                      la duda de "¿habrá entendido el 22?" sin obligar a
+                      guardar para comprobarlo. */}
+                  <Text style={s.horasEco}>
+                    {normalizarHora(v.desde) && normalizarHora(v.hasta)
+                      ? `De ${normalizarHora(v.desde)} a ${normalizarHora(v.hasta)}`
+                      : 'Escribe la hora: puede ser solo el número, como 9 o 22.'}
+                  </Text>
+                </>
               )}
             </View>
           ))}
@@ -385,6 +430,7 @@ const s = StyleSheet.create({
     fontFamily: font.body, fontSize: inputFontSize(fontSize.body), color: color.text, textAlign: 'center',
   },
   guion: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  horasEco: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: -space[1] },
 
   campo:         { gap: space[1], marginTop: space[2] },
   campoEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, letterSpacing: 0.3 },
