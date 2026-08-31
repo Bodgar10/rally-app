@@ -16,7 +16,7 @@
  */
 
 import { generarBloques, cupoDeBloque, bloquesDisponibles } from '@/lib/engine/schedule/bloques';
-import { capacidadDelTorneo } from '@/lib/bloques-formato';
+import { capacidadDelTorneo, carrilesDeCategoria, tamanosDeGrupo } from '@/lib/bloques-formato';
 
 /** Copia literal de CAPACIDAD en `scripts/seed-cimepa.mjs`. */
 const CIMEPA = {
@@ -65,11 +65,40 @@ describe('retícula de Cimepa', () => {
       reticula: r, canchas: 8, parejasPorCategoria: PAREJAS_POR_CATEGORIA,
     });
     expect(cap.inscritas).toBe(165);
-    // No son 55 carriles: las categorías de 20 parejas gastan 7 carriles
-    // (6 grupos de 3 y uno de 2), no 6.67.
-    expect(cap.carrilesNecesarios).toBe(56);
-    expect(cap.faltanCarriles).toBe(-8);
+
+    // 59, no 55 ni 56. La cuenta sale del reparto real de computeFormat:
+    //   21 parejas -> [3,3,3,3,3,3,3]     -> 7 carriles  x5 categorías = 35
+    //   20 parejas -> [4,4,3,3,3,3]       -> 8 carriles  x3 categorías = 24
+    // Los grupos de 4 son 6 partidos y valen DOS carriles cada uno. Dividir
+    // 165 entre 3 daría 55 y anunciaría capacidad que no existe.
+    expect(cap.carrilesNecesarios).toBe(59);
+    expect(cap.faltanCarriles).toBe(-5);
     expect(cap.palancas).toEqual([]);
+  });
+
+  it('el tamaño de grupo de cada categoría de Cimepa', () => {
+    // Las de 21 se reparten en sietes de 3; las de 20 llevan dos grupos de 4,
+    // pero el 3 sigue dominando el reparto, así que el pronóstico usa 3.
+    expect(tamanosDeGrupo(PAREJAS_POR_CATEGORIA)).toEqual({
+      MxA: 3, MxB: 3, MxC: 3, MxD: 3, F2: 3, F3: 3, F4: 3, F5: 3,
+    });
+  });
+
+  it('en las categorías chicas el grupo NO es de 3', () => {
+    // 8 parejas -> [4,4]. 4 -> [4]. 5 -> [5]. 7 -> [4,3], empate roto hacia
+    // el grande porque es el lado que no promete lugares de más.
+    expect(tamanosDeGrupo({ a: 8, b: 4, c: 5, d: 7 })).toEqual({ a: 4, b: 4, c: 5, d: 4 });
+  });
+
+  it('una categoría con menos de 2 parejas no entra: computeFormat lanza', () => {
+    expect(tamanosDeGrupo({ a: 0, b: 1 })).toEqual({});
+  });
+
+  it('una categoría de 20 cuesta 8 carriles y una de 21 cuesta 7', () => {
+    // Una parejas MENOS puede costar un carril MÁS: 21 se reparte en sietes de
+    // 3 y 20 obliga a dos grupos de 4. No es un error de redondeo.
+    expect(carrilesDeCategoria(21)).toBe(7);
+    expect(carrilesDeCategoria(20)).toBe(8);
   });
 });
 

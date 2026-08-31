@@ -13,11 +13,25 @@
  * Logica pura y determinista: misma entrada -> misma salida. Sin dependencias.
  */
 
-/** Parejas que forman un grupo. Un grupo ocupa un carril entero del bloque. */
+/**
+ * Parejas del grupo tipico. NO es una constante del dominio: `computeFormat`
+ * produce grupos de 4 y de 5 cuando el numero de parejas no es multiplo de 3.
+ * Es el default de quien no dice nada.
+ */
 export const PAREJAS_POR_GRUPO = 3;
 
-/** Partidos de un round robin de 3 parejas. */
-export const PARTIDOS_POR_GRUPO = 3;
+/**
+ * Partidos que caben en un carril de un bloque.
+ *
+ * Es la MISMA cifra que `partidosPorGrupo` de `generarBloques`, y no por
+ * casualidad: el bloque se dimensiona como "lo que tarda un grupo tipico", asi
+ * que un carril-bloque mide exactamente 3 partidos. Separarlas de nombre
+ * importa porque un grupo de 4 son 6 partidos y ya no cabe en un carril.
+ */
+export const PARTIDOS_POR_CARRIL = 3;
+
+/** @deprecated Alias historico de PARTIDOS_POR_CARRIL. */
+export const PARTIDOS_POR_GRUPO = PARTIDOS_POR_CARRIL;
 
 /**
  * Ventana de juego de un dia.
@@ -250,50 +264,138 @@ export function generarBloques(entrada: EntradaBloques): ReticulaBloques {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Cupo
+// 2. Coste de un grupo en carriles
 // ---------------------------------------------------------------------------
+
+/**
+ * Partidos de un round robin de n parejas: n(n-1)/2.
+ *
+ *   2 parejas ->  1 partido    3 ->  3    4 ->  6    5 -> 10
+ */
+export function partidosDeGrupo(parejas: number): number {
+  if (!Number.isInteger(parejas) || parejas < 0) {
+    throw new Error(`parejas debe ser un entero >= 0: ${parejas}`);
+  }
+  return (parejas * (parejas - 1)) / 2;
+}
+
+/**
+ * Carriles-bloque que consume un grupo de n parejas.
+ *
+ * ESTE ES EL ARREGLO. Antes se contaba en parejas —"3 parejas = 1 carril"— y
+ * eso solo es cierto para el grupo tipico. `computeFormat` produce grupos de 4
+ * cuando el numero de parejas no es multiplo de 3 (20 parejas -> [4,4,3,3,3,3]),
+ * y un grupo de 4 son SEIS partidos: dos bloques de 3 horas, no uno. Contarlo
+ * como un carril anunciaba capacidad que no existe.
+ *
+ * La cuenta correcta es en partidos: un carril-bloque son `partidosPorCarril`
+ * partidos, y un grupo cuesta `n(n-1)/2`.
+ *
+ *   3 parejas ->  3 partidos -> 1 carril
+ *   4 parejas ->  6 partidos -> 2 carriles
+ *   5 parejas -> 10 partidos -> 4 carriles
+ *   2 parejas ->  1 partido  -> 1 carril  (el minimo: el carril es la unidad
+ *                                          de reserva, no se parte)
+ */
+export function carrilesDeGrupo(
+  parejas: number,
+  partidosPorCarril: number = PARTIDOS_POR_CARRIL,
+): number {
+  if (!Number.isInteger(partidosPorCarril) || partidosPorCarril <= 0) {
+    throw new Error(`partidosPorCarril debe ser un entero positivo: ${partidosPorCarril}`);
+  }
+  if (parejas <= 0) return 0;
+  return Math.max(1, Math.ceil(partidosDeGrupo(parejas) / partidosPorCarril));
+}
+
+// ---------------------------------------------------------------------------
+// 3. Cupo
+// ---------------------------------------------------------------------------
+
+export interface OpcionesCupo {
+  /**
+   * Parejas por grupo que va a usar cada categoria, por id. Lo decide
+   * `computeFormat` a partir de cuantas parejas lleva la categoria; este motor
+   * no lo deriva para no depender del motor de formato.
+   *
+   * Una categoria sin entrada usa PAREJAS_POR_GRUPO. Un valor que no sea un
+   * entero >= 2 se ignora y cae al default: esta funcion corre dentro de un
+   * render, y reventar ahi tumba la pantalla de inscripcion entera.
+   */
+  parejasPorGrupo?: Record<string, number>;
+  /** Partidos que caben en un carril. Default PARTIDOS_POR_CARRIL. */
+  partidosPorCarril?: number;
+}
+
+function tamanoDeGrupo(opciones: OpcionesCupo, categoriaId: string): number {
+  const g = opciones.parejasPorGrupo?.[categoriaId];
+  return Number.isInteger(g) && (g as number) >= 2 ? (g as number) : PAREJAS_POR_GRUPO;
+}
 
 /**
  * Cuantas parejas MAS caben en un bloque para una categoria.
  *
- * No es una division simple. Un grupo son 3 parejas de la MISMA categoria, y
- * cada grupo ocupa un carril entero:
+ * No es una division simple, por dos razones que se acumulan:
  *
- *   carrilesUsados   = suma de ceil(parejas[cat] / 3) sobre todas las categorias
- *   carrilesLibres   = carriles - carrilesUsados
- *   huecoEnMiCarril  = (3 - (parejas[categoriaId] % 3)) % 3
- *   cupo             = huecoEnMiCarril + carrilesLibres * 3
+ *   1. Un grupo son parejas de la MISMA categoria y ocupa carriles enteros. Los
+ *      huecos de un grupo a medias NO sirven para otra categoria.
+ *   2. Cuantos carriles ocupa un grupo depende de su tamano (ver
+ *      `carrilesDeGrupo`): 3 parejas = 1 carril, 4 parejas = 2.
  *
- * Si 5a Fuerza tiene 7 parejas en el bloque ocupa 3 carriles (9 lugares) y le
- * sobran 2 huecos que SOLO sirven para 5a Fuerza. Una pareja de otra categoria
- * necesita carril nuevo.
+ *   carrilesUsados  = suma sobre categorias de
+ *                       ceil(parejas[cat] / G[cat]) * carrilesDeGrupo(G[cat])
+ *   carrilesLibres  = carriles - carrilesUsados
+ *   huecoEnMiGrupo  = (G - (mias % G)) % G
+ *   gruposQueCaben  = floor(carrilesLibres / carrilesDeGrupo(G))
+ *   cupo            = huecoEnMiGrupo + gruposQueCaben * G
+ *
+ * Con G = 3 en todo sale exactamente la formula de antes; el cambio no mueve
+ * el caso normal.
+ *
+ * EJEMPLO DEL BUG QUE ARREGLA
+ *   Categoria de 8 parejas -> computeFormat da [4,4] -> G = 4. Un bloque vacio
+ *   de 8 carriles admite 4 grupos de 4 (16 parejas), no 8 grupos de 3 (24).
+ *   Antes decia 24: ocho parejas de mas que no tenian donde jugar.
+ *
+ * ES UN PRONOSTICO, NO UN CUPO EXACTO. Se calcula mientras la gente todavia se
+ * esta inscribiendo, asi que G sale del numero de parejas de ESTE momento y
+ * puede cambiar con la siguiente inscripcion. La cuenta fina, sobre la
+ * inscripcion cerrada, es `capacidadDelTorneo`.
  */
 export function cupoDeBloque(
   bloque: Bloque,
   ocupacion: OcupacionBloque | undefined,
   categoriaId: string,
-  parejasPorGrupo: number = PAREJAS_POR_GRUPO,
+  opciones: OpcionesCupo = {},
 ): number {
   const ocup = ocupacion ?? {};
+  const ppc  = opciones.partidosPorCarril ?? PARTIDOS_POR_CARRIL;
 
   let carrilesUsados = 0;
   for (const cat of Object.keys(ocup)) {
     const parejas = ocup[cat] ?? 0;
     if (parejas <= 0) continue;
-    carrilesUsados += Math.ceil(parejas / parejasPorGrupo);
+    const g = tamanoDeGrupo(opciones, cat);
+    carrilesUsados += Math.ceil(parejas / g) * carrilesDeGrupo(g, ppc);
   }
 
   const carrilesLibres = bloque.carriles - carrilesUsados;
-  const mias = ocup[categoriaId] ?? 0;
-  const huecoEnMiCarril = mias > 0 ? (parejasPorGrupo - (mias % parejasPorGrupo)) % parejasPorGrupo : 0;
 
-  // Si el bloque quedo sobrevendido, carrilesLibres es negativo: no resta huecos propios.
-  const porCarrilesNuevos = Math.max(0, carrilesLibres) * parejasPorGrupo;
-  return huecoEnMiCarril + porCarrilesNuevos;
+  const gMia = tamanoDeGrupo(opciones, categoriaId);
+  const mias = ocup[categoriaId] ?? 0;
+
+  // Huecos del grupo a medias que ya tengo abierto: su carril ya esta pagado.
+  const huecoEnMiGrupo = mias > 0 ? (gMia - (mias % gMia)) % gMia : 0;
+
+  // Si el bloque quedo sobrevendido, carrilesLibres es negativo: no resta
+  // huecos propios, solo deja de ofrecer grupos nuevos.
+  const gruposQueCaben = Math.floor(Math.max(0, carrilesLibres) / carrilesDeGrupo(gMia, ppc));
+
+  return huecoEnMiGrupo + gruposQueCaben * gMia;
 }
 
 // ---------------------------------------------------------------------------
-// 3. Bloques ofrecibles
+// 4. Bloques ofrecibles
 // ---------------------------------------------------------------------------
 
 /**
@@ -304,12 +406,12 @@ export function bloquesDisponibles(
   bloques: Bloque[],
   ocupacion: Ocupacion | undefined,
   categoriaId: string,
-  parejasPorGrupo: number = PAREJAS_POR_GRUPO,
+  opciones: OpcionesCupo = {},
 ): BloqueDisponible[] {
   const ocup = ocupacion ?? {};
   const salida: BloqueDisponible[] = [];
   for (const bloque of bloques) {
-    const cupo = cupoDeBloque(bloque, ocup[bloque.id], categoriaId, parejasPorGrupo);
+    const cupo = cupoDeBloque(bloque, ocup[bloque.id], categoriaId, opciones);
     if (cupo > 0) salida.push({ ...bloque, cupo });
   }
   return salida;

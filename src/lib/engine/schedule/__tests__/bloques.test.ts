@@ -2,6 +2,8 @@ import {
   generarBloques,
   cupoDeBloque,
   bloquesDisponibles,
+  partidosDeGrupo,
+  carrilesDeGrupo,
   parseHoraBloque,
   formatHoraBloque,
   PAREJAS_POR_GRUPO,
@@ -253,8 +255,97 @@ describe('cupoDeBloque', () => {
   });
 
   it('respeta un tamano de grupo distinto', () => {
-    // Grupos de 4: 7 parejas -> 2 carriles, 1 hueco propio, 6 carriles libres.
-    expect(cupoDeBloque(bloque, { '5a': 7 }, '5a', 4)).toBe(1 + 6 * 4);
+    // Grupos de 4: 7 parejas -> 2 grupos -> 2 x 2 = 4 carriles usados.
+    // Hueco propio: (4 - 7%4) % 4 = 1. Libres: 8 - 4 = 4 -> 2 grupos de 4.
+    const g4 = { parejasPorGrupo: { '5a': 4 } };
+    expect(cupoDeBloque(bloque, { '5a': 7 }, '5a', g4)).toBe(1 + 2 * 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// El arreglo: los grupos que no son de 3
+// ---------------------------------------------------------------------------
+
+describe('coste de un grupo en carriles', () => {
+  it('partidos de un round robin', () => {
+    expect(partidosDeGrupo(2)).toBe(1);
+    expect(partidosDeGrupo(3)).toBe(3);
+    expect(partidosDeGrupo(4)).toBe(6);
+    expect(partidosDeGrupo(5)).toBe(10);
+  });
+
+  it('un grupo de 4 son 6 partidos: DOS carriles, no uno', () => {
+    expect(carrilesDeGrupo(3)).toBe(1);
+    expect(carrilesDeGrupo(4)).toBe(2);
+    expect(carrilesDeGrupo(5)).toBe(4);
+  });
+
+  it('un grupo de 2 ocupa un carril entero: el carril no se parte', () => {
+    expect(carrilesDeGrupo(2)).toBe(1);
+  });
+
+  it('una categoria sin parejas no cuesta nada', () => {
+    expect(carrilesDeGrupo(0)).toBe(0);
+  });
+
+  it('con carriles mas largos caben grupos mas grandes', () => {
+    // Un carril de 6 partidos (bloque de 6 h) aloja un grupo de 4 entero.
+    expect(carrilesDeGrupo(4, 6)).toBe(1);
+    expect(carrilesDeGrupo(5, 6)).toBe(2);
+  });
+});
+
+describe('cupoDeBloque con una categoria de grupos de 4', () => {
+  const bloque: Bloque = {
+    id: '2025-11-08-08:00', dia: '2025-11-08', desde: '08:00', hasta: '11:00',
+    carriles: 8,
+  };
+
+  // 8 parejas -> computeFormat da [4,4]. Es el caso que anunciaba capacidad
+  // inexistente: 8 carriles NO son 24 lugares si los grupos son de 4.
+  const G4 = { parejasPorGrupo: { MxA: 4 } };
+
+  it('el bloque vacio ofrece 16 lugares, no 24', () => {
+    expect(cupoDeBloque(bloque, {}, 'MxA', G4)).toBe(16);   // 4 grupos x 4
+    // Sin la opcion volveria a mentir. Se deja escrito para que se vea la
+    // diferencia que introduce el dato.
+    expect(cupoDeBloque(bloque, {}, 'MxA')).toBe(24);
+  });
+
+  it('llenarlo consume dos carriles por grupo', () => {
+    expect(cupoDeBloque(bloque, { MxA: 4 }, 'MxA', G4)).toBe(12);   // 3 grupos mas
+    expect(cupoDeBloque(bloque, { MxA: 8 }, 'MxA', G4)).toBe(8);
+    expect(cupoDeBloque(bloque, { MxA: 12 }, 'MxA', G4)).toBe(4);
+    expect(cupoDeBloque(bloque, { MxA: 16 }, 'MxA', G4)).toBe(0);   // 8 carriles
+  });
+
+  it('el hueco de un grupo a medias sigue siendo solo suyo', () => {
+    // 5 parejas -> 2 grupos (4 y 1) -> 4 carriles. Hueco propio: 3.
+    expect(cupoDeBloque(bloque, { MxA: 5 }, 'MxA', G4)).toBe(3 + 2 * 4);
+    // Otra categoria no puede usar esos 3 huecos: solo le quedan 4 carriles.
+    expect(cupoDeBloque(bloque, { MxA: 5 }, 'F5', G4)).toBe(4 * 3);
+  });
+
+  it('categorias con tamanos distintos en el mismo bloque', () => {
+    // MxA de 4 (2 carriles por grupo) y F5 de 3 (1 carril por grupo).
+    const mixto = { parejasPorGrupo: { MxA: 4, F5: 3 } };
+    // MxA: 8 parejas = 2 grupos = 4 carriles. F5: 6 parejas = 2 grupos = 2.
+    // Usados 6, libres 2.
+    expect(cupoDeBloque(bloque, { MxA: 8, F5: 6 }, 'F5', mixto)).toBe(2 * 3);
+    // A MxA solo le cabe UN grupo mas: necesita 2 carriles de los 2 libres.
+    expect(cupoDeBloque(bloque, { MxA: 8, F5: 6 }, 'MxA', mixto)).toBe(1 * 4);
+  });
+
+  it('un tamano invalido cae al default en vez de reventar el render', () => {
+    for (const malo of [0, 1, -3, 2.5, NaN]) {
+      expect(cupoDeBloque(bloque, {}, 'MxA', { parejasPorGrupo: { MxA: malo } })).toBe(24);
+    }
+  });
+
+  it('bloquesDisponibles arrastra el tamano de grupo', () => {
+    const bloques = [bloque, { ...bloque, id: '2025-11-08-11:00', desde: '11:00', hasta: '14:00' }];
+    const d = bloquesDisponibles(bloques, {}, 'MxA', G4);
+    expect(d.map((b) => b.cupo)).toEqual([16, 16]);
   });
 });
 

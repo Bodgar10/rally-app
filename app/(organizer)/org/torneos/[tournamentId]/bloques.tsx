@@ -31,10 +31,10 @@ import {
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
-import { cupoDeBloque, type Ocupacion } from '@/lib/engine/schedule/bloques';
+import { carrilesDeGrupo, type Ocupacion } from '@/lib/engine/schedule/bloques';
 import { cargarBloquesDelTorneo, type BloquesDelTorneo } from '@/lib/bloques-torneo';
 import {
-  capacidadDelTorneo, horaLegible, textoCupo, partesDeBloqueId, type Capacidad,
+  capacidadDelTorneo, tamanosDeGrupo, horaLegible, partesDeBloqueId, type Capacidad,
 } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
 import { color, radius, space, font, fontSize } from '@/lib/design-tokens';
@@ -51,6 +51,12 @@ interface Renglon {
   categoria: string;
   parejas:   number;
   forzadas:  number;
+  /** Parejas por grupo de esa categoría. 3 casi siempre, 4 en las chicas. */
+  tamanoGrupo: number;
+  grupos:    number;
+  carriles:  number;
+  /** Parejas que le faltan al último grupo para cerrar. 0 si cierra justo. */
+  faltan:    number;
 }
 
 export default function BloquesScreen() {
@@ -122,6 +128,15 @@ export default function BloquesScreen() {
 
   const porCategoria: Record<string, number> = {};
   for (const p of parejas) porCategoria[p.category_id] = (porCategoria[p.category_id] ?? 0) + 1;
+
+  /**
+   * Tamaño de grupo por categoría, con las parejas que el organizador SÍ puede
+   * contar (todas, incluidas las 'pending'). El jugador ve el mismo cálculo
+   * sobre el agregado público, que excluye las pendientes: aquí la cifra es la
+   * fina, y es la que manda para avisar de que no cabe.
+   */
+  const tamanos = tamanosDeGrupo(porCategoria);
+  const tamanoDe = (cat: string) => tamanos[cat] ?? 3;
 
   const cap: Capacidad | null = datos?.reticula
     ? capacidadDelTorneo({ reticula: datos.reticula, canchas, parejasPorCategoria: porCategoria })
@@ -215,21 +230,32 @@ export default function BloquesScreen() {
                 {datos.bloques.filter((b) => b.dia === dia).map((b) => {
                   const ocup = ocupacion[b.id] ?? {};
                   const renglones: Renglon[] = Object.keys(ocup)
-                    .map((cat) => ({
-                      categoria: nombreDeCat(cat),
-                      parejas:   ocup[cat] ?? 0,
-                      forzadas:  (forzadas[b.id] ?? {})[cat] ?? 0,
-                    }))
+                    .map((cat) => {
+                      const parejas = ocup[cat] ?? 0;
+                      const g = tamanoDe(cat);
+                      const grupos = Math.ceil(parejas / g);
+                      return {
+                        categoria: nombreDeCat(cat),
+                        parejas,
+                        forzadas: (forzadas[b.id] ?? {})[cat] ?? 0,
+                        tamanoGrupo: g,
+                        grupos,
+                        // Un grupo de 4 son 6 partidos: DOS carriles, no uno.
+                        carriles: grupos * carrilesDeGrupo(g),
+                        faltan: parejas % g === 0 ? 0 : g - (parejas % g),
+                      };
+                    })
                     .sort((x, y) => y.parejas - x.parejas);
 
                   const total = renglones.reduce((a, r) => a + r.parejas, 0);
-                  const carriles = renglones.reduce((a, r) => a + Math.ceil(r.parejas / 3), 0);
+                  const carriles = renglones.reduce((a, r) => a + r.carriles, 0);
                   const sobrevendido = carriles > b.carriles;
 
-                  // Sin categoría concreta el cupo no tiene respuesta única; se
-                  // enseña el de una categoría nueva, que es el peor caso: hay
-                  // que abrirle carril.
-                  const cupoNuevo = cupoDeBloque(b, ocup, '__nueva__');
+                  // Se dice en CARRILES libres y no en "quedan N lugares": los
+                  // lugares dependen de qué categoría pregunte —una de grupos
+                  // de 4 gasta dos carriles por grupo—, así que un solo número
+                  // de parejas sería falso para alguna.
+                  const libres = Math.max(0, b.carriles - carriles);
 
                   return (
                     <View key={b.id} style={[s.bloque, sobrevendido && s.bloqueAlerta]}>
@@ -241,7 +267,10 @@ export default function BloquesScreen() {
                             {carriles}/{b.carriles} carriles
                           </Text>
                           <Text style={s.bloqueCupo}>
-                            {total} pareja{total === 1 ? '' : 's'} · {textoCupo(cupoNuevo).toLowerCase()}
+                            {total} pareja{total === 1 ? '' : 's'} ·{' '}
+                            {libres === 0
+                              ? 'lleno'
+                              : `${libres} carril${libres === 1 ? '' : 'es'} libre${libres === 1 ? '' : 's'}`}
                           </Text>
                         </View>
                       </View>
@@ -254,9 +283,9 @@ export default function BloquesScreen() {
                             <View key={r.categoria} style={s.catFila}>
                               <Text style={s.catNombre} numberOfLines={1}>{r.categoria}</Text>
                               <Text style={s.catDato}>
-                                {r.parejas} · {Math.ceil(r.parejas / 3)} grupo
-                                {Math.ceil(r.parejas / 3) === 1 ? '' : 's'}
-                                {r.parejas % 3 !== 0 && ` (falta${3 - (r.parejas % 3) === 1 ? '' : 'n'} ${3 - (r.parejas % 3)})`}
+                                {r.parejas} · {r.grupos} grupo{r.grupos === 1 ? '' : 's'} de {r.tamanoGrupo}
+                                {r.carriles !== r.grupos && ` · ${r.carriles} carriles`}
+                                {r.faltan > 0 && ` (falta${r.faltan === 1 ? '' : 'n'} ${r.faltan})`}
                                 {r.forzadas > 0 && ` · ${r.forzadas} forzada${r.forzadas === 1 ? '' : 's'}`}
                               </Text>
                             </View>

@@ -10,11 +10,16 @@
  *   en pequeño. Un radio button pondría el foco en el punto, no en la hora.
  *
  * EL CUPO NO ES UNA DIVISIÓN
- *   Lo calcula `cupoDeBloque` del motor, que ya sabe que un grupo son 3 parejas
- *   de la MISMA categoría y que cada grupo ocupa un carril entero. Si 5ª Fuerza
- *   tiene 7 parejas en un bloque, ocupa 3 carriles y le sobran 2 huecos que
- *   SOLO sirven para 5ª Fuerza. Por eso hace falta la categoría antes que nada:
+ *   Lo calcula `cupoDeBloque` del motor, que ya sabe que un grupo son parejas
+ *   de la MISMA categoría y que ocupa carriles enteros. Si 5ª Fuerza tiene 7
+ *   parejas en un bloque, ocupa 3 carriles y le sobran 2 huecos que SOLO
+ *   sirven para 5ª Fuerza. Por eso hace falta la categoría antes que nada:
  *   sin ella el cupo no se puede responder.
+ *
+ *   Y tampoco son siempre 3 por grupo: una categoría de 8 parejas juega en dos
+ *   grupos de 4, y un grupo de 4 son 6 partidos — dos carriles, no uno. Ese
+ *   dato entra por `opcionesCupo`; sin él el selector ofrecería lugares que no
+ *   existen.
  *
  * LOS BLOQUES AGOTADOS NO SE MUESTRAN
  *   Salvo para el organizador (`permitirLlenos`). Él sí puede meter una pareja
@@ -24,7 +29,7 @@
 
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 
-import { cupoDeBloque, type Bloque, type Ocupacion } from '@/lib/engine/schedule/bloques';
+import { cupoDeBloque, type Bloque, type Ocupacion, type OpcionesCupo } from '@/lib/engine/schedule/bloques';
 import { rangoLegible, horaLegible, textoCupo } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
@@ -40,12 +45,15 @@ interface Props {
   onCambio:     (bloqueId: string, cupo: number) => void;
   /** Solo el organizador. Muestra los llenos y deja elegirlos, con aviso. */
   permitirLlenos?: boolean;
+  /** Tamaño de grupo por categoría. Lo trae `cargarBloquesDelTorneo`. */
+  opcionesCupo?: OpcionesCupo;
 }
 
 interface BloqueConCupo extends Bloque { cupo: number }
 
 export default function SelectorDeBloque({
-  bloques, ocupacion, categoriaId, valor, onCambio, permitirLlenos = false,
+  bloques, ocupacion, categoriaId, valor, onCambio,
+  permitirLlenos = false, opcionesCupo = {},
 }: Props) {
 
   if (!categoriaId) {
@@ -58,7 +66,7 @@ export default function SelectorDeBloque({
 
   const conCupo: BloqueConCupo[] = bloques.map((b) => ({
     ...b,
-    cupo: cupoDeBloque(b, ocupacion[b.id], categoriaId),
+    cupo: cupoDeBloque(b, ocupacion[b.id], categoriaId, opcionesCupo),
   }));
 
   const visibles = permitirLlenos ? conCupo : conCupo.filter((b) => b.cupo > 0);

@@ -51,6 +51,7 @@ import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
 import { cargarBloquesDelTorneo, guardarEleccionDeBloque, type BloquesDelTorneo } from '@/lib/bloques-torneo';
 import { rangoLegible } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
+import { fallo } from '@/lib/errores-red';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -261,8 +262,10 @@ export default function AgregarParejaScreen() {
         setOutboxIds(json.outbox_ids as string[]);
         void refrescarCorreos(json.outbox_ids as string[]);
       }
-    } catch {
-      setError('Sin conexión con el servidor. Revisa tu internet.');
+    } catch (e) {
+      setError(fallo('agregar-pareja', e, 'No se pudo registrar la pareja. Intenta de nuevo.', {
+        tournamentId,
+      }));
       setPaso('confirmar');
     }
   }
@@ -454,6 +457,7 @@ export default function AgregarParejaScreen() {
               ocupacion={bloques!.ocupacion}
               categoriaId={categoria.id}
               valor={bloqueId}
+              opcionesCupo={bloques!.opcionesCupo}
               permitirLlenos
               onCambio={(id, cupo) => { setBloqueId(id); setForzado(cupo <= 0); }}
             />

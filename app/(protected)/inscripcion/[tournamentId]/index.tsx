@@ -43,6 +43,7 @@ import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
 import { cargarBloquesDelTorneo, guardarEleccionDeBloque, type BloquesDelTorneo } from '@/lib/bloques-torneo';
 import { rangoLegible } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
+import { fallo } from '@/lib/errores-red';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -307,9 +308,11 @@ export default function InscripcionScreen() {
       }
 
       siguiente();
-    } catch {
+    } catch (e) {
       setSubmitting(false);
-      setError('Sin conexión con el servidor. Revisa tu internet.');
+      setError(fallo('inscripcion', e, 'No se pudo completar la inscripción. Intenta de nuevo.', {
+        tournamentId,
+      }));
     }
   }
 
@@ -627,6 +630,7 @@ export default function InscripcionScreen() {
                 ocupacion={bloques!.ocupacion}
                 categoriaId={selectedCategory?.id ?? null}
                 valor={bloqueId}
+                opcionesCupo={bloques!.opcionesCupo}
                 onCambio={(id) => { setError(null); setBloqueId(id); }}
               />
             </Card>

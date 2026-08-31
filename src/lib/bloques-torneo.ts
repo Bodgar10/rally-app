@@ -24,8 +24,10 @@ import {
   generarBloques,
   type Bloque,
   type Ocupacion,
+  type OpcionesCupo,
   type ReticulaBloques,
 } from '@/lib/engine/schedule/bloques';
+import { tamanosDeGrupo } from '@/lib/bloques-formato';
 
 /** Lo que la UI necesita para pintar el selector. */
 export interface BloquesDelTorneo {
@@ -39,10 +41,18 @@ export interface BloquesDelTorneo {
    * el paso.
    */
   motivoSinBloques: string | null;
+  /** Parejas inscritas por categoría, del agregado público (migración 038). */
+  parejasPorCategoria: Record<string, number>;
+  /**
+   * Lo que `cupoDeBloque` necesita para no anunciar lugares que no existen:
+   * el tamaño de grupo de cada categoría. Ver `tamanosDeGrupo`.
+   */
+  opcionesCupo: OpcionesCupo;
 }
 
 const VACIO: BloquesDelTorneo = {
   bloques: [], ocupacion: {}, reticula: null, motivoSinBloques: null,
+  parejasPorCategoria: {}, opcionesCupo: {},
 };
 
 /** 'HH:MM:SS' de Postgres → 'HH:MM', que es lo que espera el motor. */
@@ -55,7 +65,7 @@ const aHoraCorta = (t: string) => t.slice(0, 5);
 export async function cargarBloquesDelTorneo(
   tournamentId: string,
 ): Promise<BloquesDelTorneo> {
-  const [torneoRes, ventanasRes, ocupacionRes] = await Promise.all([
+  const [torneoRes, ventanasRes, ocupacionRes, conteosRes] = await Promise.all([
     supabase
       .from('tournaments')
       .select('courts, match_minutes')
@@ -66,18 +76,34 @@ export async function cargarBloquesDelTorneo(
       .select('dia, desde, hasta')
       .eq('tournament_id', tournamentId),
     supabase.rpc('bloques_ocupacion', { p_tournament_id: tournamentId }),
+    // Agregado público (migración 038). Hace falta aquí porque el tamaño de
+    // grupo sale del número de parejas de la categoría, y `pairs_select` no
+    // deja a un jugador contarlas: le devolvería 0 en todas.
+    //
+    // OJO CON EL DESFASE: este conteo excluye las 'pending' y `bloques_ocupacion`
+    // no. Se asume a propósito — el tamaño de grupo es un pronóstico, y una
+    // pareja a medio pagar todavía no cuenta para el cuadro.
+    supabase.rpc('tournament_category_counts', { p_tournament_id: tournamentId }),
   ]);
+
+  const parejasPorCategoria: Record<string, number> = {};
+  for (const fila of conteosRes.data ?? []) {
+    parejasPorCategoria[fila.category_id] = fila.pair_count;
+  }
+  const opcionesCupo: OpcionesCupo = { parejasPorGrupo: tamanosDeGrupo(parejasPorCategoria) };
 
   const torneo   = torneoRes.data;
   const ventanas = ventanasRes.data ?? [];
 
-  if (!torneo) return VACIO;
+  const base = { ...VACIO, parejasPorCategoria, opcionesCupo };
+
+  if (!torneo) return base;
 
   if (!torneo.courts || torneo.courts <= 0) {
-    return { ...VACIO, motivoSinBloques: 'Falta capturar cuántas canchas se van a usar.' };
+    return { ...base, motivoSinBloques: 'Falta capturar cuántas canchas se van a usar.' };
   }
   if (ventanas.length === 0) {
-    return { ...VACIO, motivoSinBloques: 'Faltan los horarios: ningún día tiene ventana de juego.' };
+    return { ...base, motivoSinBloques: 'Faltan los horarios: ningún día tiene ventana de juego.' };
   }
 
   let reticula: ReticulaBloques;
@@ -95,7 +121,7 @@ export async function cargarBloquesDelTorneo(
     // Datos imposibles (hora mal guardada, canchas en 0). Se registra y se
     // sigue sin bloques: la inscripción no depende de esto.
     console.error('[bloques-torneo] retícula inválida:', e);
-    return { ...VACIO, motivoSinBloques: 'Los horarios capturados no forman bloques válidos.' };
+    return { ...base, motivoSinBloques: 'Los horarios capturados no forman bloques válidos.' };
   }
 
   const ocupacion: Ocupacion = {};
@@ -107,6 +133,8 @@ export async function cargarBloquesDelTorneo(
     bloques:   reticula.bloques,
     ocupacion,
     reticula,
+    parejasPorCategoria,
+    opcionesCupo,
     motivoSinBloques: reticula.bloques.length === 0
       ? 'Las ventanas capturadas no alcanzan para un bloque completo.'
       : null,

@@ -53,15 +53,15 @@ describe('capacidadDelTorneo', () => {
     expect(r.capacidadParejas).toBe(48);
   });
 
-  it('cuenta en CARRILES, no en lugares: 4 parejas de una categoría gastan 2', () => {
+  it('cuenta en CARRILES con el reparto real: 4 parejas gastan 2 carriles', () => {
     const cap = capacidadDelTorneo({
       reticula: reticulaDePrueba(),
       canchas: 4,
       parejasPorCategoria: { a: 4, b: 4, c: 4 },
     });
     expect(cap.inscritas).toBe(12);
-    // 12 parejas en 48 lugares "cabrian" de sobra, pero cada categoria de 4
-    // necesita 2 carriles: 6 de 16.
+    // computeFormat(4) da un solo grupo de 4 = 6 partidos = 2 carriles. Doce
+    // parejas en 48 lugares "cabrian" de sobra; en carriles son 6 de 16.
     expect(cap.carrilesNecesarios).toBe(6);
     expect(cap.faltanCarriles).toBe(-10);
     expect(cap.palancas).toEqual([]);
@@ -90,9 +90,11 @@ describe('capacidadDelTorneo', () => {
     expect(cap.carrilesNecesarios).toBe(17);
     expect(cap.faltanCarriles).toBe(1);
     expect(cap.palancas).toHaveLength(3);
-    // 1 carril de deficit / 4 bloques = 1 cancha mas, que aporta 4 grupos.
+    // 1 carril de deficit / 4 bloques = 1 cancha mas, que aporta 4 carriles.
     expect(cap.palancas[0]).toContain('1 cancha');
-    expect(cap.palancas[0]).toContain('4 grupos');
+    expect(cap.palancas[0]).toContain('4 carriles');
+    // Las parejas se dicen con la mezcla REAL: 51 parejas en 17 carriles = 3.
+    expect(cap.palancas[0]).toContain('12 parejas');
     // 1 carril / 4 canchas = 1 bloque mas = 3 h.
     expect(cap.palancas[1]).toContain('3 h en total');
     expect(cap.palancas[2]).toContain('un día más de 3 h');
