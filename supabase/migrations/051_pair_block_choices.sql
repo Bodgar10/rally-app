@@ -40,10 +40,20 @@
 
 -- La FK compuesta necesita un unique al que apuntar. `id` ya es PK, asi que
 -- este unique es redundante en datos pero obligatorio para el referenciador.
-alter table public.pairs
-  drop constraint if exists pairs_id_tournament_key;
-alter table public.pairs
-  add constraint pairs_id_tournament_key unique (id, tournament_id);
+--
+-- Se agrega condicionalmente y NO con drop+add: en una segunda corrida el drop
+-- fallaria, porque la FK de pair_block_choices ya depende de este unique.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'pairs_id_tournament_key'
+       and conrelid = 'public.pairs'::regclass
+  ) then
+    alter table public.pairs
+      add constraint pairs_id_tournament_key unique (id, tournament_id);
+  end if;
+end $$;
 
 create table if not exists public.pair_block_choices (
   pair_id       uuid primary key,
