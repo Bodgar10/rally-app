@@ -142,7 +142,8 @@ Deno.serve(async (req) => {
         .from('tournaments').select('tercer_lugar').eq('id', match.tournament_id).maybeSingle();
       if (tle) return json({ error: 'tournament_read_failed', detail: tle.message }, 500);
       if (!torneo) return json({ error: 'tournament_not_found' }, 404);
-      const tercerLugar = torneo.tercer_lugar !== false;
+      // `=== true`: lo desconocido se lee apagado. Ver generate-bracket.
+      const tercerLugar = torneo.tercer_lugar === true;
 
       let ultimoFalloKO = '';
       for (let intento = 1; intento <= MAX_INTENTOS; intento++) {

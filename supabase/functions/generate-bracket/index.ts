@@ -44,7 +44,9 @@ Deno.serve(async (req) => {
       .from('tournaments').select('tercer_lugar').eq('id', cat.tournament_id).maybeSingle();
     if (te) return json({ error: 'tournament_read_failed', detail: te.message }, 500);
     if (!torneo) return json({ error: 'tournament_not_found' }, 404);
-    const tercerLugar = torneo.tercer_lugar !== false;
+    // `=== true`: si la columna no dice que sí, no se crea. Lo desconocido
+    // se lee apagado, que es la regla del formato desde la 057.
+    const tercerLugar = torneo.tercer_lugar === true;
 
     const { data: canUser } = await asUser.rpc('can_capture_tournament', { p_tournament_id: cat.tournament_id });
     if (!canUser) return json({ error: 'not_authorized' }, 403);

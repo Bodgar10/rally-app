@@ -77,6 +77,17 @@ export default function NuevoTorneoScreen() {
         end_date:         rango.fin,
         registration_fee: parseFloat(fee) || 0,
         status:           'draft',
+        // APAGADO Y EXPLÍCITO, no confiado al default de la columna.
+        //
+        // En un torneo real no se juega el 3.er lugar: la gente lleva tres
+        // días, el domingo por la tarde los dos perdedores de semifinal
+        // quieren irse a casa. Se enciende desde Formato quien lo quiera.
+        //
+        // Va aquí y no solo en el `default` de la tabla porque el default es
+        // una promesa de otro sistema: si una migración no llega a aplicarse
+        // —que es exactamente lo que pasó con la 057— el torneo nace con el
+        // 3.er lugar encendido y nadie se entera hasta el domingo.
+        tercer_lugar:     false,
       })
       .select('id')
       .single();

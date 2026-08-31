@@ -222,7 +222,7 @@ Deno.serve(async (req) => {
         // línea el motor caía a su default `true` y reservaba una cancha por
         // categoría para un partido que nadie iba a jugar: ocho slots fantasma
         // en la transición de semis a final, justo la hora más cargada.
-        tercerLugar: (torneo as { tercer_lugar?: boolean }).tercer_lugar !== false,
+        tercerLugar: (torneo as { tercer_lugar?: boolean }).tercer_lugar === true,
       });
     } catch (e) {
       // El motor valida su entrada (canchas, ventana invertida, duración fuera

@@ -214,7 +214,8 @@ export default function OrgTournamentScreen() {
 
   const tieneSede       = !!tournament.venues;
   // Default true: es lo que hacían todos los torneos antes de la migración 052.
-  const tercerLugar     = (tournament as { tercer_lugar?: boolean | null }).tercer_lugar !== false;
+  // `=== true`: lo desconocido se lee apagado, que es la regla del formato.
+  const tercerLugar     = (tournament as { tercer_lugar?: boolean | null }).tercer_lugar === true;
 
   /** "Vie, Sáb y Dom · 34 h" o "Sin definir". */
   const resumenHorarios = (() => {

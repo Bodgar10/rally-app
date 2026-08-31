@@ -37,7 +37,9 @@ export default function FormatoScreen() {
   const router = useRouter();
 
   const [nombre, setNombre]       = useState('');
-  const [tercero, setTercero]     = useState(true);
+  // Arranca apagado: si la carga falla, la pantalla no promete un partido
+  // que el torneo no va a jugar.
+  const [tercero, setTercero]     = useState(false);
   const [precio, setPrecio]       = useState<string | null>(null);
   const [cargando, setCargando]   = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -59,7 +61,9 @@ export default function FormatoScreen() {
         match_minutes: number | null; tercer_lugar: boolean | null;
       };
       setNombre(fila.name);
-      setTercero(fila.tercer_lugar !== false);
+      // `=== true` y no `!== false`: lo desconocido se lee APAGADO. La regla
+      // es que solo esté encendido si alguien lo encendió a propósito.
+      setTercero(fila.tercer_lugar === true);
 
       // ── El precio ─────────────────────────────────────────────────────────
       // Clasificados por categoría = grupos × pasan + repescados. Hace falta

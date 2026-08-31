@@ -782,7 +782,7 @@ export default function CerrarInscripcionesScreen() {
         // default de la columna es `false` y el del motor sigue siendo `true`.
         // Sin esta línea el planificador reservaría cancha para ocho partidos
         // que `generate-bracket` no va a crear.
-        tercerLugar: (t as { tercer_lugar?: boolean | null }).tercer_lugar !== false,
+        tercerLugar: (t as { tercer_lugar?: boolean | null }).tercer_lugar === true,
         ventanas: ventanasCrudas.map((w) => ({
           fecha: w.dia, desde: w.desde, hasta: w.hasta,
         })),
