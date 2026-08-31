@@ -678,7 +678,14 @@ type Fase =
       abiertas: string[];
       /** false si la relectura falló: entonces no se afirma nada del estado. */
       verificado: boolean;
-      fallo: { nombre: string; motivo: string } | null;
+      /**
+       * TODAS las que no se cerraron, no la primera.
+       *
+       * Antes el bucle se detenía en el primer fallo y las demás ni se
+       * intentaban: el organizador arreglaba una, volvía, y se encontraba la
+       * siguiente. Con ocho categorías eso son ocho viajes.
+       */
+      fallos: { nombre: string; motivo: string; queHacer: string | null }[];
       /** Solo las categorías con algo que contar. Vacío es el caso bueno. */
       bloques: AvisoBloques[];
       horarios: EstadoHorarios;
@@ -962,15 +969,27 @@ export default function CerrarInscripcionesScreen() {
   }
 
   /** Cierra el parte con lo que diga la base, no con lo que crea el bucle. */
+  /**
+   * Vuelve a la lista con los datos frescos.
+   *
+   * Recargar y no solo cambiar de fase: las que SÍ se cerraron ya no son
+   * cerrables, y enseñarlas otra vez como pendientes invitaría a reintentar
+   * algo que está hecho.
+   */
+  async function recargarYVolverALaLista() {
+    setFase({ t: 'cargando' });
+    await cargar();
+  }
+
   async function reportar(
-    fallo: { nombre: string; motivo: string } | null,
+    fallos: { nombre: string; motivo: string; queHacer: string | null }[],
     bloques: AvisoBloques[] = [],
     horarios: EstadoHorarios = { t: 'no_intentado' },
   ) {
     const real = await leerEstadoReal();
     setFase(real
-      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallo, bloques, horarios }
-      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallo, bloques, horarios });
+      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallos, bloques, horarios }
+      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallos, bloques, horarios });
   }
 
   /** La respuesta de close-registration traducida al estado de la pantalla. */
@@ -1036,6 +1055,7 @@ export default function CerrarInscripcionesScreen() {
     if (!session) { setError('Tu sesión expiró. Vuelve a entrar.'); return; }
 
     const avisos: AvisoBloques[] = [];
+    const fallos: { nombre: string; motivo: string; queHacer: string | null }[] = [];
     // Lo devuelve la ÚLTIMA llamada, que es la que dispara los schedulers
     // cuando ya no queda ninguna categoría abierta.
     let horarios: EstadoHorarios = { t: 'no_intentado' };
@@ -1064,8 +1084,14 @@ export default function CerrarInscripcionesScreen() {
           console.error('[cerrar-inscripciones] close-registration respondió con error', {
             categoria: c.nombre, categoryId: c.id, status: res.status, cuerpo: json,
           });
-          await reportar({ nombre: c.nombre, motivo: traducir(json?.error) }, avisos, horarios);
-          return;
+          // Se anota y se SIGUE. Que una categoría no cierre no dice nada de
+          // las demás, y pararse obligaba a un viaje por cada una.
+          fallos.push({
+            nombre: c.nombre,
+            motivo: traducir(json),
+            queHacer: queHacer(json?.error),
+          });
+          continue;
         }
 
         // El reparto por bloque no es infalible: los restos de varios bloques
@@ -1087,17 +1113,18 @@ export default function CerrarInscripcionesScreen() {
           categoria: c.nombre, categoryId: c.id, error: e,
         });
         const detalle = e instanceof Error ? e.message : String(e);
-        await reportar({
+        fallos.push({
           nombre: c.nombre,
           motivo: `La petición no llegó a completarse. Detalle: ${detalle}`,
-        }, avisos, horarios);
-        return;
+          queHacer: null,
+        });
+        continue;
       }
     }
 
     // También en el camino feliz se relee: ocho respuestas 200 son ocho
     // promesas, y el parte se da con hechos.
-    await reportar(null, avisos, horarios);
+    await reportar(fallos, avisos, horarios);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1128,10 +1155,10 @@ export default function CerrarInscripcionesScreen() {
       <SafeAreaView style={s.safe}>
         <ScrollView contentContainerStyle={s.content}>
           <Text style={s.eyebrow}>
-            {!fase.fallo ? 'LISTO' : ninguna ? 'NO SE CERRÓ NADA' : 'CERRADO A MEDIAS'}
+            {fase.fallos.length === 0 ? 'LISTO' : ninguna ? 'NO SE CERRÓ NADA' : 'CERRADO A MEDIAS'}
           </Text>
           <Text style={s.title}>
-            {!fase.fallo
+            {fase.fallos.length === 0
               ? 'Cuadros generados'
               : ninguna
               ? 'No se cerró ninguna categoría'
@@ -1162,14 +1189,26 @@ export default function CerrarInscripcionesScreen() {
             </View>
           )}
 
-          {fase.fallo && (
+          {fase.fallos.length > 0 && (
             <View style={s.resumenFallo}>
-              <Text style={s.resumenFalloTitulo}>{fase.fallo.nombre} no se cerró</Text>
-              <Text style={s.resumenLinea}>{fase.fallo.motivo}</Text>
+              <Text style={s.resumenFalloTitulo}>
+                {fase.fallos.length === 1
+                  ? `${fase.fallos[0].nombre} no se cerró`
+                  : `${fase.fallos.length} categorías no se cerraron`}
+              </Text>
+              {fase.fallos.map((f, i) => (
+                <View key={i} style={{ gap: 2 }}>
+                  {fase.fallos.length > 1 && (
+                    <Text style={s.resumenFalloNombre}>{f.nombre}</Text>
+                  )}
+                  <Text style={s.resumenLinea}>{f.motivo}</Text>
+                  {/* El motivo dice qué pasó; esto, qué hacer. */}
+                  {f.queHacer && <Text style={s.resumenQueHacer}>{f.queHacer}</Text>}
+                </View>
+              ))}
               {ninguna && (
                 <Text style={s.resumenLinea}>
-                  Ninguna otra categoría se cerró: el proceso se detuvo en la
-                  primera y no llegó a intentar las demás.
+                  Se intentaron todas; ninguna pudo cerrarse.
                 </Text>
               )}
             </View>
@@ -1188,9 +1227,19 @@ export default function CerrarInscripcionesScreen() {
                 <Text key={n} style={s.resumenLinea}>· {n}</Text>
               ))}
               <Text style={s.resumenNota}>
-                Vuelve atrás para reintentarlas. Cerrar una categoría es
-                idempotente: las que ya están cerradas no se tocan.
+                Cerrar una categoría es idempotente: las que ya están cerradas
+                no se vuelven a tocar.
               </Text>
+              {/* Antes había que volver atrás a mano. Reintentar es la acción
+                  obvia después de leer el motivo, y estaba a dos pasos. */}
+              <Pressable
+                onPress={() => { void recargarYVolverALaLista(); }}
+                style={({ pressed }) => [s.btnReintentar, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Reintentar las categorías que siguen abiertas"
+              >
+                <Text style={s.btnReintentarTexto}>Reintentar</Text>
+              </Pressable>
             </View>
           )}
 
@@ -1477,12 +1526,58 @@ export default function CerrarInscripcionesScreen() {
 }
 
 /** Códigos de close-registration a lenguaje de organizador. */
-function traducir(codigo: unknown): string {
-  const c = typeof codigo === 'string' ? codigo : '';
-  if (c === 'not_enough_pairs')  return 'No llega a 2 parejas pagadas.';
-  if (c === 'forbidden')         return 'No tienes permiso sobre este torneo.';
-  if (c === 'category_not_found') return 'La categoría ya no existe.';
-  return 'No se pudo cerrar. Intenta de nuevo.';
+/**
+ * El motivo, con lo que DE VERDAD dijo el servidor.
+ *
+ * Antes esto recibía solo `json.error` y, si no reconocía el código, devolvía
+ * "No se pudo cerrar. Intenta de nuevo." — un mensaje que no dice nada y que
+ * además tapaba uno que sí venía explicado. Es el mismo patrón que costó horas
+ * con el CORS: el servidor contaba el problema y la pantalla lo cambiaba por
+ * una frase amable.
+ *
+ * Ahora: se traduce el código conocido, y el `message` del servidor se
+ * CONSERVA siempre que aporte algo. Un código desconocido sale entero en vez de
+ * esconderse.
+ */
+function traducir(json: unknown): string {
+  const j = (json ?? {}) as { error?: unknown; message?: unknown; detail?: unknown };
+  const c = typeof j.error === 'string' ? j.error : '';
+  const delServidor = [j.message, j.detail]
+    .filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+    .join(' ');
+
+  // `parejas_sin_bloque` ya trae del servidor el desglose por categoría, que es
+  // justo lo accionable. No se le pone nada delante.
+  if (c === 'parejas_sin_bloque') {
+    return delServidor || 'Hay parejas sin horario elegido.';
+  }
+
+  const conocido =
+    c === 'not_enough_pairs'   ? 'No llega a 2 parejas pagadas.'
+    : c === 'forbidden'        ? 'No tienes permiso sobre este torneo.'
+    : c === 'category_not_found' ? 'La categoría ya no existe.'
+    : '';
+
+  if (conocido) return delServidor ? `${conocido} ${delServidor}` : conocido;
+  if (delServidor) return delServidor;
+  return c ? `El servidor rechazó el cierre (${c}).` : 'El servidor rechazó el cierre sin decir por qué.';
+}
+
+/**
+ * Qué hacer con una categoría que no se cerró.
+ *
+ * El motivo dice qué pasó; esto dice cuál es el siguiente paso. Sin la segunda
+ * mitad el organizador se queda mirando un error correcto y sin salida.
+ */
+function queHacer(codigo: unknown): string | null {
+  if (codigo !== 'parejas_sin_bloque') return null;
+  // NO se ofrece "ciérrala igual": el guard es absoluto a propósito. Los grupos
+  // se forman al cerrar, y desde la migración 055 la elección de bloque queda
+  // congelada en ese momento — así que un horario dado después ya no movería a
+  // nadie de grupo. Prometer que se arregla luego sería mentira.
+  return 'Esas parejas tienen que elegir horario ANTES de cerrar: entran a su '
+       + 'inscripción y lo eligen. Cerrar sin eso las mete en grupos de otro '
+       + 'horario, y una vez formados los grupos ya no se puede cambiar.';
 }
 
 const s = StyleSheet.create({
@@ -1590,6 +1685,8 @@ const s = StyleSheet.create({
   resumenTituloAviso:{ fontFamily: font.display, fontSize: fontSize.cardName, color: color.alive },
   resumenNegrita:    { color: color.text, fontWeight: '600' },
   resumenFalloTitulo:{ fontFamily: font.display, fontSize: fontSize.cardName, color: color.danger },
+  resumenFalloNombre:{ fontFamily: font.body, fontSize: fontSize.body, color: color.text, marginTop: space[2] },
+  resumenQueHacer:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 },
   resumenLinea:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
 
   overlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(6,6,8,0.82)', alignItems: 'center', justifyContent: 'center', padding: space[4.5] },
