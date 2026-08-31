@@ -2034,8 +2034,10 @@ export type Database = {
           created_at: string | null
           pair_id: string | null
           payment_status: Database["public"]["Enums"]["payment_status"] | null
+          player1_activado: boolean | null
           player1_id: string | null
           player1_name: string | null
+          player2_activado: boolean | null
           player2_id: string | null
           player2_name: string | null
           tournament_id: string | null
@@ -2189,6 +2191,17 @@ export type Database = {
       is_tournament_participant: {
         Args: { p_tournament_id: string }
         Returns: boolean
+      }
+      move_match: {
+        Args: {
+          p_actor: string
+          p_court_label: string
+          p_esperado_at: string
+          p_esperado_court: string
+          p_match_id: string
+          p_scheduled_at: string
+        }
+        Returns: Json
       }
       rebuild_division_ratings: {
         Args: { p_division: string; p_history: Json; p_player_ratings: Json }
