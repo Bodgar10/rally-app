@@ -53,6 +53,21 @@ interface Juez {
   email:  string;
 }
 
+/** Alguien del equipo del club con rol `judge`, todavía no asignado aquí. */
+interface DelEquipo {
+  userId: string;
+  name:   string;
+  email:  string;
+}
+
+/** Un torneo anterior del mismo organizador, con jueces que copiar. */
+interface TorneoPrevio {
+  id:      string;
+  nombre:  string;
+  fecha:   string | null;
+  jueces:  DelEquipo[];
+}
+
 /**
  * Traduce el error de Postgres SIN inventar causas. Si el código no se
  * reconoce, se dice que no se sabe y se remite a la consola — que es donde
@@ -71,6 +86,31 @@ function mensajeDeError(e: { code?: string; message?: string }): string {
   }
 }
 
+/**
+ * `organizer_members_admin` es de la migración 056 y todavía no está en
+ * `database.types.ts`: hay que correr `npm run types:db` después de aplicarla.
+ * Hasta entonces, este cast — el mismo patrón que usó canchas.tsx con la 044.
+ * Se acota a lo que de verdad se llama para que siga habiendo algo de tipo.
+ */
+interface FilaMiembro {
+  user_id:     string | null;
+  member_role: string | null;
+  full_name:   string | null;
+  email:       string | null;
+}
+
+const vistaMiembros = (cliente: typeof supabase) =>
+  (cliente.from as unknown as (v: string) => {
+    select: (cols: string) => {
+      eq: (c: string, v: string) => {
+        eq: (c: string, v: string) => Promise<{
+          data: FilaMiembro[] | null;
+          error: { message: string } | null;
+        }>;
+      };
+    };
+  })('organizer_members_admin');
+
 export default function JuecesTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
@@ -81,10 +121,15 @@ export default function JuecesTorneoScreen() {
   const [asignando, setAsignando] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [exito, setExito]     = useState<string | null>(null);
+  /** El equipo del club con rol `judge` que aún no es juez de este torneo. */
+  const [equipo, setEquipo]   = useState<DelEquipo[]>([]);
+  /** Torneos anteriores del organizador que tienen jueces. */
+  const [previos, setPrevios] = useState<TorneoPrevio[]>([]);
+  const [verPrevios, setVerPrevios] = useState(false);
 
   const cargar = useCallback(async () => {
     const [{ data: t }, { data, error: dbError }] = await Promise.all([
-      supabase.from('tournaments').select('name').eq('id', tournamentId).single(),
+      supabase.from('tournaments').select('name, organizer_id').eq('id', tournamentId).single(),
       // Va por organizer_judges_admin (migración 041): el embed a `users`
       // pasaba por users_select_own y dejaba la lista sin nombre ni correo.
       // La vista ya está acotada al owner por dentro.
@@ -95,7 +140,8 @@ export default function JuecesTorneoScreen() {
         .order('created_at', { ascending: true }),
     ]);
 
-    if (t) setNombre((t as { name: string }).name);
+    const torneo = t as { name: string; organizer_id: string } | null;
+    if (torneo) setNombre(torneo.name);
 
     if (dbError) {
       console.error('[jueces] cargar', dbError);
@@ -113,6 +159,68 @@ export default function JuecesTorneoScreen() {
           })),
       );
     }
+    // ── Los dos atajos ────────────────────────────────────────────────────
+    // Capturar es NOMINAL: hay que nombrar a la persona para ESTE torneo. Esa
+    // decisión se mantiene —un permiso sin fecha ni alcance es el que nadie
+    // revisa— pero su coste es un paso manual cada vez, y ese coste sí se
+    // puede bajar. De ahí estas dos listas.
+    const yaAsignados = new Set(
+      (data ?? []).map((r) => r.user_id).filter((x): x is string => !!x),
+    );
+
+    if (torneo?.organizer_id) {
+      // 1) El equipo del club. Va por organizer_members_admin (migración 056)
+      //    por el mismo motivo que la lista de arriba: users_select_own impide
+      //    leer el nombre de otros y un embed devolvería guiones.
+      const { data: miembros, error: me } = await vistaMiembros(supabase)
+        .select('user_id, member_role, full_name, email')
+        .eq('organizer_id', torneo.organizer_id)
+        .eq('member_role', 'judge');
+      if (me) console.error('[jueces] equipo', me);
+      setEquipo(
+        (miembros ?? [])
+          .filter((m) => m.user_id && !yaAsignados.has(m.user_id))
+          .map((m) => ({
+            userId: m.user_id as string,
+            name:   m.full_name ?? '—',
+            email:  m.email ?? '—',
+          })),
+      );
+
+      // 2) Los torneos anteriores. `organizer_judges_admin` está acotada al
+      //    OWNER, no a un torneo, así que se puede leer la de todos sus
+      //    torneos de una vez y agrupar aquí.
+      const [{ data: otros }, { data: jueces }] = await Promise.all([
+        supabase.from('tournaments')
+          .select('id, name, start_date')
+          .eq('organizer_id', torneo.organizer_id)
+          .neq('id', tournamentId)
+          .order('start_date', { ascending: false })
+          .limit(20),
+        supabase.from('organizer_judges_admin')
+          .select('tournament_id, user_id, full_name, email'),
+      ]);
+
+      const porTorneo = new Map<string, DelEquipo[]>();
+      for (const j of jueces ?? []) {
+        if (!j.tournament_id || !j.user_id) continue;
+        const ya = porTorneo.get(j.tournament_id) ?? [];
+        ya.push({ userId: j.user_id, name: j.full_name ?? '—', email: j.email ?? '—' });
+        porTorneo.set(j.tournament_id, ya);
+      }
+
+      setPrevios(
+        (otros ?? [])
+          .map((o) => ({
+            id: o.id, nombre: o.name, fecha: o.start_date,
+            // Los que ya están aquí no se ofrecen: copiar no debe prometer
+            // gente que no va a añadir.
+            jueces: (porTorneo.get(o.id) ?? []).filter((j) => !yaAsignados.has(j.userId)),
+          }))
+          .filter((o) => o.jueces.length > 0),
+      );
+    }
+
     setCargando(false);
   }, [tournamentId]);
 
@@ -150,6 +258,50 @@ export default function JuecesTorneoScreen() {
       }
 
       setExito(`${u.full_name} asignado como juez.`);
+      await cargar();
+    } finally {
+      setAsignando(false);
+    }
+  }
+
+  /**
+   * Asigna a varios de una vez.
+   *
+   * En tandas de uno y no en un `insert` de N filas a propósito: si una falla
+   * —esa persona ya es juez de otro modo, o la RLS la rechaza— el lote entero
+   * se caería y el organizador se quedaría sin ninguno. Así entran los que
+   * pueden y se cuenta lo que no.
+   */
+  async function asignarVarios(gente: DelEquipo[], comoSeLlama: string) {
+    if (gente.length === 0) return;
+    setError(null);
+    setExito(null);
+    setAsignando(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      let ok = 0;
+      const fallos: string[] = [];
+
+      for (const g of gente) {
+        const { error: e } = await supabase
+          .from('tournament_judges')
+          .insert({ tournament_id: tournamentId, user_id: g.userId, assigned_by: user?.id ?? null });
+        if (e) {
+          console.error('[jueces] alta múltiple:', {
+            userId: g.userId, code: e.code, message: e.message, details: e.details,
+          });
+          fallos.push(g.name);
+        } else ok++;
+      }
+
+      if (ok > 0) {
+        setExito(
+          `${ok} ${ok === 1 ? 'juez asignado' : 'jueces asignados'} desde ${comoSeLlama}.` +
+          (fallos.length ? ` No se pudo con ${fallos.join(', ')}.` : ''),
+        );
+      } else {
+        setError(`No se pudo asignar a nadie desde ${comoSeLlama}. El detalle está en la consola.`);
+      }
       await cargar();
     } finally {
       setAsignando(false);
@@ -224,6 +376,66 @@ export default function JuecesTorneoScreen() {
           </View>
         )}
 
+        {/* Atajos. Capturar sigue siendo NOMINAL —hay que nombrar a la persona
+            para este torneo— pero nombrarla no tiene por qué costar ocho
+            búsquedas. Solo se pintan cuando de verdad hay a quién añadir. */}
+        {(equipo.length > 0 || previos.length > 0) && (
+          <View style={s.atajos}>
+            {equipo.length > 0 && (
+              <Pressable
+                onPress={() => asignarVarios(equipo, 'el equipo del club')}
+                disabled={asignando}
+                style={({ pressed }) => [s.atajo, pressed && { opacity: 0.75 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Añadir a los ${equipo.length} del equipo del club`}
+              >
+                <Text style={s.atajoTitulo}>
+                  Añadir al equipo del club ({equipo.length})
+                </Text>
+                <Text style={s.atajoDetalle} numberOfLines={2}>
+                  {equipo.map((e) => e.name).join(', ')}
+                </Text>
+              </Pressable>
+            )}
+
+            {previos.length > 0 && (
+              <Pressable
+                onPress={() => setVerPrevios((v) => !v)}
+                style={({ pressed }) => [s.atajo, pressed && { opacity: 0.75 }]}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: verPrevios }}
+                accessibilityLabel="Copiar los jueces de otro torneo"
+              >
+                <Text style={s.atajoTitulo}>
+                  Copiar de otro torneo {verPrevios ? '▾' : '▸'}
+                </Text>
+                <Text style={s.atajoDetalle}>
+                  {previos.length} {previos.length === 1 ? 'torneo tuyo tiene' : 'torneos tuyos tienen'} jueces que no están aquí
+                </Text>
+              </Pressable>
+            )}
+
+            {verPrevios && previos.map((t) => (
+              <Pressable
+                key={t.id}
+                onPress={() => asignarVarios(t.jueces, t.nombre)}
+                disabled={asignando}
+                style={({ pressed }) => [s.previo, pressed && { opacity: 0.75 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Copiar los ${t.jueces.length} jueces de ${t.nombre}`}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.previoNombre}>{t.nombre}</Text>
+                  <Text style={s.previoDetalle} numberOfLines={1}>
+                    {t.jueces.map((j) => j.name).join(', ')}
+                  </Text>
+                </View>
+                <Text style={s.previoCuenta}>+{t.jueces.length}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {/* Alta */}
         <View style={s.form}>
           <BuscadorDeUsuario
@@ -287,6 +499,16 @@ const s = StyleSheet.create({
   quitarTexto:{ fontFamily: font.body, fontSize: fontSize.caption, color: color.danger },
 
   form:  { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[2], marginTop: space[2] },
+  atajos:       { gap: space[2] },
+  atajo:        { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.md, padding: space[3], gap: space[1] },
+  atajoTitulo:  { fontFamily: font.body, fontSize: fontSize.body, color: color.gold, fontWeight: '600' as const },
+  atajoDetalle: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+
+  previo:        { flexDirection: 'row' as const, alignItems: 'center' as const, gap: space[2], backgroundColor: color.surface2, borderRadius: radius.md, paddingHorizontal: space[3], paddingVertical: space[2], marginLeft: space[3] },
+  previoNombre:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
+  previoDetalle: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  previoCuenta:  { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne },
+
   error: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 17 },
   exito: { fontFamily: font.body, fontSize: fontSize.caption, color: color.live },
 
