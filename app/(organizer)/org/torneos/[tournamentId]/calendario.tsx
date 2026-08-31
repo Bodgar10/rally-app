@@ -32,7 +32,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  ActivityIndicator, StyleSheet, SafeAreaView,
+  ActivityIndicator, StyleSheet, SafeAreaView, Modal,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
@@ -46,6 +46,7 @@ import { frasePersonas } from '@/lib/frase-personas';
 import ParrillaDia from '@/components/organizer/ParrillaDia';
 import AvisosPlegables, { type GrupoAvisos } from '@/components/organizer/AvisosPlegables';
 import MoverPartido from '@/components/organizer/MoverPartido';
+import DetallePartido from '@/components/organizer/DetallePartido';
 import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
 import {
   agruparPorHora, type Franja, type FilaCalendario,
@@ -260,6 +261,8 @@ export default function CalendarioScreen() {
   const [diaTab, setDiaTab] = useState<string | null>(null);
   /** El partido que se está moviendo. Null = nadie. */
   const [moviendo, setMoviendo] = useState<Fila | null>(null);
+  /** La celda que se está mirando. Tocar es MIRAR; mover se pide desde aquí. */
+  const [detalle, setDetalle]   = useState<Fila | null>(null);
   /** La celda a la que saltó un aviso. Se limpia al cambiar de día o filtro. */
   const [resaltado, setResaltado] = useState<string | null>(null);
   const [fase, setFase]     = useState<Fase>({ t: 'cargando' });
@@ -648,12 +651,15 @@ export default function CalendarioScreen() {
     },
   ] : [];
 
-  function abrirMover(f: Fila) {
-    // Las filas que vienen del plan y no de `matches` no tienen partido que
-    // mover: su id es 'plan:...' y no existe en la base.
-    if (f.id.startsWith('plan:')) return;
-    setMoviendo(f);
-  }
+  /**
+   * Tocar una celda ABRE EL DETALLE, no el diálogo de mover.
+   *
+   * Dar por supuesto que quien toca quiere mover era el error: casi siempre se
+   * toca para mirar quién juega. Y en las filas del plan —las que aún no
+   * existen en `matches`— el toque no hacía absolutamente nada, sin decir por
+   * qué. Ahora se abren igual y el detalle lo explica.
+   */
+  const sePuedeMover = (f: Fila) => !f.id.startsWith('plan:');
 
   if (fase.t === 'cargando') {
     return (
@@ -778,7 +784,7 @@ export default function CalendarioScreen() {
                     : diaActivo.filas.filter((f) => f.categoriaId === tab)}
                   canchas={estado.canchas ?? 8}
                   resaltado={resaltado}
-                  onCelda={(f) => abrirMover(f as Fila)}
+                  onCelda={(f) => setDetalle(f as Fila)}
                 />
 
                 {/* DESPUÉS de la parrilla: se entra a ver el calendario, no a
@@ -793,6 +799,37 @@ export default function CalendarioScreen() {
                   }}
                 />
               </>
+            )}
+
+            {/* El detalle de la celda. Va antes que el de mover porque es el
+                paso previo: se mira, y desde ahí se decide mover. */}
+            {detalle && (
+              <Modal
+                visible
+                transparent
+                animationType="slide"
+                onRequestClose={() => setDetalle(null)}
+              >
+                <View style={s.hojaFondo}>
+                  <View style={s.hoja}>
+                    <DetallePartido
+                      partido={{
+                        id: detalle.id,
+                        categoria: detalle.categoria,
+                        etapa: detalle.etapa,
+                        hora: detalle.hora,
+                        cancha: detalle.cancha,
+                        parejaA: detalle.parejaA,
+                        parejaB: detalle.parejaB,
+                        estado: detalle.estado,
+                      }}
+                      sePuedeMover={sePuedeMover(detalle)}
+                      onMover={() => { setMoviendo(detalle); setDetalle(null); }}
+                      onCerrar={() => setDetalle(null)}
+                    />
+                  </View>
+                </View>
+              </Modal>
             )}
 
             {/* El modal de mover. La validación es del engine; aquí solo se pinta. */}
@@ -1042,6 +1079,14 @@ function etiquetaDeDia(dia: string): string {
 // ── Estilos ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  // La hoja del detalle: sube desde abajo, no tapa el día entero.
+  hojaFondo: { flex: 1, backgroundColor: 'rgba(6,6,8,0.82)', justifyContent: 'flex-end' },
+  hoja: {
+    backgroundColor: color.bg, borderTopWidth: 1, borderTopColor: color.gold,
+    borderTopLeftRadius: radius.xl2, borderTopRightRadius: radius.xl2,
+    padding: space[4.5], paddingBottom: bottomInset,
+  },
+
   pantalla: { flex: 1, backgroundColor: color.bg },
   centro:   { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
