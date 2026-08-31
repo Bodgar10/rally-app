@@ -3,7 +3,7 @@
 // Punto de partida; el organizador puede sobreescribir. Casos "ambiguous"
 // disparan la sugerencia IA (fuera del engine) con sus alternativas.
 
-import type { FormatType, KnockoutStart } from '../types';
+import type { FormatType, KnockoutStart } from '../types.ts';
 
 export interface FormatPlan {
   formatType: FormatType;

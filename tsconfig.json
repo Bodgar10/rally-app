@@ -2,6 +2,11 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // Deno EXIGE la extensión en los imports relativos, y las Edge Functions
+    // importan `src/lib/engine/**` directo por el shim de cada función. Sin
+    // esto, `from './knockout.ts'` —que es lo que Deno necesita— no compila
+    // aquí. Es compatible con `--noEmit`, que es como corre el typecheck.
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"]
     }

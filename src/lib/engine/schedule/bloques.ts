@@ -15,7 +15,7 @@
  * de un partido es un hecho del deporte, no de cada motor.
  */
 
-import { FACTOR_RETRASO } from './knockout';
+import { FACTOR_RETRASO } from './knockout.ts';
 
 /**
  * Parejas del grupo tipico. NO es una constante del dominio: `computeFormat`

@@ -2,10 +2,10 @@
 // Motor de formato (Doc B §1). computeFormat(numPairs) -> FormatPlan.
 // Determinista. Sin IA. La IA solo sugiere cuando ambiguous=true (fuera del engine).
 
-import type { KnockoutStart } from '../types';
-import { RULES, type FormatPlan } from './rules';
+import type { KnockoutStart } from '../types.ts';
+import { RULES, type FormatPlan } from './rules.ts';
 
-export type { FormatPlan } from './rules';
+export type { FormatPlan } from './rules.ts';
 
 function isPow2(n: number): boolean {
   return n >= 2 && (n & (n - 1)) === 0;

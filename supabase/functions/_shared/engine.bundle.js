@@ -1093,6 +1093,7 @@ function generarBloques(entrada) {
     throw new Error(`partidosPorGrupo debe ser un entero positivo: ${partidosPorGrupo}`);
   }
   const minutosPorBloque = partidosPorGrupo * entrada.minutosPorPartido;
+  const minutosRealistas = Math.round(minutosPorBloque * FACTOR_RETRASO);
   const ventanas = [...entrada.ventanas].sort(
     (a, b) => a.dia.localeCompare(b.dia) || parseHoraBloque(a.desde) - parseHoraBloque(b.desde)
   );
@@ -1144,11 +1145,14 @@ function generarBloques(entrada) {
           avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
         } else {
           vistos.add(id);
+          const finRealista = t + minutosRealistas;
           bloques.push({
             id,
             dia,
             desde: formatHoraBloque(t),
             hasta: formatHoraBloque(t + minutosPorBloque),
+            hastaRealista: formatHoraBloque(finRealista % 1440),
+            seSaleDeLaVentana: finRealista > fin,
             carriles: entrada.canchas
           });
           bloquesDelDia += 1;

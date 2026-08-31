@@ -3,6 +3,10 @@
   "compilerOptions": {
     "strict": true,
     "noEmit": true,
+    // Igual que en tsconfig.json: la cadena del engine lleva extensión
+    // explícita porque Deno la exige en las Edge Functions, y los tests
+    // importan esos mismos módulos.
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"]
     },
