@@ -23,11 +23,22 @@
  * LA JERARQUÍA ES REAL
  *   El número grande de cada tarjeta es CUÁNTAS PAREJAS hay en ese horario. No
  *   un porcentaje: el porcentaje no le dice a nadie a quién tiene que llamar.
+ *
+ * DAR HORARIO A QUIEN NO LO TIENE
+ *   Es el caso normal, no la excepción: alguien se inscribió tarde, el
+ *   organizador lo metió a mano, o su horario se llenó mientras elegía. Sin una
+ *   salida aquí el torneo se queda bloqueado — esas parejas no se pueden cerrar
+ *   y nadie puede hacer nada al respecto.
+ *
+ *   Se asigna por categoría y de golpe: los restos de una categoría van juntos
+ *   porque van a formar grupo entre ellos. Y se puede elegir un horario LLENO,
+ *   igual que en el registro manual: esa gente ya pagó, y decirle que no cabe
+ *   no es una respuesta. Queda marcado como forzado.
  */
 
 import { useCallback, useState } from 'react';
 import {
-  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable, Modal,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 
@@ -38,7 +49,8 @@ import {
   capacidadDelTorneo, tamanosDeGrupo, horaLegible, partesDeBloqueId, type Capacidad,
 } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
-import { color, radius, space, font, fontSize } from '@/lib/design-tokens';
+import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
+import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 
@@ -46,6 +58,13 @@ import BotonVolver from '@/components/ui/BotonVolver';
 
 interface FilaPareja   { id: string; category_id: string }
 interface FilaEleccion { pair_id: string; bloque_id: string; forzado: boolean }
+
+/** La categoría cuyas parejas sin hora se están asignando ahora mismo. */
+interface Asignando {
+  categoryId: string;
+  categoria:  string;
+  pairIds:    string[];
+}
 
 /** Lo que se pinta de un horario, ya masticado. */
 interface Horario {
@@ -69,6 +88,10 @@ export default function BloquesScreen() {
   const [elecciones, setElec]     = useState<FilaEleccion[]>([]);
   const [nombreCat, setNombreCat] = useState<Record<string, string>>({});
   const [cargando, setCargando]   = useState(true);
+
+  const [asignando, setAsignando] = useState<Asignando | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [errorAsig, setErrorAsig] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     // Las elecciones se leen crudas y no por la RPC agregada: aquí hace falta
@@ -99,6 +122,45 @@ export default function BloquesScreen() {
   }, [tournamentId]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
+
+  /**
+   * Le da horario a las parejas de una categoría que no lo tienen.
+   *
+   * Va TODO el grupo de restos junto: son las que van a jugar entre ellas, y
+   * repartirlas por horarios distintos las dejaría sin poder formar grupo.
+   *
+   * `forzado` sale del cupo en el momento de guardar, no de lo que la pantalla
+   * pintó: entre que se abre el selector y se pulsa, otra pareja pudo llenar
+   * ese horario.
+   */
+  async function asignarHorario(bloqueId: string, cupoAlElegir: number) {
+    if (!asignando) return;
+    setGuardando(true);
+    setErrorAsig(null);
+
+    const filas = asignando.pairIds.map((pair_id) => ({
+      pair_id,
+      tournament_id: tournamentId as string,
+      bloque_id:     bloqueId,
+      // Si no caben todas, la asignación es forzada: queda marcada para que la
+      // pantalla pueda explicar después por qué ese horario está sobrevendido.
+      forzado:       cupoAlElegir < asignando.pairIds.length,
+    }));
+
+    const { error } = await supabase
+      .from('pair_block_choices')
+      .upsert(filas, { onConflict: 'pair_id' });
+
+    setGuardando(false);
+
+    if (error) {
+      console.error('[horarios] asignar:', error);
+      setErrorAsig('No se pudo guardar. Intenta de nuevo.');
+      return;
+    }
+    setAsignando(null);
+    await cargar();
+  }
 
   if (cargando) {
     return <View style={s.centro}><ActivityIndicator color={color.gold} /></View>;
@@ -309,19 +371,36 @@ export default function BloquesScreen() {
         )}
 
         {sinHorario.length > 0 && bloques.length > 0 && (
-          <View style={s.caja}>
+          <View style={s.cajaAccion}>
             <Text style={s.cajaTitulo}>
               {sinHorario.length} pareja{sinHorario.length === 1 ? '' : 's'} sin hora
             </Text>
             <Text style={s.cajaTexto}>
-              Se inscribieron antes de que hubiera horarios, o no llegaron a elegir.
+              Se inscribieron tarde, las metiste a mano, o su horario se llenó
+              mientras elegían. Sin hora no se pueden cerrar: dales una.
             </Text>
+
             {Object.entries(
-              sinHorario.reduce<Record<string, number>>((a, p) => {
-                a[p.category_id] = (a[p.category_id] ?? 0) + 1; return a;
+              sinHorario.reduce<Record<string, string[]>>((a, p) => {
+                (a[p.category_id] ??= []).push(p.id); return a;
               }, {}),
-            ).map(([cat, n]) => (
-              <Text key={cat} style={s.cajaLinea}>·  {nombreDeCat(cat)}: {n}</Text>
+            ).map(([cat, ids]) => (
+              <View key={cat} style={s.filaAsignar}>
+                <Text style={s.filaAsignarTexto}>
+                  {nombreDeCat(cat)} · {ids.length} pareja{ids.length === 1 ? '' : 's'}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setErrorAsig(null);
+                    setAsignando({ categoryId: cat, categoria: nombreDeCat(cat), pairIds: ids });
+                  }}
+                  style={({ pressed }) => [s.btnAsignar, pressed && { opacity: 0.85 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Dar horario a ${ids.length} parejas de ${nombreDeCat(cat)}`}
+                >
+                  <Text style={s.btnAsignarTexto}>Dar horario</Text>
+                </Pressable>
+              </View>
             ))}
           </View>
         )}
@@ -348,6 +427,70 @@ export default function BloquesScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* ── Dar horario ────────────────────────────────────────────────────
+          `permitirLlenos`: el organizador SÍ puede meterlas en un horario
+          lleno. Esa gente ya pagó y decirle que no cabe no es una respuesta;
+          lo que se le debe es el aviso de la consecuencia, que lo pone el
+          propio selector. */}
+      <Modal
+        visible={asignando !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAsignando(null)}
+      >
+        <View style={s.overlay}>
+          <View style={s.hoja}>
+            <View style={s.hojaCabecera}>
+              <View style={s.hojaTextos}>
+                <Text style={s.hojaTitulo}>{asignando?.categoria}</Text>
+                <Text style={s.hojaSub}>
+                  {asignando?.pairIds.length} pareja
+                  {asignando?.pairIds.length === 1 ? '' : 's'} sin hora
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setAsignando(null)}
+                style={s.hojaCerrar}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+              >
+                <Text style={s.hojaCerrarTexto}>Cancelar</Text>
+              </Pressable>
+            </View>
+
+            {guardando ? (
+              <View style={s.hojaCargando}>
+                <ActivityIndicator color={color.gold} />
+                <Text style={s.cajaTexto}>Guardando…</Text>
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={s.hojaCuerpo}>
+                {errorAsig && <Text style={s.hojaError}>{errorAsig}</Text>}
+
+                <Text style={s.cajaTexto}>
+                  Van todas al mismo horario: son las que van a jugar entre
+                  ellas, y repartirlas las dejaría sin grupo.
+                </Text>
+
+                {asignando && (
+                  <SelectorDeBloque
+                    bloques={bloques}
+                    ocupacion={ocupacion}
+                    categoriaId={asignando.categoryId}
+                    valor={null}
+                    pregunta={`¿Qué horario les das?`}
+                    opcionesCupo={opciones}
+                    minutosPorHorario={datos?.reticula?.minutosPorBloque}
+                    permitirLlenos
+                    onCambio={(id, cupo) => { void asignarHorario(id, cupo); }}
+                  />
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -409,6 +552,29 @@ const s = StyleSheet.create({
 
   // 3 · Lo que hay que mirar
   caja:       { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3.5], gap: space[1.5] },
+  // Ámbar: esto no es un aviso que se lee, es uno que se acciona.
+  cajaAccion: { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.alive, borderRadius: radius.md, padding: space[3.5], gap: space[2] },
+
+  filaAsignar:      { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: touchTarget - 8 },
+  filaAsignarTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, flex: 1 },
+  btnAsignar:       { borderWidth: 1, borderColor: color.gold, borderRadius: radius.sm, paddingHorizontal: space[3], paddingVertical: space[2] },
+  btnAsignarTexto:  { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.gold },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(6,6,8,0.82)', justifyContent: 'flex-end' },
+  hoja: {
+    backgroundColor: color.bg, borderTopWidth: 1, borderTopColor: color.gold,
+    borderTopLeftRadius: radius.xl2, borderTopRightRadius: radius.xl2,
+    maxHeight: '85%', paddingTop: space[4],
+  },
+  hojaCabecera: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space[4.5], gap: space[3] },
+  hojaTextos:   { flex: 1 },
+  hojaTitulo:   { fontFamily: font.display, fontSize: fontSize.h1Inline, color: color.text },
+  hojaSub:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  hojaCerrar:   { minHeight: touchTarget, justifyContent: 'center' },
+  hojaCerrarTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  hojaCuerpo:   { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3] },
+  hojaCargando: { padding: space[6], alignItems: 'center', gap: space[3] },
+  hojaError:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger },
   cajaTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
   cajaTexto:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
   cajaLinea:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 },

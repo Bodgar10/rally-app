@@ -341,11 +341,11 @@ async function main() {
   }
 
   const elecciones = [];
-  let sinHueco = 0;
+  const sinHueco = [];
   for (const p of todas ?? []) {
     if (yaEligio.has(p.id)) continue;         // inscripción real: no se toca
     const libres = bloquesDisponibles(reticula.bloques, ocupacion, p.category_id);
-    if (libres.length === 0) { sinHueco++; continue; }
+    if (libres.length === 0) { sinHueco.push(p); continue; }
 
     const rnd = prng(p.id);
     const pesos = libres.map((b) => peso(b, primeroDelDia.has(b.id)));
@@ -365,7 +365,7 @@ async function main() {
       .upsert(elecciones.slice(i, i + 50), { onConflict: 'pair_id' });
     if (error) alto(`Eligiendo bloques: ${error.message}`);
   }
-  log(`  ${elecciones.length} bloques elegidos${sinHueco ? `, ${sinHueco} SIN HUECO` : ''}.`);
+  log(`  ${elecciones.length} bloques elegidos${sinHueco.length ? `, ${sinHueco.length} SIN HUECO` : ''}.`);
 
   // ── 6. El reporte ─────────────────────────────────────────────────────────
   const { data: finales } = await s
@@ -403,8 +403,59 @@ async function main() {
     log(`      ${b.dia} ${b.desde}-${b.hasta}  ${String(n).padStart(3)} parejas ` +
         `(${Math.ceil(n / PAREJAS_POR_GRUPO)} de ${b.carriles} carriles)`);
   }
-  log('');
-  if (sinHueco > 0) process.exit(1);
+  // ── 7. Verificación: TODAS las parejas tienen bloque ──────────────────────
+  //
+  // POR QUÉ SE RELEE LA BASE Y NO SE MIRA `elecciones`
+  //   `elecciones` es lo que el script CREÍA haber escrito. Un upsert que
+  //   falla a medias, una pareja que ya existía sin bloque, o un bloque que
+  //   dejó de existir porque alguien cambió las ventanas mientras corría, no
+  //   aparecen ahí. La única fuente que no puede mentir es la tabla.
+  //
+  // POR QUÉ FALLA RUIDOSAMENTE
+  //   Una pareja sin bloque no rompe nada HOY: rompe al cerrar la categoría,
+  //   días después, cuando ya nadie se acuerda de que corrió este script.
+  //   Sembrar en silencio parejas que luego no se pueden cerrar es peor que no
+  //   sembrarlas: el error aparece lejos de su causa.
+  const { data: parejasFin } = await s
+    .from('pairs').select('id, category_id').eq('tournament_id', tournamentId);
+  const { data: bloquesFin } = await s
+    .from('pair_block_choices').select('pair_id').eq('tournament_id', tournamentId);
+
+  const conBloque = new Set((bloquesFin ?? []).map((e) => e.pair_id));
+  const huerfanas = (parejasFin ?? []).filter((p) => !conBloque.has(p.id));
+
+  if (huerfanas.length === 0) {
+    log(`    ✓ las ${(parejasFin ?? []).length} parejas tienen horario.\n`);
+    return;
+  }
+
+  const porCatHuerfana = new Map();
+  for (const p of huerfanas) {
+    porCatHuerfana.set(p.category_id, (porCatHuerfana.get(p.category_id) ?? 0) + 1);
+  }
+
+  console.error(`\n  ══════════════════════════════════════════════════════════`);
+  console.error(`  ALTO · ${huerfanas.length} parejas quedaron SIN HORARIO`);
+  console.error(`  ══════════════════════════════════════════════════════════\n`);
+  for (const [cid, n] of [...porCatHuerfana].sort((a, b) => b[1] - a[1])) {
+    console.error(`    ${(nom.get(cid) ?? cid).padEnd(16)} ${n}`);
+  }
+  console.error(`
+  QUÉ PASÓ
+    Los horarios se llenaron antes de repartirlas todas. El cupo no es una
+    división: un grupo son ${PAREJAS_POR_GRUPO} parejas de la MISMA categoría y ocupa una
+    cancha entera, así que los huecos sueltos de otras categorías no sirven.
+
+  ESTA CATEGORÍA NO SE VA A PODER CERRAR bien hasta que tengan hora.
+
+  CÓMO SE ARREGLA — cualquiera de las tres:
+    · Alargar la ventana de un día en la pantalla de Horarios. Cada 3 h de
+      más son ${reticula.bloques[0]?.carriles ?? 0} grupos nuevos.
+    · Subir el número de canchas del torneo.
+    · Asignarles horario a mano desde «Horarios de la fase de grupos»,
+      aunque sea uno lleno: ahí se puede, con el aviso de la consecuencia.
+`);
+  process.exit(1);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
