@@ -30,13 +30,6 @@ import {
   validarMovimiento, type PartidoEnCalendario,
 } from '@/lib/engine/schedule/mover';
 
-/**
- * México abolió el horario de verano en 2022, así que el desfase es constante.
- * Mismo valor y mismo motivo que `schedule-knockout`: la zona del servidor de
- * Edge Functions es UTC y usarla correría el calendario seis horas.
- */
-const OFFSET_MX = '-06:00';
-
 const PASO = 30;
 
 interface Props {
@@ -64,6 +57,8 @@ export default function MoverPartido({
   const [cancha, setCancha]       = useState(actual?.cancha ?? 'Cancha 1');
   const [guardando, setGuardando] = useState(false);
   const [error, setError]         = useState<string | null>(null);
+  /** Lo que dijo el SERVIDOR. Manda sobre lo que calculó esta pantalla. */
+  const [conflictosServidor, setConflictosServidor] = useState<string[] | null>(null);
 
   // En vivo: cada toque recalcula. Es puro y determinista, así que no hay nada
   // que esperar ni que cancelar.
@@ -77,16 +72,49 @@ export default function MoverPartido({
 
   const sinCambios = actual?.inicioMin === inicioMin && actual?.cancha === cancha;
 
+  /**
+   * Guarda por la Edge Function, NO escribiendo en `matches` desde aquí.
+   *
+   * La validación de esta pantalla es para que el organizador vea el conflicto
+   * mientras mueve los botones; no es la que decide. Entre que se leyó el
+   * calendario y se pulsa este botón, otro pudo ocupar el hueco — y un cliente
+   * viejo no valida nada. `move-match` vuelve a correr el MISMO
+   * `validarMovimiento` contra el estado de ese instante, y la RPC rehace por
+   * su cuenta la cancha y los jugadores bajo un bloqueo.
+   *
+   * Si el servidor rechaza lo que aquí salía verde, es que el calendario
+   * cambió: se muestran sus conflictos, que son los buenos.
+   */
   async function guardar() {
     if (!validacion.ok || sinCambios) return;
     setError(null);
+    setConflictosServidor(null);
     setGuardando(true);
     try {
-      const { error: e } = await supabase
-        .from('matches')
-        .update({ scheduled_at: `${dia}T${fmt(inicioMin)}:00${OFFSET_MX}`, court_label: cancha } as never)
-        .eq('id', partido.id);
-      if (e) throw e;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sin sesión activa.');
+
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/move-match`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ match_id: partido.id, dia, inicio_min: inicioMin, cancha }),
+        },
+      );
+      const cuerpo = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        if (Array.isArray(cuerpo?.conflictos) && cuerpo.conflictos.length > 0) {
+          setConflictosServidor(cuerpo.conflictos.map((c: { mensaje: string }) => c.mensaje));
+          return;
+        }
+        setError(mensajeDeMovimiento(cuerpo));
+        return;
+      }
       onGuardado();
     } catch (e) {
       setError(fallo('mover-partido', e, 'No se pudo mover el partido.', { matchId: partido.id }));
@@ -119,14 +147,14 @@ export default function MoverPartido({
           <Text style={s.etiqueta}>HORA</Text>
           <View style={s.stepper}>
             <Pressable
-              onPress={() => setInicioMin((m) => Math.max(0, m - PASO))}
+              onPress={() => { setConflictosServidor(null); setInicioMin((m) => Math.max(0, m - PASO)); }}
               style={s.paso} accessibilityRole="button" accessibilityLabel="Media hora antes"
             >
               <Text style={s.pasoTexto}>−</Text>
             </Pressable>
             <Text style={s.cifra}>{fmt(inicioMin)}</Text>
             <Pressable
-              onPress={() => setInicioMin((m) => Math.min(23 * 60 + 30, m + PASO))}
+              onPress={() => { setConflictosServidor(null); setInicioMin((m) => Math.min(23 * 60 + 30, m + PASO)); }}
               style={s.paso} accessibilityRole="button" accessibilityLabel="Media hora después"
             >
               <Text style={s.pasoTexto}>+</Text>
@@ -139,7 +167,7 @@ export default function MoverPartido({
             {Array.from({ length: Math.max(1, canchas) }, (_, i) => `Cancha ${i + 1}`).map((c) => (
               <Pressable
                 key={c}
-                onPress={() => setCancha(c)}
+                onPress={() => { setConflictosServidor(null); setCancha(c); }}
                 style={[s.chip, cancha === c && s.chipActivo]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: cancha === c }}
@@ -151,7 +179,12 @@ export default function MoverPartido({
           </View>
 
           {/* El veredicto, en vivo */}
-          {validacion.ok ? (
+          {conflictosServidor ? (
+            <View style={s.mal}>
+              <Text style={s.malCabecera}>El calendario cambió mientras lo movías:</Text>
+              {conflictosServidor.map((m, k) => <Text key={k} style={s.malTexto}>· {m}</Text>)}
+            </View>
+          ) : validacion.ok ? (
             <View style={s.ok}>
               <Text style={s.okTexto}>
                 {sinCambios ? 'Es donde ya está.' : 'Se puede mover aquí.'}
@@ -188,6 +221,24 @@ export default function MoverPartido({
   );
 }
 
+/** Los rechazos que no son conflictos de calendario, en español. */
+const MENSAJES: Record<string, string> = {
+  bad_request:          'Faltan datos del movimiento.',
+  unauthenticated:      'Tu sesión caducó. Vuelve a entrar.',
+  not_authorized:       'Mover partidos es del organizador; tu cuenta no puede.',
+  match_not_found:      'Ese partido ya no existe. Recarga la pantalla.',
+  match_moved_meanwhile:'Alguien movió este partido mientras lo cambiabas. Recarga y vuelve a intentarlo.',
+  conflicto_al_guardar: 'El hueco se ocupó justo antes de guardar. Elige otro.',
+  rpc_failed:           'El servidor rechazó el movimiento.',
+  unhandled:            'Error inesperado del servidor.',
+};
+
+function mensajeDeMovimiento(cuerpo: unknown): string {
+  const c = (cuerpo ?? {}) as { error?: string; detail?: string };
+  const base = (c.error && MENSAJES[c.error]) || 'No se pudo mover el partido.';
+  return c.detail && !MENSAJES[c.error ?? ''] ? `${base} ${c.detail}` : base;
+}
+
 /** 'Cancha 3' → '3'. En una tira de ocho chips el prefijo es ruido. */
 const i = (etiqueta: string) => /(\d+)/.exec(etiqueta)?.[1] ?? etiqueta;
 
@@ -220,7 +271,8 @@ const s = StyleSheet.create({
   okTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.live },
 
   mal:      { backgroundColor: 'rgba(224,114,111,0.10)', borderWidth: 1, borderColor: 'rgba(224,114,111,0.25)', borderRadius: radius.md, padding: space[3], gap: space[1] },
-  malTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 18 },
+  malTexto:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 18 },
+  malCabecera: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, fontWeight: '600' },
 
   error: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
 

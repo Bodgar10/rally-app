@@ -1194,6 +1194,36 @@ function carrilesDeGrupo(parejas, partidosPorCarril = PARTIDOS_POR_CARRIL) {
   if (parejas <= 0) return 0;
   return Math.max(1, Math.ceil(partidosDeGrupo(parejas) / partidosPorCarril));
 }
+function tamanoDeGrupo(opciones, categoriaId) {
+  const g2 = opciones.parejasPorGrupo?.[categoriaId];
+  return Number.isInteger(g2) && g2 >= 2 ? g2 : PAREJAS_POR_GRUPO;
+}
+function cupoDeBloque(bloque, ocupacion, categoriaId, opciones = {}) {
+  const ocup = ocupacion ?? {};
+  const ppc = opciones.partidosPorCarril ?? PARTIDOS_POR_CARRIL;
+  let carrilesUsados = 0;
+  for (const cat of Object.keys(ocup)) {
+    const parejas = ocup[cat] ?? 0;
+    if (parejas <= 0) continue;
+    const g2 = tamanoDeGrupo(opciones, cat);
+    carrilesUsados += Math.ceil(parejas / g2) * carrilesDeGrupo(g2, ppc);
+  }
+  const carrilesLibres = bloque.carriles - carrilesUsados;
+  const gMia = tamanoDeGrupo(opciones, categoriaId);
+  const mias = ocup[categoriaId] ?? 0;
+  const huecoEnMiGrupo = mias > 0 ? (gMia - mias % gMia) % gMia : 0;
+  const gruposQueCaben = Math.floor(Math.max(0, carrilesLibres) / carrilesDeGrupo(gMia, ppc));
+  return huecoEnMiGrupo + gruposQueCaben * gMia;
+}
+function bloquesDisponibles(bloques, ocupacion, categoriaId, opciones = {}) {
+  const ocup = ocupacion ?? {};
+  const salida = [];
+  for (const bloque of bloques) {
+    const cupo = cupoDeBloque(bloque, ocup[bloque.id], categoriaId, opciones);
+    if (cupo > 0) salida.push({ ...bloque, cupo });
+  }
+  return salida;
+}
 
 // src/lib/engine/schedule/grupos.ts
 function huellaDeGrupo(partidos) {
@@ -1493,6 +1523,125 @@ function bloqueDeGrupo(elecciones) {
   return ganador === void 0 || ganador === SIN_BLOQUE ? null : ganador;
 }
 
+// src/lib/engine/schedule/mover.ts
+var ETIQUETA_ETAPA = {
+  group: "partido de grupos",
+  round_of_32: "ronda de 32",
+  round_of_16: "octavos",
+  quarter: "cuarto",
+  semi: "semifinal",
+  final: "final",
+  third_place: "partido por el 3.er lugar"
+};
+var ORDEN_ETAPAS = ["round_of_32", "round_of_16", "quarter", "semi", "final"];
+var etiqueta = (stage) => ETIQUETA_ETAPA[stage] ?? "partido";
+var nombreDe = (id, nombres) => nombres?.[id] ?? "Un jugador";
+function duracionLegible(min) {
+  if (min < 60) return `${min} ${min === 1 ? "minuto" : "minutos"}`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  const horas = `${h} ${h === 1 ? "hora" : "horas"}`;
+  return m === 0 ? horas : `${h} h ${m} min`;
+}
+var seSolapan = (a1, a2, b1, b2) => a1 < b2 && b1 < a2;
+function validarMovimiento(entrada) {
+  const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
+  const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
+  const { movimiento: mov, nombres } = entrada;
+  const partido = entrada.partidos.find((p) => p.id === mov.matchId);
+  if (!partido) {
+    return {
+      ok: false,
+      conflictos: [{ motivo: "partido_no_encontrado", mensaje: "Ese partido no est\xE1 en el calendario." }]
+    };
+  }
+  if (!Number.isFinite(mov.inicioMin) || mov.inicioMin < 0 || mov.inicioMin >= 24 * 60) {
+    return {
+      ok: false,
+      conflictos: [{ motivo: "hora_invalida", mensaje: "La hora est\xE1 fuera del d\xEDa." }]
+    };
+  }
+  const inicio = mov.inicioMin;
+  const fin = inicio + dur;
+  const conflictos = [];
+  const delDia = entrada.partidos.filter((p) => p.id !== partido.id && p.dia === mov.dia && p.inicioMin !== null);
+  for (const otro of delDia) {
+    if (otro.cancha !== mov.cancha) continue;
+    if (!seSolapan(inicio, fin, otro.inicioMin, otro.inicioMin + dur)) continue;
+    conflictos.push({
+      motivo: "cancha_ocupada",
+      matchId: otro.id,
+      mensaje: `La ${mov.cancha} ya tiene un ${etiqueta(otro.stage)} a esa hora.`
+    });
+    break;
+  }
+  const mios = new Set(partido.jugadores);
+  for (const otro of delDia) {
+    const compartidos = otro.jugadores.filter((j) => mios.has(j));
+    if (compartidos.length === 0) continue;
+    const oIni = otro.inicioMin;
+    const oFin = oIni + dur;
+    const quien = nombreDe(compartidos[0], nombres);
+    const masDeUno = compartidos.length > 1 ? ` (y ${compartidos.length - 1} m\xE1s)` : "";
+    if (seSolapan(inicio, fin, oIni, oFin)) {
+      conflictos.push({
+        motivo: "jugador_ocupado",
+        matchId: otro.id,
+        mensaje: `${quien}${masDeUno} juega su ${etiqueta(otro.stage)} a esa misma hora.`
+      });
+      continue;
+    }
+    if (oFin <= inicio && inicio - oFin < desc) {
+      const hace = inicio - oFin;
+      conflictos.push({
+        motivo: "descanso_insuficiente",
+        matchId: otro.id,
+        mensaje: hace === 0 ? `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} justo a esa hora.` : `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} ${duracionLegible(hace)} antes; necesita ${duracionLegible(desc)} de descanso.`
+      });
+      continue;
+    }
+    if (fin <= oIni && oIni - fin < desc) {
+      conflictos.push({
+        motivo: "descanso_insuficiente",
+        matchId: otro.id,
+        mensaje: `${quien}${masDeUno} empieza su ${etiqueta(otro.stage)} ${duracionLegible(oIni - fin)} despu\xE9s de este; necesita ${duracionLegible(desc)} de descanso.`
+      });
+    }
+  }
+  if (partido.stage !== "group") {
+    for (const previo of partidosPrevios(partido, entrada.partidos)) {
+      if (previo.status === "finished") continue;
+      if (previo.dia === null || previo.inicioMin === null) {
+        conflictos.push({
+          motivo: "ronda_previa_sin_hora",
+          matchId: previo.id,
+          mensaje: `Antes se juega un ${etiqueta(previo.stage)} que todav\xEDa no tiene hora.`
+        });
+        continue;
+      }
+      const pFin = previo.inicioMin + dur;
+      const antes = previo.dia < mov.dia || previo.dia === mov.dia && pFin + desc <= inicio;
+      if (!antes) {
+        conflictos.push({
+          motivo: "ronda_previa_despues",
+          matchId: previo.id,
+          mensaje: `El ${etiqueta(previo.stage)} del que sale este todav\xEDa no habr\xEDa terminado.`
+        });
+      }
+    }
+  }
+  return { ok: conflictos.length === 0, conflictos };
+}
+function partidosPrevios(partido, todos) {
+  if (partido.sourceMatchIds?.length) {
+    const ids = new Set(partido.sourceMatchIds);
+    return todos.filter((p) => ids.has(p.id));
+  }
+  const objetivo = partido.stage === "third_place" ? "semi" : ORDEN_ETAPAS[ORDEN_ETAPAS.indexOf(partido.stage) - 1];
+  if (!objetivo) return [];
+  return todos.filter((p) => p.categoryId === partido.categoryId && p.stage === objetivo);
+}
+
 // src/lib/engine/rating/glicko2.ts
 var SCALE = 173.7178;
 var EPSILON = 1e-6;
@@ -1632,4 +1781,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };

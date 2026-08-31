@@ -272,6 +272,26 @@ declare function planAvance(partidos: PartidoCuadro[], matchId: string, winnerPa
 tercerLugar?: boolean): PlanAvance;
 
 /**
+ * Bloques horarios de fase de grupos.
+ *
+ * Un grupo de 3 parejas se juega como un BLOQUE de partidos consecutivos en una
+ * sola cancha (round robin de 3 = 3 partidos). Con 60 min por partido eso es un
+ * bloque de 3 horas. Asi se jugo el Sexto Torneo Cimepa: 52 de 55 grupos
+ * siguieron esa regla exacta.
+ *
+ * Decision de producto: la pareja ELIGE su bloque al inscribirse, de los que
+ * tengan cupo. No se pregunta disponibilidad para repartir despues; se reserva,
+ * como un asiento. Los bloques agotados se ocultan.
+ *
+ * Logica pura y determinista: misma entrada -> misma salida. Sin dependencias.
+ */
+/**
+ * Parejas del grupo tipico. NO es una constante del dominio: `computeFormat`
+ * produce grupos de 4 y de 5 cuando el numero de parejas no es multiplo de 3.
+ * Es el default de quien no dice nada.
+ */
+declare const PAREJAS_POR_GRUPO = 3;
+/**
  * Partidos que caben en un carril de un bloque.
  *
  * Es la MISMA cifra que `partidosPorGrupo` de `generarBloques`, y no por
@@ -334,6 +354,14 @@ interface ReticulaBloques {
     diaEliminatorias: string | null;
     avisos: string[];
 }
+/** Parejas ya inscritas en un bloque, por categoria. */
+type OcupacionBloque = Record<string, number>;
+/** Ocupacion de todos los bloques, indexada por id de bloque. */
+type Ocupacion = Record<string, OcupacionBloque>;
+interface BloqueDisponible extends Bloque {
+    /** Parejas mas que caben en este bloque para la categoria consultada. */
+    cupo: number;
+}
 /**
  * Construye la reticula de bloques a partir de las ventanas del torneo.
  *
@@ -365,6 +393,56 @@ declare function generarBloques(entrada: EntradaBloques): ReticulaBloques;
  *                                          de reserva, no se parte)
  */
 declare function carrilesDeGrupo(parejas: number, partidosPorCarril?: number): number;
+interface OpcionesCupo {
+    /**
+     * Parejas por grupo que va a usar cada categoria, por id. Lo decide
+     * `computeFormat` a partir de cuantas parejas lleva la categoria; este motor
+     * no lo deriva para no depender del motor de formato.
+     *
+     * Una categoria sin entrada usa PAREJAS_POR_GRUPO. Un valor que no sea un
+     * entero >= 2 se ignora y cae al default: esta funcion corre dentro de un
+     * render, y reventar ahi tumba la pantalla de inscripcion entera.
+     */
+    parejasPorGrupo?: Record<string, number>;
+    /** Partidos que caben en un carril. Default PARTIDOS_POR_CARRIL. */
+    partidosPorCarril?: number;
+}
+/**
+ * Cuantas parejas MAS caben en un bloque para una categoria.
+ *
+ * No es una division simple, por dos razones que se acumulan:
+ *
+ *   1. Un grupo son parejas de la MISMA categoria y ocupa carriles enteros. Los
+ *      huecos de un grupo a medias NO sirven para otra categoria.
+ *   2. Cuantos carriles ocupa un grupo depende de su tamano (ver
+ *      `carrilesDeGrupo`): 3 parejas = 1 carril, 4 parejas = 2.
+ *
+ *   carrilesUsados  = suma sobre categorias de
+ *                       ceil(parejas[cat] / G[cat]) * carrilesDeGrupo(G[cat])
+ *   carrilesLibres  = carriles - carrilesUsados
+ *   huecoEnMiGrupo  = (G - (mias % G)) % G
+ *   gruposQueCaben  = floor(carrilesLibres / carrilesDeGrupo(G))
+ *   cupo            = huecoEnMiGrupo + gruposQueCaben * G
+ *
+ * Con G = 3 en todo sale exactamente la formula de antes; el cambio no mueve
+ * el caso normal.
+ *
+ * EJEMPLO DEL BUG QUE ARREGLA
+ *   Categoria de 8 parejas -> computeFormat da [4,4] -> G = 4. Un bloque vacio
+ *   de 8 carriles admite 4 grupos de 4 (16 parejas), no 8 grupos de 3 (24).
+ *   Antes decia 24: ocho parejas de mas que no tenian donde jugar.
+ *
+ * ES UN PRONOSTICO, NO UN CUPO EXACTO. Se calcula mientras la gente todavia se
+ * esta inscribiendo, asi que G sale del numero de parejas de ESTE momento y
+ * puede cambiar con la siguiente inscripcion. La cuenta fina, sobre la
+ * inscripcion cerrada, es `capacidadDelTorneo`.
+ */
+declare function cupoDeBloque(bloque: Bloque, ocupacion: OcupacionBloque | undefined, categoriaId: string, opciones?: OpcionesCupo): number;
+/**
+ * Los bloques con cupo > 0 para la categoria, cada uno con su cupo.
+ * Conserva el orden de `bloques`. Los agotados no salen: la UI los oculta.
+ */
+declare function bloquesDisponibles(bloques: Bloque[], ocupacion: Ocupacion | undefined, categoriaId: string, opciones?: OpcionesCupo): BloqueDisponible[];
 
 /**
  * Scheduler de fase de grupos.
@@ -596,6 +674,63 @@ declare function repartirPorBloque<T>(parejas: T[], bloqueDe: (p: T) => string |
  */
 declare function bloqueDeGrupo(elecciones: (string | null)[]): string | null;
 
+/** Un partido con su sitio en el calendario, tal como está hoy. */
+interface PartidoEnCalendario {
+    id: string;
+    categoryId: string;
+    /** 'group' | 'round_of_32' | ... | 'third_place'. */
+    stage: string;
+    roundLabel: string | null;
+    /** Los cuatro jugadores. Menos de cuatro si alguna pareja falta todavía. */
+    jugadores: string[];
+    /** 'YYYY-MM-DD' en la zona del club. Null si aún no tiene hora. */
+    dia: string | null;
+    /** Minutos desde medianoche. Null si aún no tiene hora. */
+    inicioMin: number | null;
+    /** Etiqueta de la cancha tal como la ve el organizador: 'Cancha 3'. */
+    cancha: string | null;
+    status: string;
+    /** Los partidos de la ronda previa que lo alimentan. Null en grupos y siembra. */
+    sourceMatchIds: string[] | null;
+}
+/** A dónde se quiere mover. */
+interface Movimiento {
+    matchId: string;
+    dia: string;
+    inicioMin: number;
+    cancha: string;
+}
+type MotivoConflicto = 'partido_no_encontrado' | 'cancha_ocupada' | 'jugador_ocupado' | 'descanso_insuficiente' | 'ronda_previa_sin_hora' | 'ronda_previa_despues' | 'hora_invalida';
+interface Conflicto {
+    motivo: MotivoConflicto;
+    /** Redactado para el organizador, con nombres. */
+    mensaje: string;
+    /** El partido que estorba, si lo hay. */
+    matchId?: string;
+}
+interface ResultadoMovimiento {
+    ok: boolean;
+    conflictos: Conflicto[];
+}
+interface EntradaMovimiento {
+    /** TODOS los partidos del torneo, con su horario actual. */
+    partidos: PartidoEnCalendario[];
+    movimiento: Movimiento;
+    minutosPorPartido?: number;
+    /** Minutos que una pareja necesita entre dos partidos suyos. Default 30. */
+    descansoMinimo?: number;
+    /** playerId -> nombre. Lo que falte sale como "Un jugador". */
+    nombres?: Record<string, string>;
+}
+/**
+ * ¿Se puede mover `movimiento.matchId` a ese día, hora y cancha?
+ *
+ * Devuelve TODOS los conflictos, no el primero: el organizador que mueve una
+ * semifinal quiere ver de una vez que la cancha está ocupada Y que dos de sus
+ * jugadores vienen de jugar, no descubrirlo de uno en uno.
+ */
+declare function validarMovimiento(entrada: EntradaMovimiento): ResultadoMovimiento;
+
 /**
  * Scheduler de eliminatorias.
  * Asigna hora y cancha a cada partido del último día del torneo.
@@ -765,4 +900,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type Bloque, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoSinProgramar, type NextMatch, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };

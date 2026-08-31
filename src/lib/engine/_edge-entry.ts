@@ -35,6 +35,19 @@ export { generarBloques, carrilesDeGrupo, PARTIDOS_POR_CARRIL } from './schedule
 export type { Bloque, VentanaDia as VentanaBloques, ReticulaBloques } from './schedule/bloques';
 export { bloqueDeGrupo, repartirPorBloque } from './schedule/reparto';
 
+// Movimiento manual de un partido: lo valida la pantalla EN VIVO y lo
+// revalida la Edge Function `move-match` con el mismo codigo. Que la regla
+// viva en un solo sitio es el punto.
+export { validarMovimiento } from './schedule/mover';
+export type {
+  PartidoEnCalendario, Movimiento, Conflicto, ResultadoMovimiento, MotivoConflicto,
+} from './schedule/mover';
+
+// Cupo de los bloques horarios de la fase de grupos. `generarBloques` ya
+// estaba; faltaban las dos que deciden si una pareja cabe.
+export { bloquesDisponibles, cupoDeBloque, PAREJAS_POR_GRUPO } from './schedule/bloques';
+export type { OcupacionBloque, Ocupacion, BloqueDisponible } from './schedule/bloques';
+
 // Scheduler del dia de eliminatorias (lo consume schedule-knockout)
 export { programarEliminatorias, etapaDeRonda } from './schedule/knockout';
 export type {
