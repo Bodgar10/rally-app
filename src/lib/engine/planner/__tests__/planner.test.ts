@@ -4,7 +4,15 @@
 // un torneo grande donde la capacidad aprieta (Cimepa) y uno chico donde sobra.
 // Si estos dos pasan, la calibración no es una preferencia fija: es capacidad.
 
-import { planTournament, candidatos, minutosDeVentana, type Capacidad } from '../index';
+import {
+  planTournament, candidatos, minutosDeVentana, MARGEN_CIERRE_MIN, type Capacidad,
+} from '../index';
+
+/** 'HH:MM' → minutos. Para comparar horas sin pelearse con strings. */
+const aMin = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+};
 
 // ── Capacidades de referencia ───────────────────────────────────────────────
 
@@ -140,52 +148,58 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     expect(r.grupos.zona).toBe('limite');
   });
 
-  it('aprovecha el último día repescando, sin pasarse de la hora de cierre', () => {
+  it('aprovecha el último día repescando, y para una hora antes del cierre', () => {
     // Con el piso a secas serían 47 partidos. El paso 2 sube la repesca hasta
-    // 80 y ahí para: uno más y la hora realista se iría de las 20:00.
+    // 80 y ahí para: uno más y la hora realista se comería el margen.
     //
-    // TRES NÚMEROS PARA LA MISMA PREGUNTA, en orden histórico:
+    // CUATRO NÚMEROS PARA LA MISMA PREGUNTA, en orden histórico:
     //   81 · puerta del 85% de slots, que es literalmente floor(96 × 0.85).
     //        No miraba la hora: terminaba 22:15 reales.
     //   72 · puerta por hora, con el retraso modelado replanificando a 75 min.
     //        Sobreestimaba el retraso y dejaba capacidad sin usar.
-    //   80 · puerta por hora con el retraso encadenado, que es el modelo
+    //   88 · puerta por hora con el retraso encadenado, que es el modelo
     //        correcto: el retraso se acumula ronda a ronda, no partido a
-    //        partido, y los huecos ociosos lo absorben en vez de heredarlo.
+    //        partido. Pero terminaba a las 20:00 CLAVADAS.
+    //   80 · lo mismo, exigiendo MARGEN_CIERRE_MIN. FACTOR_RETRASO es un
+    //        promedio y la varianza está por encima: acabar justo a la hora de
+    //        cierre es acabar tarde la mitad de las veces.
     //
     // Este fixture NO pasa `jugadores`, así que no hay separación de hermanas.
     // Con ella el día se alarga y el planificador baja de nuevo la repesca.
-    expect(r.eliminacion.usados).toBe(88);   // 80 de cuadro + 8 terceros lugares
-    expect(r.ultimoDia!.finRealista! <= '20:00').toBe(true);
+    expect(r.eliminacion.usados).toBe(80);
+    expect(r.ultimoDia!.finRealista).toBe('19:00');
+    expect(aMin(r.ultimoDia!.finRealista!) + MARGEN_CIERRE_MIN).toBeLessThanOrEqual(aMin('20:00'));
   });
 
-  it('el 3.er lugar se come los 30 minutos de margen que parecía haber', () => {
-    // Los 8 partidos que antes eran invisibles caen todos en la transición de
-    // semis a final, el momento en que las ocho categorías convergen. No
-    // cambian el plan —los clasificados son los mismos— pero sí la hora:
+  it('el 3.er lugar ahora cambia el PLAN, no solo la hora', () => {
+    // Los 8 partidos del 3.er lugar caen todos en la transición de semis a
+    // final, el momento en que las ocho categorías convergen.
     //
     //            sin 3.er lugar   con 3.er lugar
-    //   usados          80              88
-    //   ocupación       83%             92%
-    //   finEstimado     18:30           19:00
-    //   finRealista     19:30           20:00   ← el cierre, exacto
+    //   usados          72              80
+    //   finRealista     18:30           19:00
     //
-    // Sigue cabiendo, pero sin un minuto de sobra. Antes el plan prometía
-    // media hora de margen que no existía.
+    // ANTES, CON LA PUERTA SIN MARGEN, el 3.er lugar movía la hora pero no el
+    // plan: los clasificados salían idénticos y solo cambiaba el reloj (19:30
+    // contra 20:00 clavadas). Con margen ya no: jugar el 3.er lugar consume
+    // parte del colchón, así que hay que repescar a menos gente para pagarlo.
+    // Es la consecuencia REAL de esa opción, y antes quedaba escondida en un
+    // margen que no existía.
     const sin = planTournament(CATEGORIAS_CIMEPA, { ...CIMEPA, tercerLugar: false });
-    expect(sin.eliminacion.usados).toBe(80);
-    expect(sin.ultimoDia!.finRealista).toBe('19:30');
-    expect(r.ultimoDia!.finRealista).toBe('20:00');
+    expect(sin.eliminacion.usados).toBe(72);
+    expect(sin.ultimoDia!.finRealista).toBe('18:30');
+    expect(r.ultimoDia!.finRealista).toBe('19:00');
 
-    // El plan elegido NO cambia: los mismos clasificados en las dos corridas.
-    const clas = (x: typeof r) => [...x.planes.values()].map((p) => p.clasificados).join(',');
-    expect(clas(r)).toBe(clas(sin));
+    // 4ª y 5ª Fuerza repescan a dos parejas menos cada una para pagar el 3.er lugar.
+    expect(r.planes.get('5A')!.clasificados).toBe(12);
+    expect(sin.planes.get('5A')!.clasificados).toBe(14);
   });
 
   it('la ocupación en slots sobrevive como dato, pero ya no manda', () => {
-    // 92% suena a que no cabe; la hora dice que sí, justo. Que las dos cifras
-    // cuenten historias distintas es el motivo del cambio de criterio.
-    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(92);
+    // 83% de slots y una hora de margen. Con la puerta vieja eran 92% y cero
+    // margen. Que las dos cifras cuenten historias distintas es el motivo del
+    // cambio de criterio: un porcentaje no mide un día encadenado.
+    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(83);
   });
 
   it('repesca aunque la fase de grupos esté por encima del umbral', () => {
@@ -202,18 +216,19 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     }
   });
 
-  it('propone MÁS repesca de la que eligió Cimepa, pero menos que con slots', () => {
-    // Cimepa puso 2 en 5ª Fuerza a mano. Medida la capacidad con el modelo de
-    // retraso encadenado caben 6, y el cuadro queda lleno sin un solo bye.
+  it('coincide con la repesca que Cimepa eligió a mano', () => {
+    // Cimepa puso 2 en 5ª Fuerza. La puerta sin margen decía 6 y llenaba el
+    // cuadro de 16 sin un solo bye — muy bonito sobre el papel y a costa de
+    // acabar a las 20:00 clavadas. Con una hora de margen el planificador dice
+    // 2, que es exactamente lo que hizo el organizador con el torneo delante.
     //
-    // Sin `jugadores` en este fixture no hay separación de hermanas: con ella
-    // el día se alarga y este número baja. Es el mismo plan visto con y sin
-    // saber quién juega en dos categorías.
+    // No prueba que 2 sea óptimo. Sí que el modelo dejó de proponer un plan
+    // que la persona que estuvo allí no eligió.
     const p = r.planes.get('5A')!;
-    expect(p.segundosQueAvanzan).toBe(6);
-    expect(p.clasificados).toBe(16);
+    expect(p.segundosQueAvanzan).toBe(2);
+    expect(p.clasificados).toBe(12);
     expect(p.bracketSize).toBe(16);
-    expect(p.byes).toBe(0);
+    expect(p.byes).toBe(4);
   });
 
   it('avisa de que los grupos van al límite', () => {
@@ -238,7 +253,7 @@ describe('criterio "quedar segundo debe servir"', () => {
 
   it('la frase cambia según el ratio', () => {
     expect(r.planes.get('3A')!.fraseSegundos)
-      .toBe('Quedar segundo sirve: 6 de 10 segundos avanzan.');
+      .toBe('Quedar segundo sirve: 5 de 10 segundos avanzan.');
     // 2 de 4: justo en el 0.5 que separa "sirve" de "solo algunos".
     expect(r.planes.get('5F')!.fraseSegundos)
       .toBe('Quedar segundo sirve: 2 de 4 segundos avanzan.');
@@ -246,12 +261,17 @@ describe('criterio "quedar segundo debe servir"', () => {
     // Ninguna categoría de Cimepa queda con "solo avanzan los primeros": el
     // paso 2 gasta el domingo en que quedar segundo sirva.
     //
-    // El suelo vuelve a 0.5: todas las categorías llegan a la mitad de sus
-    // segundos. Bajó a 0.4 mientras el retraso se modelaba replanificando a 75
-    // minutos, que sobreestimaba y comía capacidad; con el retraso encadenado
-    // el domingo da para más y nadie baja de la mitad.
+    // EL SUELO ES 0.2, Y ES EL PRECIO DEL MARGEN DE CIERRE. Sin margen era 0.5
+    // —todas las categorías repescaban al menos la mitad de sus segundos—, pero
+    // ese 0.5 se pagaba acabando a las 20:00 clavadas. 5ª Fuerza es la que más
+    // baja: de 6 segundos repescados de 10 a 2 de 10.
+    //
+    // Es la cara visible del cambio para el jugador, y hay que mirarla: quedar
+    // segundo en 5ª sirve bastante menos que antes. A cambio, el domingo acaba
+    // a las 19:00 y no depende de que ningún partido se alargue.
     const peor = Math.min(...[...r.planes.values()].map((p) => p.ratioSegundos));
-    expect(peor).toBeCloseTo(0.5);
+    expect(peor).toBeCloseTo(0.2);
+    expect(r.planes.get('5A')!.segundosQueAvanzan).toBe(2);
     for (const p of r.planes.values()) expect(p.ratioSegundos).toBeGreaterThan(0);
   });
 
@@ -397,5 +417,87 @@ describe('determinismo', () => {
       expect(b.planes.get(id)!.groupSizes).toEqual(p.groupSizes);
       expect(b.planes.get(id)!.clasificados).toBe(p.clasificados);
     }
+  });
+});
+
+// ── El margen de cierre ─────────────────────────────────────────────────────
+
+describe('margen de cierre (§ MARGEN_CIERRE_MIN)', () => {
+  const conMargen = (margen: number) =>
+    planTournament(CATEGORIAS_CIMEPA, { ...CIMEPA, margenCierreMin: margen });
+
+  it('sin margen el plan acaba a la hora de cierre, al minuto', () => {
+    // Es el comportamiento que había: la puerta aceptaba cualquier plan cuya
+    // hora realista cupiera antes del `hasta`, así que llenaba hasta el borde.
+    const cero = conMargen(0);
+    expect(cero.ultimoDia!.finRealista).toBe('20:00');
+    expect(cero.eliminacion.usados).toBe(88);
+  });
+
+  it('con el margen por defecto sobra una hora entera', () => {
+    const r = conMargen(MARGEN_CIERRE_MIN);
+    expect(aMin('20:00') - aMin(r.ultimoDia!.finRealista!)).toBeGreaterThanOrEqual(MARGEN_CIERRE_MIN);
+  });
+
+  it('el default de la constante es lo que se aplica sin pedir nada', () => {
+    const explicito = conMargen(MARGEN_CIERRE_MIN);
+    const implicito = planTournament(CATEGORIAS_CIMEPA, CIMEPA);
+    expect(implicito.eliminacion.usados).toBe(explicito.eliminacion.usados);
+    expect(implicito.ultimoDia!.finRealista).toBe(explicito.ultimoDia!.finRealista);
+  });
+
+  it('la hora entera sale gratis: de 30 a 60 no cuesta ni una repesca', () => {
+    // El coste va por escalones, no en línea recta. De 30 a 60 el plan es
+    // idéntico, así que quedarse en 30 no compra nada de repesca y sí deja
+    // media hora menos de colchón. Por eso la constante es 60 y no 30.
+    expect(conMargen(60).eliminacion.usados).toBe(conMargen(30).eliminacion.usados);
+  });
+
+  it('pasado el escalón sí cuesta: a 90 minutos se cae otro peldaño', () => {
+    // Dónde está el escalón depende del torneo —con separación de hermanas
+    // llega antes—, pero que exista es lo que hace que 60 sea una elección y
+    // no un número redondo cualquiera.
+    expect(conMargen(90).eliminacion.usados).toBeLessThan(conMargen(60).eliminacion.usados);
+  });
+
+  it('el coste de la hora es una repesca por categoría, no tres', () => {
+    // 88 slots contra 80: ocho partidos menos de cuadro sobre ocho categorías.
+    // Si esto se dispara, la constante hay que discutirla otra vez.
+    const cero = conMargen(0);
+    const r = conMargen(MARGEN_CIERRE_MIN);
+    const repesca = (x: typeof r) =>
+      [...x.planes.values()].reduce((a, p) => a + p.segundosQueAvanzan, 0);
+    expect(repesca(cero) - repesca(r)).toBeLessThanOrEqual(CATEGORIAS_CIMEPA.length);
+  });
+
+  it('avisa cuando ni el piso deja margen', () => {
+    // El paso 2 nunca elige un plan sin colchón —la puerta lo impide—, pero el
+    // PISO no pasa por esa puerta. Un torneo cuyo formato mínimo ya roza el
+    // cierre llega sin margen, y ahí el organizador no lo arregla repescando
+    // menos: tiene que alargar el día o conseguir otra cancha.
+    const apretado = planTournament(CATEGORIAS_CIMEPA, {
+      ...CIMEPA,
+      ventanas: [
+        ...CIMEPA.ventanas.slice(0, 2),
+        { fecha: '2026-03-15', desde: '08:00', hasta: '17:00' },
+      ],
+    });
+    expect(apretado.avisos.some((a) => /min de margen/.test(a))).toBe(true);
+  });
+
+  it('un torneo holgado no nota el margen', () => {
+    // La puerta solo muerde cuando el día aprieta. En un torneo chico el plan
+    // es el mismo con margen y sin él.
+    const chico = [{ id: 'A', parejas: 8 }, { id: 'B', parejas: 6 }];
+    const cap: Capacidad = {
+      canchas: 6, minutosPorPartido: 60,
+      ventanas: [
+        { fecha: '2026-03-14', desde: '09:00', hasta: '21:00' },
+        { fecha: '2026-03-15', desde: '09:00', hasta: '21:00' },
+      ],
+    };
+    const sin = planTournament(chico, { ...cap, margenCierreMin: 0 });
+    const con = planTournament(chico, cap);
+    expect(con.eliminacion.usados).toBe(sin.eliminacion.usados);
   });
 });

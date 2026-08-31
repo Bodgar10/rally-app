@@ -59,6 +59,12 @@ export interface Capacidad {
   ventanas: VentanaDia[];
   /** Se planifica a esto aunque en la práctica dure entre 60 y 90. */
   minutosPorPartido: number;
+  /**
+   * Minutos de margen sobre el cierre del último día. Default
+   * MARGEN_CIERRE_MIN. Se expone para un club con horario de cierre duro —o
+   * con uno flexible— y para poder medir el coste de moverlo.
+   */
+  margenCierreMin?: number;
 }
 
 export interface CategoriaEntrada {
@@ -198,6 +204,27 @@ const TAMANOS = [3, 4, 5] as const;
 const UMBRAL_SUBIDA = 0.85;
 
 const ZONA_COMODO = 0.70;
+
+/**
+ * Minutos que el ultimo dia tiene que sobrar sobre la hora de cierre.
+ *
+ * POR QUE NO BASTA CON QUE QUEPA
+ *   `horaFinRealista` estira el dia con FACTOR_RETRASO = 1.25, que es un
+ *   PROMEDIO: un partido planificado a 60 dura 75 de media. La varianza esta
+ *   por encima de esa media, y las semifinales son justo donde se dispara —dos
+ *   partidos largos un domingo por la tarde se comen quince minutos sin
+ *   esfuerzo. Aceptar cualquier plan que termine a las 19:45 con cierre a las
+ *   20:00 es planificar con el promedio como si fuera el techo.
+ *
+ *   Es la misma trampa que el 85% de UMBRAL_SUBIDA, con otra metrica: el
+ *   numero se lee holgado y el dia acaba apretado.
+ *
+ * POR QUE UNA HORA
+ *   Es un partido entero. Menos que eso no protege de nada —el retraso llega
+ *   en unidades de partido, no de minutos sueltos— y mas empieza a costar
+ *   repesca de verdad.
+ */
+export const MARGEN_CIERRE_MIN = 60;
 
 // ── Utilidades de tiempo ────────────────────────────────────────────────────
 
@@ -461,6 +488,8 @@ export function planTournament(
   // Default true: es lo que se venía haciendo antes de que fuera configurable.
   const tercerLugar = cap.tercerLugar ?? true;
 
+  const margenCierre = cap.margenCierreMin ?? MARGEN_CIERRE_MIN;
+
   /**
    * La hora de fin de una configuración, cacheada.
    *
@@ -586,12 +615,14 @@ export function planTournament(
         // últimas horas usan una cancha de ocho. El 84% de Cimepa se leía
         // holgado y terminaba a las 22:15.
         //
-        // NO se añade margen sobre la hora: `minutosPorPartido` ya va
-        // multiplicado por FACTOR_RETRASO dentro de horaFinRealista, y meter
-        // encima el UMBRAL_SUBIDA sería contar el mismo retraso dos veces —
-        // que es exactamente lo que hacía el umbral del 85%, según su propio
-        // comentario ("la diferencia entre el partido que se planifica y el
-        // que ocurre").
+        // NO se aplica encima el UMBRAL_SUBIDA: `minutosPorPartido` ya va
+        // multiplicado por FACTOR_RETRASO dentro de horaFinRealista, y hacerlo
+        // sería contar el mismo retraso dos veces.
+        //
+        // Lo que sí se exige es MARGEN_CIERRE_MIN. FACTOR_RETRASO es un
+        // promedio y la varianza está por encima: que la hora esperada quepa
+        // por quince minutos no es que quepa, es que cabe si nada se tuerce.
+        // Ver la constante.
         const okElim = () => {
           // Con un solo día los grupos comparten cancha con el cuadro y el
           // scheduler solo modela el cuadro: no puede responder la pregunta.
@@ -599,7 +630,7 @@ export function planTournament(
           if (unSoloDia) return ok(despuesE, antesE, presupuestoElim);
           if (despuesE === antesE) return true;   // la subida no toca el último día
           const fin = horaFin([...elegido.values()]);
-          return fin !== null && fin <= ventanaElim!.hasta;
+          return fin !== null && aMinutos(fin) + margenCierre <= aMinutos(ventanaElim!.hasta);
         };
 
         if (ok(despuesG, antesG, presupuestoGrupos) && okElim()) {
@@ -680,6 +711,20 @@ export function planTournament(
         `El último día terminaría a las ${ultimoDia.finRealista}, después del cierre de las ${ventanaElim.hasta}.`,
       );
     }
+    // El plan que elige el paso 2 SIEMPRE deja el margen: la puerta lo exige.
+    // Pero el PISO no pasa por esa puerta —es el punto de partida, no una
+    // subida—, así que un torneo cuyo formato mínimo ya roza el cierre llega
+    // aquí sin colchón y hay que decirlo. Es exactamente el caso en que el
+    // organizador no puede arreglarlo repescando menos: tiene que alargar el
+    // día o conseguir otra cancha.
+    const sobra = aMinutos(ventanaElim.hasta) - aMinutos(ultimoDia.finRealista);
+    if (sobra >= 0 && sobra < margenCierre) {
+      avisos.push(
+        `El último día acabaría a las ${ultimoDia.finRealista} y cierra a las ${ventanaElim.hasta}: ` +
+        `${sobra} min de margen. Un partido que se alargue lo pasa del cierre.`,
+      );
+    }
+
     const uno = ultimoDia.finRealistaUnaCanchaMenos;
     if (uno && uno > ventanaElim.hasta) {
       avisos.push(
