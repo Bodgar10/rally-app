@@ -42,6 +42,7 @@ import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import HorasUltimoDia from '@/components/tournament/HorasUltimoDia';
 import { fetchParejasPublicas, type ParejaPublica } from '@/lib/parejas-publicas';
+import { frasePersonas } from '@/lib/frase-personas';
 import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracket';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import { ORDEN_ETAPAS, type EtapaCuadro } from '@/components/realtime/bracket-layout';
@@ -126,6 +127,8 @@ interface EmpalmeReal {
 
 interface Riesgo {
   texto: string;
+  /** Quiénes son, por nombre. Vacío si no se pudieron resolver. */
+  jugadores: string[];
 }
 
 interface Estado {
@@ -425,7 +428,7 @@ export default function CalendarioScreen() {
     // se sabe quién pasará, y un superconjunto solo puede sobre-avisar, que es
     // el lado correcto en el que equivocarse.
     const { data: todasParejas } = await supabase
-      .from('pairs').select('category_id, player1_id, player2_id').eq('tournament_id', tournamentId);
+      .from('pairs').select('id, category_id, player1_id, player2_id').eq('tournament_id', tournamentId);
 
     const jugadoresPorCat = new Map<string, string[]>();
     for (const pr of todasParejas ?? []) {
@@ -433,6 +436,20 @@ export default function CalendarioScreen() {
       const dos = [pr.player1_id, pr.player2_id];
       if (ya) ya.push(...dos);
       else jugadoresPorCat.set(pr.category_id, dos);
+    }
+
+    // ── Nombre de cada jugador ──────────────────────────────────────────────
+    // El aviso decía "2ª y 3ª comparten jugadores" y ahí se quedaba. Saber que
+    // hay un choque sin saber CON QUIÉN no sirve para resolverlo: el
+    // organizador tiene que escribirle a alguien.
+    //
+    // Los nombres van por `bracket_pairs_public`, no por un embed a `users`:
+    // `users_select_own` solo deja leer la propia fila (ver parejas-publicas.ts).
+    const publicas = await fetchParejasPublicas((todasParejas ?? []).map((pr) => pr.id));
+    const nombrePorJugador = new Map<string, string>();
+    for (const pp of publicas.values()) {
+      if (pp.player1_id) nombrePorJugador.set(pp.player1_id, pp.player1_name);
+      if (pp.player2_id) nombrePorJugador.set(pp.player2_id, pp.player2_name);
     }
 
     // ── Empalmes REALES: un jugador con dos partidos a la misma hora ────────
@@ -466,7 +483,7 @@ export default function CalendarioScreen() {
     // Antes esto volvía a correr el motor. Estaba mal: el motor con
     // hermandades produce un calendario distinto del guardado, así que los
     // empalmes que listaba eran los de un torneo que no se va a jugar.
-    const riesgos = empalmesDeLasFilas(filas, jugadoresPorCat);
+    const riesgos = empalmesDeLasFilas(filas, jugadoresPorCat, nombrePorJugador);
 
     // ── Horas del día ──────────────────────────────────────────────────────
     //
@@ -711,7 +728,14 @@ export default function CalendarioScreen() {
               <View style={s.riesgo}>
                 <Text style={s.riesgoTitulo}>Posibles empalmes</Text>
                 {estado.riesgos.map((r, i) => (
-                  <Text key={i} style={s.riesgoLinea}>{r.texto}</Text>
+                  <View key={i} style={{ gap: 2 }}>
+                    <Text style={s.riesgoLinea}>{r.texto}</Text>
+                    {/* Los nombres completos: el aviso corta en tres para que se
+                        lea, pero para escribirles hacen falta todos. */}
+                    {r.jugadores.length > 2 && (
+                      <Text style={s.riesgoNombres}>{r.jugadores.join(' · ')}</Text>
+                    )}
+                  </View>
                 ))}
               </View>
             )}
@@ -843,7 +867,11 @@ function cuadrosDe(cats: FilaCat[], jugadores?: Map<string, string[]>): Categori
  * Se deduplica por par de categorías: sirve saber que 2ª y 3ª chocan, no que
  * chocan en tres rondas distintas.
  */
-function empalmesDeLasFilas(filas: Fila[], jugadores: Map<string, string[]>): Riesgo[] {
+function empalmesDeLasFilas(
+  filas: Fila[],
+  jugadores: Map<string, string[]>,
+  nombrePorJugador: Map<string, string>,
+): Riesgo[] {
   // Grafo de hermandad: por jugador, en qué categorías aparece.
   const catsDeJugador = new Map<string, Set<string>>();
   for (const [catId, ids] of jugadores) {
@@ -853,11 +881,23 @@ function empalmesDeLasFilas(filas: Fila[], jugadores: Map<string, string[]>): Ri
       else catsDeJugador.set(j, new Set([catId]));
     }
   }
+
+  // Además de QUÉ pares son hermanos, POR QUIÉN lo son. Es el dato que
+  // convierte el aviso en algo accionable.
   const hermanas = new Set<string>();
-  for (const cs of catsDeJugador.values()) {
+  const compartidos = new Map<string, Set<string>>();
+  for (const [jugadorId, cs] of catsDeJugador) {
     if (cs.size < 2) continue;
-    const lista = [...cs];
-    for (const a of lista) for (const b of lista) if (a !== b) hermanas.add([a, b].sort().join('#'));
+    const lista = [...cs].sort();
+    for (let i = 0; i < lista.length; i++) {
+      for (let k = i + 1; k < lista.length; k++) {
+        const par = `${lista[i]}#${lista[k]}`;
+        hermanas.add(par);
+        const ya = compartidos.get(par);
+        if (ya) ya.add(jugadorId);
+        else compartidos.set(par, new Set([jugadorId]));
+      }
+    }
   }
   if (hermanas.size === 0) return [];
 
@@ -879,9 +919,14 @@ function empalmesDeLasFilas(filas: Fila[], jugadores: Map<string, string[]>): Ri
         const par = [ids[i], ids[k]].sort().join('#');
         if (!hermanas.has(par) || vistos.has(par)) continue;
         vistos.add(par);
+        const nombres = [...(compartidos.get(par) ?? [])]
+          .map((j) => nombrePorJugador.get(j))
+          .filter((n): n is string => !!n)
+          .sort((a, b) => a.localeCompare(b, 'es'));
         out.push({
-          texto: `${nombre.get(ids[i])} y ${nombre.get(ids[k])} comparten jugadores y su `
+          texto: `${nombre.get(ids[i])} y ${nombre.get(ids[k])} ${frasePersonas(nombres)} y su `
             + `${cats.get(ids[i])} y ${cats.get(ids[k])} coinciden a las ${hora}.`,
+          jugadores: nombres,
         });
       }
     }
@@ -988,6 +1033,7 @@ const s = StyleSheet.create({
   riesgo:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[1] },
   riesgoTitulo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 },
   riesgoLinea:  { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 21 },
+  riesgoNombres:{ fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 },
 
   franja:      { borderTopWidth: 1, borderTopColor: color.line, paddingTop: space[2], gap: space[2] },
   franjaHora:  { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne },
