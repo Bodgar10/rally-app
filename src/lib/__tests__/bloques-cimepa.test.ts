@@ -17,6 +17,7 @@
 
 import { generarBloques, cupoDeBloque, bloquesDisponibles } from '@/lib/engine/schedule/bloques';
 import { capacidadDelTorneo, carrilesDeCategoria, tamanosDeGrupo } from '@/lib/bloques-formato';
+import { computeFormat } from '@/lib/engine/format';
 
 /** Copia literal de CAPACIDAD en `scripts/seed-cimepa.mjs`. */
 const CIMEPA = {
@@ -29,9 +30,24 @@ const CIMEPA = {
   ],
 };
 
-/** 165 parejas en 8 categorías, como el seed. */
+/**
+ * Las OCHO CATEGORÍAS REALES, copiadas de CATEGORIAS en `scripts/seed-cimepa.mjs`.
+ *
+ * Antes aquí había ocho categorías inventadas de 20 y 21 parejas que sumaban
+ * 165 y nada más. Un test etiquetado "Cimepa" con datos que no son de Cimepa
+ * es peor que no tenerlo: quien verifique contra él verifica contra una
+ * fantasía. Y la fantasía daba 59 carriles porque los 20 obligan a grupos de 4;
+ * el torneo real, con todas las categorías en múltiplos de 3, son 55.
+ */
 const PAREJAS_POR_CATEGORIA = {
-  MxA: 20, MxB: 21, MxC: 21, MxD: 21, F2: 20, F3: 21, F4: 21, F5: 20,
+  '2A':  21,   // 2ª Fuerza
+  '3A':  30,   // 3ª Fuerza
+  '4A':  30,   // 4ª Fuerza
+  '5A':  30,   // 5ª Fuerza
+  '6A':  15,   // 6ª Fuerza
+  '5F':  12,   // 5ª Femenil
+  'MxD': 18,   // Mixtos D
+  'MxC':  9,   // Mixtos C
 };
 
 describe('retícula de Cimepa', () => {
@@ -60,27 +76,38 @@ describe('retícula de Cimepa', () => {
     expect(r.avisos).toEqual([]);
   });
 
-  it('las 165 parejas caben, y no se dispara ninguna palanca', () => {
+  it('las 165 parejas caben en 55 carriles de 64', () => {
     const cap = capacidadDelTorneo({
       reticula: r, canchas: 8, parejasPorCategoria: PAREJAS_POR_CATEGORIA,
     });
     expect(cap.inscritas).toBe(165);
 
-    // 59, no 55 ni 56. La cuenta sale del reparto real de computeFormat:
-    //   21 parejas -> [3,3,3,3,3,3,3]     -> 7 carriles  x5 categorías = 35
-    //   20 parejas -> [4,4,3,3,3,3]       -> 8 carriles  x3 categorías = 24
-    // Los grupos de 4 son 6 partidos y valen DOS carriles cada uno. Dividir
-    // 165 entre 3 daría 55 y anunciaría capacidad que no existe.
-    expect(cap.carrilesNecesarios).toBe(59);
-    expect(cap.faltanCarriles).toBe(-5);
+    // 55, y salen de que TODAS las categorías reales son múltiplos de 3:
+    //   21 -> 7 grupos   30 -> 10   30 -> 10   30 -> 10
+    //   15 -> 5          12 ->  4   18 ->  6    9 ->  3
+    // Ni un solo grupo de 4, así que el reparto entero cuesta un carril por
+    // grupo y 55 = 165/3. Que coincida con la división es una propiedad de
+    // ESTAS categorías, no una regla: ver el caso de 20 más abajo.
+    expect(cap.carrilesNecesarios).toBe(55);
+    expect(cap.faltanCarriles).toBe(-9);
     expect(cap.palancas).toEqual([]);
   });
 
-  it('el tamaño de grupo de cada categoría de Cimepa', () => {
-    // Las de 21 se reparten en sietes de 3; las de 20 llevan dos grupos de 4,
-    // pero el 3 sigue dominando el reparto, así que el pronóstico usa 3.
+  it('55 grupos y 165 partidos de fase de grupos', () => {
+    // Es la cifra contra la que se verifica el scheduler en
+    // `engine/schedule/__tests__/grupos-cimepa.test.ts`.
+    const grupos = Object.values(PAREJAS_POR_CATEGORIA)
+      .reduce((a, n) => a + computeFormat(n).groupSizes.length, 0);
+    const partidos = Object.values(PAREJAS_POR_CATEGORIA)
+      .reduce((a, n) => a + computeFormat(n).groupSizes
+        .reduce((b, s) => b + (s * (s - 1)) / 2, 0), 0);
+    expect(grupos).toBe(55);
+    expect(partidos).toBe(165);
+  });
+
+  it('el tamaño de grupo de cada categoría de Cimepa es 3', () => {
     expect(tamanosDeGrupo(PAREJAS_POR_CATEGORIA)).toEqual({
-      MxA: 3, MxB: 3, MxC: 3, MxD: 3, F2: 3, F3: 3, F4: 3, F5: 3,
+      '2A': 3, '3A': 3, '4A': 3, '5A': 3, '6A': 3, '5F': 3, MxD: 3, MxC: 3,
     });
   });
 
@@ -95,10 +122,15 @@ describe('retícula de Cimepa', () => {
   });
 
   it('una categoría de 20 cuesta 8 carriles y una de 21 cuesta 7', () => {
-    // Una parejas MENOS puede costar un carril MÁS: 21 se reparte en sietes de
-    // 3 y 20 obliga a dos grupos de 4. No es un error de redondeo.
+    // NO es Cimepa —ninguna de sus categorías tuvo 20— pero es la propiedad
+    // que hace que la cuenta no se pueda hacer dividiendo entre 3: una pareja
+    // MENOS puede costar un carril MÁS, porque 20 obliga a dos grupos de 4 y
+    // cada uno vale dos carriles.
     expect(carrilesDeCategoria(21)).toBe(7);
     expect(carrilesDeCategoria(20)).toBe(8);
+    // Las ocho reales, para contraste: todas al mínimo.
+    expect(Object.values(PAREJAS_POR_CATEGORIA).map((n) => carrilesDeCategoria(n)))
+      .toEqual([7, 10, 10, 10, 5, 4, 6, 3]);
   });
 });
 
@@ -112,12 +144,12 @@ describe('lo que ve el selector sobre esa retícula', () => {
   });
 
   it('un bloque con los 8 carriles tomados desaparece para todas las categorías', () => {
-    // 21 de MxD ocupan 7 carriles; 3 de F2 ocupan el octavo.
-    const ocupacion = { '2026-09-12-08:00': { MxD: 21, F2: 3 } };
+    // 18 de MxD ocupan 6 carriles; 6 de 3ª Fuerza ocupan los otros dos.
+    const ocupacion = { '2026-09-12-08:00': { MxD: 18, '3A': 6 } };
     const bloque = r.bloques.find((b) => b.id === '2026-09-12-08:00')!;
 
     expect(cupoDeBloque(bloque, ocupacion['2026-09-12-08:00'], 'MxD')).toBe(0);
-    expect(cupoDeBloque(bloque, ocupacion['2026-09-12-08:00'], 'F3')).toBe(0);
+    expect(cupoDeBloque(bloque, ocupacion['2026-09-12-08:00'], '4A')).toBe(0);
 
     const libres = bloquesDisponibles(r.bloques, ocupacion, 'MxD');
     expect(libres.length).toBe(7);
@@ -125,13 +157,14 @@ describe('lo que ve el selector sobre esa retícula', () => {
   });
 
   it('los huecos de un grupo a medias solo sirven para su propia categoría', () => {
-    // 20 de MxD: 6 grupos llenos y uno con 2. Quedan 7 carriles usados, 1 libre.
+    // 20 parejas de una categoría: 6 grupos llenos y uno con 2. Siete carriles
+    // usados, uno libre.
     const ocupacion = { '2026-09-11-14:00': { MxD: 20 } };
     const bloque = r.bloques.find((b) => b.id === '2026-09-11-14:00')!;
 
     // MxD: 1 hueco en su grupo a medias + 3 del carril libre.
     expect(cupoDeBloque(bloque, ocupacion['2026-09-11-14:00'], 'MxD')).toBe(4);
-    // F3 no puede meterse en ese grupo: solo le queda el carril libre.
-    expect(cupoDeBloque(bloque, ocupacion['2026-09-11-14:00'], 'F3')).toBe(3);
+    // 3ª Fuerza no puede meterse en ese grupo: solo le queda el carril libre.
+    expect(cupoDeBloque(bloque, ocupacion['2026-09-11-14:00'], '3A')).toBe(3);
   });
 });
