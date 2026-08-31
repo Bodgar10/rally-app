@@ -9,6 +9,7 @@ import {
   computeFormat,
   generateRoundRobin,
   repartirPorBloque,
+  generarBloques,
   type FormatPlan,
   type Fixture,
 } from "./engine.ts";
@@ -180,6 +181,96 @@ serve(async (req) => {
 
   const bloquePorPareja = new Map<string, string>();
   for (const e of elecciones ?? []) bloquePorPareja.set(e.pair_id, e.bloque_id);
+
+  // 6.bis) SI EL TORNEO USA BLOQUES, NO SE CIERRA CON PAREJAS SIN ELEGIR.
+  //
+  //   POR QUÉ ES UN RECHAZO Y NO UN AVISO
+  //     `repartirPorBloque` mete a la pareja sin bloque donde quepa, y el grupo
+  //     resultante queda con gente de horarios distintos. `schedule-groups` le
+  //     da al grupo el bloque de la MAYORÍA, así que a los demás se les cambia
+  //     la hora a la que dijeron que podían venir — y eso ya no se puede
+  //     deshacer: los grupos están formados y el cierre no se revierte.
+  //
+  //     Antes esto solo se contaba en la respuesta (`parejas_sin_bloque`), que
+  //     es decírselo a alguien que ya no puede hacer nada. Se comprueba ANTES.
+  //
+  //   SOLO SI HAY BLOQUES QUE ELEGIR
+  //     Un torneo sin ventanas horarias capturadas no tiene retícula, y ahí no
+  //     hay nada que exigir: se cierra como siempre.
+  const { data: ventanas } = await admin
+    .from("tournament_windows")
+    .select("dia, desde, hasta")
+    .eq("tournament_id", cat.tournament_id)
+    .order("dia");
+
+  const { data: torneoCap } = await admin
+    .from("tournaments")
+    .select("courts, match_minutes")
+    .eq("id", cat.tournament_id)
+    .maybeSingle();
+
+  let hayBloques = false;
+  if ((ventanas ?? []).length > 0 && torneoCap?.courts) {
+    try {
+      hayBloques = generarBloques({
+        ventanas: (ventanas ?? []).map((v: { dia: string; desde: string; hasta: string }) => ({
+          dia: v.dia, desde: v.desde.slice(0, 5), hasta: v.hasta.slice(0, 5),
+        })),
+        canchas: torneoCap.courts,
+        minutosPorPartido: torneoCap.match_minutes ?? 60,
+      }).bloques.length > 0;
+    } catch {
+      // Capacidad imposible: no hay retícula, así que no hay nada que exigir.
+      hayBloques = false;
+    }
+  }
+
+  if (hayBloques) {
+    const faltanAqui = validPairs.filter((p) => !bloquePorPareja.has(p.id));
+    if (faltanAqui.length > 0) {
+      // El desglose del TORNEO entero, no solo de esta categoría: si falta en
+      // varias, el organizador lo arregla de una vez en vez de chocar ocho
+      // veces con el mismo muro.
+      const { data: todas } = await admin
+        .from("pairs")
+        .select("id, category_id, categories(display_name)")
+        .eq("tournament_id", cat.tournament_id)
+        .in("payment_status", ["paid_online", "paid_offline", "comp"]);
+
+      const idsTodas = (todas ?? []).map((p: { id: string }) => p.id);
+      const { data: todasElecciones } = await admin
+        .from("pair_block_choices")
+        .select("pair_id")
+        .in("pair_id", idsTodas.length > 0 ? idsTodas : ["-"]);
+      const conEleccion = new Set((todasElecciones ?? []).map((e: { pair_id: string }) => e.pair_id));
+
+      const porCategoria = new Map<string, number>();
+      for (const p of (todas ?? []) as Array<{ id: string; categories: { display_name: string } | null }>) {
+        if (conEleccion.has(p.id)) continue;
+        const nombre = p.categories?.display_name ?? "Sin nombre";
+        porCategoria.set(nombre, (porCategoria.get(nombre) ?? 0) + 1);
+      }
+
+      const desglose = [...porCategoria.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([nombre, n]) => ({ categoria: nombre, parejas: n }));
+
+      const total = desglose.reduce((a, d) => a + d.parejas, 0);
+      return json({
+        error: "parejas_sin_bloque",
+        message:
+          `${faltanAqui.length} ${faltanAqui.length === 1 ? "pareja" : "parejas"} de esta ` +
+          `categoría no eligieron horario. Si se cierra así, quedan en grupos con gente de ` +
+          `otro bloque y se les cambia la hora sin poder deshacerlo.` +
+          (total > faltanAqui.length
+            ? ` En todo el torneo faltan ${total}: ` +
+              desglose.map((d) => `${d.categoria} (${d.parejas})`).join(", ") + "."
+            : ""),
+        parejas_sin_bloque: faltanAqui.length,
+        por_categoria: desglose,
+      }, 409);
+    }
+  }
 
   // 7) Repartir POR BLOQUE, respetando los tamaños del plan.
   const buckets = repartirPorBloque(
