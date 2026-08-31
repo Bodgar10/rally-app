@@ -634,6 +634,22 @@ function BloqueCapacidad({ plan, ultimoDia }: { plan: PlanTorneo; ultimoDia: Ult
 
 // ── Pantalla ────────────────────────────────────────────────────────────────
 
+/**
+ * Cómo quedó el reparto de grupos respecto al horario que eligió cada pareja.
+ *
+ * Lo devuelve `close-registration`. Se enseña UNA vez, en el parte del cierre,
+ * porque es el único momento en que existe: `pair_block_choices` guarda lo que
+ * cada pareja eligió, no en qué grupo acabó, y no hay columna de bloque en
+ * `groups` donde consultarlo después.
+ */
+interface AvisoBloques {
+  categoria: string;
+  /** Grupos armados con parejas de más de un bloque. Juegan a la hora de la mayoría. */
+  mezclados: number;
+  /** Parejas que nunca eligieron horario. */
+  sinBloque: number;
+}
+
 type Fase =
   | { t: 'cargando' }
   | { t: 'lista' }
@@ -648,6 +664,8 @@ type Fase =
       /** false si la relectura falló: entonces no se afirma nada del estado. */
       verificado: boolean;
       fallo: { nombre: string; motivo: string } | null;
+      /** Solo las categorías con algo que contar. Vacío es el caso bueno. */
+      bloques: AvisoBloques[];
     };
 
 export default function CerrarInscripcionesScreen() {
@@ -923,16 +941,21 @@ export default function CerrarInscripcionesScreen() {
   }
 
   /** Cierra el parte con lo que diga la base, no con lo que crea el bucle. */
-  async function reportar(fallo: { nombre: string; motivo: string } | null) {
+  async function reportar(
+    fallo: { nombre: string; motivo: string } | null,
+    bloques: AvisoBloques[] = [],
+  ) {
     const real = await leerEstadoReal();
     setFase(real
-      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallo }
-      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallo });
+      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallo, bloques }
+      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallo, bloques });
   }
 
   async function cerrar() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setError('Tu sesión expiró. Vuelve a entrar.'); return; }
+
+    const avisos: AvisoBloques[] = [];
 
     for (let i = 0; i < cerrables.length; i++) {
       const c = cerrables[i];
@@ -958,8 +981,18 @@ export default function CerrarInscripcionesScreen() {
           console.error('[cerrar-inscripciones] close-registration respondió con error', {
             categoria: c.nombre, categoryId: c.id, status: res.status, cuerpo: json,
           });
-          await reportar({ nombre: c.nombre, motivo: traducir(json?.error) });
+          await reportar({ nombre: c.nombre, motivo: traducir(json?.error) }, avisos);
           return;
+        }
+
+        // El reparto por bloque no es infalible: los restos de varios bloques
+        // se juntan en un grupo que juega a la hora de la mayoría, y a los
+        // demás hay que avisarles. Aquí es donde se entera el organizador.
+        const b = json?.bloques;
+        const mezclados = Array.isArray(b?.grupos_mezclados) ? b.grupos_mezclados.length : 0;
+        const sinBloque = typeof b?.parejas_sin_bloque === 'number' ? b.parejas_sin_bloque : 0;
+        if (mezclados > 0 || sinBloque > 0) {
+          avisos.push({ categoria: c.nombre, mezclados, sinBloque });
         }
       } catch (e) {
         // El error se CAPTURA y se registra. Antes este catch era desnudo y
@@ -972,14 +1005,14 @@ export default function CerrarInscripcionesScreen() {
         await reportar({
           nombre: c.nombre,
           motivo: `La petición no llegó a completarse. Detalle: ${detalle}`,
-        });
+        }, avisos);
         return;
       }
     }
 
     // También en el camino feliz se relee: ocho respuestas 200 son ocho
     // promesas, y el parte se da con hechos.
-    await reportar(null);
+    await reportar(null, avisos);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1072,6 +1105,34 @@ export default function CerrarInscripcionesScreen() {
               <Text style={s.resumenNota}>
                 Vuelve atrás para reintentarlas. Cerrar una categoría es
                 idempotente: las que ya están cerradas no se tocan.
+              </Text>
+            </View>
+          )}
+
+          {/* Los horarios que no cuadraron. Se dice AQUÍ y solo aquí: el
+              grupo en que acabó cada pareja no queda guardado en ningún sitio
+              que se pueda consultar después. */}
+          {fase.bloques.length > 0 && (
+            <View style={s.resumenPendiente}>
+              <Text style={s.resumenTituloAviso}>Revisa estos horarios</Text>
+              {fase.bloques.map((b) => (
+                <Text key={b.categoria} style={s.resumenLinea}>
+                  · <Text style={s.resumenNegrita}>{b.categoria}</Text>
+                  {b.mezclados > 0 && (
+                    ` — ${b.mezclados} grupo${b.mezclados === 1 ? '' : 's'} con parejas de` +
+                    ` distintos bloques: juegan a la hora de la mayoría`
+                  )}
+                  {b.mezclados > 0 && b.sinBloque > 0 && ';'}
+                  {b.sinBloque > 0 && (
+                    ` ${b.mezclados > 0 ? '' : '— '}${b.sinBloque} pareja` +
+                    `${b.sinBloque === 1 ? '' : 's'} sin horario elegido`
+                  )}
+                </Text>
+              ))}
+              <Text style={s.resumenNota}>
+                Nadie se quedó sin grupo. Lo que cambió es la hora de algunas
+                parejas respecto a la que eligieron, así que avísales. La
+                ocupación por bloque del panel enseña cómo quedó todo.
               </Text>
             </View>
           )}
@@ -1383,6 +1444,8 @@ const s = StyleSheet.create({
   resumenNota:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
   resumenFallo:      { backgroundColor: 'rgba(224,114,111,0.10)', borderWidth: 1, borderColor: color.danger, borderRadius: radius.md, padding: space[4], gap: space[1] },
   resumenTitulo:     { fontFamily: font.display, fontSize: fontSize.cardName, color: color.live },
+  resumenTituloAviso:{ fontFamily: font.display, fontSize: fontSize.cardName, color: color.alive },
+  resumenNegrita:    { color: color.text, fontWeight: '600' },
   resumenFalloTitulo:{ fontFamily: font.display, fontSize: fontSize.cardName, color: color.danger },
   resumenLinea:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
 

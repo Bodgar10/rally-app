@@ -8,6 +8,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import {
   computeFormat,
   generateRoundRobin,
+  repartirPorBloque,
   type FormatPlan,
   type Fixture,
 } from "./engine.ts";
@@ -34,26 +35,6 @@ const ANON_KEY      = Deno.env.get("SUPABASE_ANON_KEY")!;
 //   El helper compartido pone las cabeceras en TODA respuesta, así que las
 //   ramas de error también salen legibles: un 400 sin CORS se vería igual de
 //   mudo que este 405.
-
-// Reparto determinista en grupos (el engine no expone uno propio — verificado en PASO 0.A).
-// Snake/serpiente sobre un orden estable para que mismas entradas -> mismos grupos.
-function distributeSnake<T>(items: T[], sizes: number[]): T[][] {
-  const groups: T[][] = sizes.map(() => []);
-  let gi = 0, dir = 1;
-  for (const it of items) {
-    // saltar grupos ya llenos
-    while (groups[gi].length >= sizes[gi]) {
-      gi += dir;
-      if (gi >= groups.length) { gi = groups.length - 1; dir = -1; }
-      else if (gi < 0) { gi = 0; dir = 1; }
-    }
-    groups[gi].push(it);
-    gi += dir;
-    if (gi >= groups.length) { gi = groups.length - 1; dir = -1; }
-    else if (gi < 0) { gi = 0; dir = 1; }
-  }
-  return groups;
-}
 
 serve(async (req) => {
   // ANTES del check de método: un OPTIONS no es una llamada mal hecha, es el
@@ -117,13 +98,56 @@ serve(async (req) => {
     return json({ status: "needs_decision", plan, alternatives: plan.alternatives ?? [] });
   }
 
-  // 6) Repartir parejas en grupos según plan.groupSizes (snake determinista; el engine no reparte).
-  const buckets = distributeSnake(validPairs, plan.groupSizes);
+  // 5.b) El plan tiene que cuadrar con las parejas que hay.
+  //
+  //   `chosen_format` viene del CLIENTE. Con tamaños que no suman, el reparto
+  //   dejaría parejas fuera de todo grupo o crearía grupos a medias, y ninguna
+  //   de las dos cosas se puede deshacer después: la RPC materializa partidos.
+  //   Un grupo de una pareja no es un grupo, es alguien que pagó y no juega.
+  const sumaTamanos = plan.groupSizes.reduce((a, s) => a + s, 0);
+  if (plan.groupSizes.length === 0 || sumaTamanos !== validPairs.length) {
+    return json({
+      error: "plan_mismatch",
+      detail: `El formato reparte ${sumaTamanos} parejas en ${plan.groupSizes.length} grupos, ` +
+              `y la categoría tiene ${validPairs.length}.`,
+      group_sizes: plan.groupSizes,
+      pair_count: validPairs.length,
+    }, 400);
+  }
+  const tamanoMinimo = Math.min(...plan.groupSizes);
+  if (tamanoMinimo < 2) {
+    return json({
+      error: "invalid_group_size",
+      detail: `Un grupo de ${tamanoMinimo} pareja(s) no juega ningún partido.`,
+      group_sizes: plan.groupSizes,
+    }, 400);
+  }
 
-  // 7) ENGINE: fixtures por grupo. Fixture = { round, pairAId, pairBId } (verificado 0.A).
+  // 6) Bloque elegido por cada pareja (migración 051). Es lo que hace que un
+  //    grupo se pueda jugar de corrido en una cancha.
+  //
+  //    Si la consulta falla NO se aborta el cierre: se reparte sin bloques,
+  //    como antes, y se dice en la respuesta. Cerrar inscripciones es lo que
+  //    desbloquea el torneo entero; un horario se reacomoda después.
+  const { data: elecciones, error: eleccionesErr } = await admin
+    .from("pair_block_choices")
+    .select("pair_id, bloque_id")
+    .in("pair_id", validPairs.map((p) => p.id));
+
+  const bloquePorPareja = new Map<string, string>();
+  for (const e of elecciones ?? []) bloquePorPareja.set(e.pair_id, e.bloque_id);
+
+  // 7) Repartir POR BLOQUE, respetando los tamaños del plan.
+  const buckets = repartirPorBloque(
+    validPairs,
+    (p) => bloquePorPareja.get(p.id) ?? null,
+    plan.groupSizes,
+  );
+
+  // 8) ENGINE: fixtures por grupo. Fixture = { round, pairAId, pairBId } (verificado 0.A).
   const groupNames = "ABCDEFGHIJKLMNOP".split("");
   const p_groups = buckets.map((bucket, idx) => {
-    const ids = bucket.map((p) => p.id);
+    const ids = bucket.items.map((p) => p.id);
     const rr: Fixture[] = generateRoundRobin(ids);
     const matches = rr.map((m) => ({
       pair_a: m.pairAId,
@@ -133,7 +157,15 @@ serve(async (req) => {
     return { name: groupNames[idx], pair_ids: ids, matches };
   });
 
-  // 8) Materialización atómica vía RPC (todo o nada + guard de idempotencia/owner del lado BD).
+  // Lo que el organizador tiene que ver del reparto. No se guarda en ninguna
+  // tabla —no hay columna de bloque en `groups`—, así que viaja en la respuesta.
+  const mezclados = buckets
+    .map((b, idx) => ({ name: groupNames[idx], bloque_id: b.bloqueId, desde: b.desde }))
+    .filter((g) => Object.keys(g.desde).length > 1);
+
+  const sinBloque = validPairs.filter((p) => !bloquePorPareja.has(p.id)).length;
+
+  // 9) Materialización atómica vía RPC (todo o nada + guard de idempotencia/owner del lado BD).
   const { data: result, error: rpcErr } = await admin.rpc("close_registration_for_category", {
     p_actor: actorId,
     p_category_id: categoryId,
@@ -146,5 +178,19 @@ serve(async (req) => {
     return json({ error: "rpc_failed", detail: rpcErr.message }, code);
   }
 
-  return json({ ok: true, result });
+  return json({
+    ok: true,
+    result,
+    // Cómo quedó el reparto respecto a los horarios que eligió la gente.
+    bloques: {
+      // Grupos con parejas de más de un bloque. El bloque que se les asigna es
+      // el de la mayoría; a las demás hay que avisarles del cambio de hora.
+      grupos_mezclados: mezclados,
+      // Parejas que nunca eligieron bloque: el torneo no tenía horarios
+      // capturados cuando se inscribieron, o el apartado falló.
+      parejas_sin_bloque: sinBloque,
+      // La consulta de elecciones falló y se repartió a ciegas.
+      sin_datos: eleccionesErr ? (eleccionesErr.message ?? "error") : null,
+    },
+  });
 });
