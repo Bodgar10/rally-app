@@ -17,7 +17,7 @@ const MENSAJES: Record<string, string> = {
   winner_required:          'Selecciona al ganador del partido.',
   unauthenticated:          'Tu sesión caducó. Vuelve a entrar.',
   not_authorized:           'No tienes permiso para capturar en este torneo.',
-  match_not_found:          'Ese partido ya no existe.',
+  match_not_found:          'Ese partido ya no existe. Actualiza la lista.',
   group_missing:            'Este partido de grupos no tiene grupo asignado. Avisa al organizador.',
   not_a_knockout_match:     'Ese partido no es de eliminatorias.',
   invalid_score:            'El marcador no es válido.',

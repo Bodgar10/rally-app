@@ -85,7 +85,12 @@ Deno.serve(async (req) => {
     const { data: match, error: me } = await admin
       .from('matches')
       .select('id, tournament_id, category_id, group_id, pair_a_id, pair_b_id, stage')
-      .eq('id', match_id).single();
+      // maybeSingle y no single: con `single()` la ausencia de filas ES un error
+      // (PGRST116), así que un partido inexistente caía en 'match_read_failed'
+      // (500, "reintenta") en vez de en su 404. El juez reintentaría para
+      // siempre algo que nunca va a existir. Con maybeSingle, "no hay fila" es
+      // data:null sin error, y cada caso llega a su rama.
+      .eq('id', match_id).maybeSingle();
     if (me) return json({ error: 'match_read_failed', detail: me.message }, 500);
     if (!match) return json({ error: 'match_not_found' }, 404);
     const esGrupo = match.stage === 'group';
@@ -213,7 +218,7 @@ Deno.serve(async (req) => {
     //    clinch: es un error, NO un default. Un fallback a 2 escribiría
     //    'eliminated'/'qualified' equivocados en un torneo con advance=1.
     const { data: cat, error: ce } = await admin
-      .from('categories').select('advance_per_group').eq('id', match.category_id).single();
+      .from('categories').select('advance_per_group').eq('id', match.category_id).maybeSingle();
     if (ce) return json({ error: 'category_read_failed', detail: ce.message }, 500);
     if (!cat || cat.advance_per_group == null) {
       return json({ error: 'category_incomplete', detail: 'advance_per_group no definido' }, 500);
