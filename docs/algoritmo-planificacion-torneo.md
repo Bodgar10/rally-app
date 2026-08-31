@@ -292,16 +292,51 @@ Y **no se suma el umbral del 85% encima de la hora**: `minutosPorPartido` ya va
 multiplicado por `FACTOR_RETRASO` ahí dentro, y añadirlo otra vez sería contar el
 mismo retraso dos veces.
 
-Tres números para la misma pregunta, en orden histórico, sobre Cimepa:
+### Y encima, una hora de colchón: `MARGEN_CIERRE_MIN`
+
+El retraso encadenado era el modelo correcto y aun así la puerta llenaba hasta el
+borde: aceptaba cualquier plan cuya hora realista cupiera antes del cierre. Cimepa
+terminaba a las 19:45, y con el 3.er lugar activado **a las 20:00 clavadas**.
+
+Es la misma trampa que el 85%, con otra métrica. `FACTOR_RETRASO = 1.25` es un
+**promedio**, y la varianza está por encima: las semifinales son justo donde se
+dispara. Que la hora esperada quepa por quince minutos no es que quepa — es que cabe
+si nada se tuerce.
+
+```
+fin realista + MARGEN_CIERRE_MIN ≤ cierre de la ventana
+```
+
+`MARGEN_CIERRE_MIN = 60`, exportada, y `Capacidad.margenCierreMin` para un club con
+cierre más duro o más flexible. Una hora es un partido entero: el retraso llega en
+unidades de partido, no en minutos sueltos.
+
+**Por qué 60 y no menos, medido sobre Cimepa:**
+
+| Margen | Fin realista | Repesca total |
+|---|---|---|
+| 0 | 20:00 | 31 |
+| 5–15 | 19:45 | 29 |
+| **20–60** | **19:00** | **25** |
+| 90 | 18:00 | 17 |
+
+Todo el coste se paga en los **primeros 20 minutos**. De ahí a 60 el plan es idéntico
+—mismo fin, misma repesca, mismos clasificados— así que pedir una hora en vez de
+veinte minutos sale **gratis** y triplica el colchón. El escalón que sí cuesta está
+en 90.
+
+Cuatro números para la misma pregunta, en orden histórico, sobre Cimepa:
 
 | Repesca | Criterio | Qué pasaba |
 |---|---|---|
 | 81 | 85% de slots, `floor(96 × 0.85)` | No miraba la hora: terminaba 22:15 reales |
 | 72 | Hora, retraso replanificando a 75 min | Sobreestimaba y dejaba capacidad sin usar |
-| **80** | Hora, retraso **encadenado** | El modelo correcto |
+| 88 | Hora, retraso **encadenado** | El modelo correcto, pero acababa a las 20:00 clavadas |
+| **80** | Lo mismo, exigiendo `MARGEN_CIERRE_MIN` | Acaba a las 19:00, con una hora de sobra |
 
 **El margen no bloquea.** Si el organizador quiere correr al límite como hizo Cimepa,
-puede — el torneo se jugó y funcionó. Lo que no puede es hacerlo sin saberlo.
+puede: `margenCierreMin: 0` devuelve el comportamiento anterior. Lo que no puede es
+hacerlo sin saberlo.
 
 ---
 
@@ -394,15 +429,43 @@ Piso (todo en grupos de 3, sin repesca):
 Grupos:  165 / 192 = 86%  → zona 'limite'
          Ninguna categoría sube de tamaño de grupo: al límite no cabe uno más.
 
-Eliminatorias: el paso 2 sube la repesca y para en 88 partidos.
-         Ocupación en slots: 92% — informativa.
+Eliminatorias: el paso 2 sube la repesca y para en 80 partidos.
+         Ocupación en slots: 83% — informativa.
+         Fin realista 19:00, con la hora de MARGEN_CIERRE_MIN sobre las 20:00.
 
-5ª Fuerza: 10 grupos de 3, 6 repescados, 16 clasificados, cuadro de 16, 0 byes.
-           Cimepa puso 2 a mano; medida la capacidad caben 6.
+5ª Fuerza: 10 grupos de 3, 2 repescados, 12 clasificados, cuadro de 16, 4 byes.
+           Es exactamente lo que Cimepa puso a mano.
 
 cabe: true
 aviso: "La fase de grupos va al límite..."
 ```
+
+### Lo que cuesta el margen de cierre, por categoría
+
+`m=0` es la puerta anterior; `m=60` la actual. Con los cruces de jugadores reales,
+que es el camino de producción:
+
+| Categoría | Grupos | m=0 | m=60 | Δ |
+|---|---|---|---|---|
+| 2ª Fuerza | 7 | 3 | 3 | 0 |
+| 3ª Fuerza | 10 | 6 | 6 | 0 |
+| 4ª Fuerza | 10 | 6 | 5 | −1 |
+| **5ª Fuerza** | 10 | 5 | **2** | **−3** |
+| 6ª Fuerza | 5 | 3 | 3 | 0 |
+| 5ª Femenil | 4 | 2 | 2 | 0 |
+| Mixtos D | 6 | 3 | 3 | 0 |
+| Mixtos C | 3 | 3 | 1 | −2 |
+| **Total** | | **31** | **25** | **−6** |
+
+**Seis de ocho categorías pierden cero o una repesca.** El coste se concentra en 5ª
+Fuerza, y conviene entender por qué no es culpa de haber pedido una hora: 5ª cae a 4
+con **5 minutos** de margen y a 2 con **20**. De 20 a 60 no se mueve. Su repesca de 5
+solo era alcanzable con cero colchón, así que no existe un margen intermedio que la
+recupere — la elección real es tener margen o no tenerlo.
+
+Para el jugador de 5ª eso significa que quedar segundo pasa de servir 6 veces de 10 a
+servir 2. Es la cara visible del cambio y hay que decirla. A cambio, el domingo acaba
+a las 19:00 y no depende de que ningún partido se alargue.
 
 ### Lo que cuesta el 3.er lugar, medido
 
@@ -410,21 +473,21 @@ Mismo torneo, con el interruptor en cada posición:
 
 |  | sin 3.er lugar | con 3.er lugar |
 |---|---|---|
-| Partidos del último día | 80 | **88** |
-| Ocupación en slots | 83% | 92% |
-| Fin estimado | 18:30 | 19:00 |
-| **Fin realista** | 19:30 | **20:00** |
-| Fin realista con una cancha menos | 22:30 | 22:30 |
+| Partidos del último día | 72 | **80** |
+| Ocupación en slots | 75% | 83% |
+| Fin estimado | 17:30 | 18:00 |
+| **Fin realista** | 18:30 | **19:00** |
 
-**El plan elegido no cambia**: los mismos clasificados en las dos corridas
-(11, 16, 16, 16, 8, 6, 10, 5), y 5ª Fuerza repesca 6 en ambas. Lo que cambia es
-la verdad sobre la hora.
+**Ahora el 3.er lugar cambia el PLAN, no solo el reloj.** Con la puerta sin margen los
+clasificados salían idénticos en las dos corridas y solo se movía la hora (19:30
+contra 20:00 clavadas). Con margen, jugar el 3.er lugar consume colchón, así que hay
+que repescar a menos gente para pagarlo: 4ª y 5ª Fuerza bajan dos clasificados cada
+una.
 
-Y esa media hora es la diferencia entre tener margen y no tenerlo: **20:00 es la
-hora de cierre exacta**. El plan seguía diciendo `cabe: true`, pero antes lo
-decía con media hora de colchón que no existía. Los ocho partidos no se
-repartían por el día: caían todos en la transición de semifinales a final, que
-es cuando las ocho categorías convergen y el domingo va más cargado.
+Esa es la consecuencia real de la opción, y antes quedaba escondida en un margen que
+no existía. Los ocho partidos no se reparten por el día: caen todos en la transición
+de semifinales a final, que es cuando las ocho categorías convergen y el domingo va
+más cargado.
 
 La cota inferior sube igual, de 16:30 a 17:00: el 3.er lugar no alarga la
 cadena de rondas —corre en paralelo a su final, no detrás— pero sí ocupa cancha
@@ -432,8 +495,11 @@ en esa oleada, y la cota mide las dos cosas.
 
 **Esto es lo que RALLY le habría dicho a Cimepa antes del torneo.** El formato que
 eligieron era el único que cabía en grupos, y aun así iba apretado; en cambio dejaron
-domingo sin usar. La app no habría cambiado el cuadro: habría avisado, y habría
-repescado a más gente.
+domingo sin usar. La app no habría cambiado el cuadro: habría avisado.
+
+Y en 5ª Fuerza habría propuesto exactamente los 2 repescados que el organizador puso
+a mano. No prueba que 2 sea óptimo; sí que el modelo dejó de proponer un plan que la
+persona que estuvo allí, con el torneo delante, no eligió.
 
 > Con las ventanas viejas (cierre a las 22:00) los números eran 165/176 = 94%. El
 > cierre real era a las 23:00 — hubo partidos empezando a las 22:00 — y la zona sigue
