@@ -125,6 +125,15 @@ Deno.serve(async (req) => {
     // Capturar y avanzar el cuadro son el MISMO acto: si el avance falla, el
     // resultado no se guarda. La RPC 050 lo hace en una transacción.
     if (!esGrupo) {
+      // ¿Este torneo juega el 3.er lugar? (migración 052). Si no se puede leer
+      // se aborta: asumir un default aquí crearía —o dejaría de crear— un
+      // partido según una suposición.
+      const { data: torneo, error: tle } = await admin
+        .from('tournaments').select('tercer_lugar').eq('id', match.tournament_id).maybeSingle();
+      if (tle) return json({ error: 'tournament_read_failed', detail: tle.message }, 500);
+      if (!torneo) return json({ error: 'tournament_not_found' }, 404);
+      const tercerLugar = torneo.tercer_lugar !== false;
+
       let ultimoFalloKO = '';
       for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
         const { data: cuadro, error: be } = await admin
@@ -154,6 +163,7 @@ Deno.serve(async (req) => {
           })),
           match_id,
           derivado,
+          tercerLugar,
         );
 
         if (!plan.ok) {

@@ -145,6 +145,11 @@ export function planAvance(
   partidos: PartidoCuadro[],
   matchId: string,
   winnerPairId: string,
+  /**
+   * ¿El torneo juega el 3.er lugar? Decisión de torneo (migración 052).
+   * Default true: es lo que se venía haciendo antes de que fuera configurable.
+   */
+  tercerLugar = true,
 ): PlanAvance {
   const partido = partidos.find((p) => p.id === matchId);
   if (!partido) {
@@ -231,8 +236,9 @@ export function planAvance(
   });
 
   // 3.er lugar: sale de los perdedores de las dos semifinales, igual que en
-  // `generate-bracket`. Se crea al avanzar semis, no antes.
-  if (partido.stage === 'semi' && rondaConResultado.length === 2) {
+  // `generate-bracket`. Se crea al avanzar semis, no antes — y solo si el
+  // torneo lo juega.
+  if (tercerLugar && partido.stage === 'semi' && rondaConResultado.length === 2) {
     const tercero = thirdPlaceFromSemis([rondaConResultado[0], rondaConResultado[1]]);
     if (tercero) {
       encajar('third_place', ETIQUETA_TERCERO, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);

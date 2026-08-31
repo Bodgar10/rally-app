@@ -37,6 +37,15 @@ Deno.serve(async (req) => {
       .eq('id', category_id).single();
     if (!cat) return json({ error: 'category_not_found' }, 404);
 
+    // ¿Este torneo juega el 3.er lugar? Es decisión de torneo, no de categoría
+    // (migración 052). Sin la columna leída no se puede decidir, así que un
+    // fallo aquí aborta en vez de asumir un default.
+    const { data: torneo, error: te } = await admin
+      .from('tournaments').select('tercer_lugar').eq('id', cat.tournament_id).maybeSingle();
+    if (te) return json({ error: 'tournament_read_failed', detail: te.message }, 500);
+    if (!torneo) return json({ error: 'tournament_not_found' }, 404);
+    const tercerLugar = torneo.tercer_lugar !== false;
+
     const { data: canUser } = await asUser.rpc('can_capture_tournament', { p_tournament_id: cat.tournament_id });
     if (!canUser) return json({ error: 'not_authorized' }, 403);
 
@@ -166,7 +175,7 @@ Deno.serve(async (req) => {
       }));
 
     // 3.er lugar: solo al avanzar SEMIS (las 2 semis → tupla). thirdPlaceFromSemis([semi1, semi2]).
-    if (active.stage === 'semi' && active.matches.length === 2) {
+    if (tercerLugar && active.stage === 'semi' && active.matches.length === 2) {
       const third = thirdPlaceFromSemis([
         { matchId: active.matches[0].id, pairAId: active.matches[0].pair_a_id, pairBId: active.matches[0].pair_b_id, winnerPairId: active.matches[0].winner_pair_id },
         { matchId: active.matches[1].id, pairAId: active.matches[1].pair_a_id, pairBId: active.matches[1].pair_b_id, winnerPairId: active.matches[1].winner_pair_id },

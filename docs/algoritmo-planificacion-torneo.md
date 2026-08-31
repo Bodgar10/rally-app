@@ -85,6 +85,8 @@ interface Capacidad {
   canchas: number;
   ventanas: VentanaDia[];       // una por día, en orden cronológico
   minutosPorPartido: number;    // default 60
+  /** ¿Se juega el 3.er lugar? Default true. Decisión de torneo, no de categoría. */
+  tercerLugar?: boolean;
 }
 
 interface CategoriaEntrada {
@@ -145,13 +147,25 @@ Para cada partición, las opciones de fase final se generan variando cuántos
 
 ```
 clasificados     = avanzanPorGrupo × grupos + repescados
-costeEliminacion = clasificados − 1
+costeEliminacion = (clasificados − 1) + (tercerLugar y clasificados ≥ 4 ? 1 : 0)
 ```
 
-### `costeEliminacion = clasificados − 1`, siempre
+### El cuadro cuesta C − 1, siempre
 
 Cada partido elimina exactamente a una pareja, y hay que eliminar a C−1 para dejar
 campeón. Los byes no cambian ese número: solo cambian en qué ronda entra cada quien.
+
+### El 3.er lugar se suma aparte
+
+No está en el cuadro: sale de los dos perdedores de semifinal, no de un ganador.
+Hacen falta los DOS, así que con 3 clasificados —una semifinal es bye— no lo hay.
+
+Es opcional por torneo (`tournaments.tercer_lugar`, default `true`) y cuenta en el
+presupuesto del último día. El scheduler le reserva cancha con su propia etapa
+`third_place`, a la misma profundidad que la final: los dos dependen de las
+semifinales y ninguno del otro, así que no alarga la cadena de rondas — pero sí
+ocupa una pista más justo cuando todas las categorías convergen. Lo que eso cuesta
+en horas está medido en §11.
 
 > **Este era el error del documento anterior.** Decía `costeEliminacion = Q − 1` con
 > Q = tamaño del cuadro, que con clasificados no-potencia-de-2 cuenta partidos que
@@ -373,14 +387,15 @@ Entrada:  8 canchas, 60 min
 
 Piso (todo en grupos de 3, sin repesca):
   costeGrupos      = 21+30+30+30+15+12+18+9 = 165
-  costeEliminacion = 47          ← C−1 por categoría, NO 76
+  costeEliminacion = 47 de cuadro + 7 terceros lugares = 54
+                     (C−1 por categoría, NO 76; la de 3 clasificados no juega
+                      el 3.er lugar porque una semifinal suya es bye)
 
 Grupos:  165 / 192 = 86%  → zona 'limite'
          Ninguna categoría sube de tamaño de grupo: al límite no cabe uno más.
 
-Eliminatorias: el paso 2 sube la repesca de 47 a 80 y ahí para.
-         Uno más y la hora realista se iría de las 20:00.
-         Ocupación en slots: 83% — informativa.
+Eliminatorias: el paso 2 sube la repesca y para en 88 partidos.
+         Ocupación en slots: 92% — informativa.
 
 5ª Fuerza: 10 grupos de 3, 6 repescados, 16 clasificados, cuadro de 16, 0 byes.
            Cimepa puso 2 a mano; medida la capacidad caben 6.
@@ -388,6 +403,32 @@ Eliminatorias: el paso 2 sube la repesca de 47 a 80 y ahí para.
 cabe: true
 aviso: "La fase de grupos va al límite..."
 ```
+
+### Lo que cuesta el 3.er lugar, medido
+
+Mismo torneo, con el interruptor en cada posición:
+
+|  | sin 3.er lugar | con 3.er lugar |
+|---|---|---|
+| Partidos del último día | 80 | **88** |
+| Ocupación en slots | 83% | 92% |
+| Fin estimado | 18:30 | 19:00 |
+| **Fin realista** | 19:30 | **20:00** |
+| Fin realista con una cancha menos | 22:30 | 22:30 |
+
+**El plan elegido no cambia**: los mismos clasificados en las dos corridas
+(11, 16, 16, 16, 8, 6, 10, 5), y 5ª Fuerza repesca 6 en ambas. Lo que cambia es
+la verdad sobre la hora.
+
+Y esa media hora es la diferencia entre tener margen y no tenerlo: **20:00 es la
+hora de cierre exacta**. El plan seguía diciendo `cabe: true`, pero antes lo
+decía con media hora de colchón que no existía. Los ocho partidos no se
+repartían por el día: caían todos en la transición de semifinales a final, que
+es cuando las ocho categorías convergen y el domingo va más cargado.
+
+La cota inferior sube igual, de 16:30 a 17:00: el 3.er lugar no alarga la
+cadena de rondas —corre en paralelo a su final, no detrás— pero sí ocupa cancha
+en esa oleada, y la cota mide las dos cosas.
 
 **Esto es lo que RALLY le habría dicho a Cimepa antes del torneo.** El formato que
 eligieron era el único que cabía en grupos, y aun así iba apretado; en cambio dejaron
@@ -430,15 +471,31 @@ generador de candidatos.
 
 ## 14. Huecos conocidos
 
-**El tercer lugar no entra en el presupuesto.** `costeEliminacion = clasificados − 1`
-cuenta el cuadro, y `partidosPorRonda` tampoco lo incluye. Pero el tercer lugar SÍ se
-crea al cerrar semifinales — lo hace `generate-bracket` y también
-`record_knockout_result` (migración 050). Son 8 partidos más en un torneo de ocho
-categorías, todos en la transición de semis a final, justo cuando el día va más
-cargado. El planificador está subestimando el último día en esa cantidad.
+~~**El tercer lugar no entra en el presupuesto.**~~ **CERRADO** (migración 052).
 
-No se ha corregido todavía porque la decisión no es solo aritmética: hay que decidir
-si el tercer lugar es opcional por torneo antes de meterlo en el presupuesto.
+Era el hueco: `costeEliminacion` contaba el cuadro y `partidosPorRonda` tampoco lo
+incluía, pero el partido SÍ se creaba. Ocho partidos invisibles que aun así ocupaban
+cancha, y en el peor momento.
+
+Resuelto en tres piezas:
+
+- **Configurable por torneo**, `tournaments.tercer_lugar`, con **default `true`** —
+  es lo que se venía haciendo, y apagarlo por defecto habría dejado sin 3.er lugar a
+  torneos que ya contaban con él. Es decisión de torneo y no de categoría: repartir
+  premios distintos por rama sería incomprensible para el jugador.
+- **Se crea solo si está activo**: lo comprueban `generate-bracket`, `planAvance` y
+  la propia RPC `record_knockout_result`, que rechaza con `third_place_disabled` en
+  vez de tragárselo. El guard se revalida en el servidor porque uno que se fía de lo
+  que le mandan no es un guard.
+- **Entra en el presupuesto**: `costeEliminacion = clasificados − 1 + 1` cuando
+  aplica, y el scheduler del último día le reserva cancha con su propia etapa
+  `third_place`, a la misma profundidad que la final. No es una ronda más de la
+  cadena: los dos dependen de las semifinales y ninguno del otro.
+
+Hace falta que las DOS semifinales sean reales, o sea 4 clasificados. Con 3, una
+semifinal es un bye: solo pierde una pareja y no hay partido que jugar.
+
+Lo que costaba, medido, está en §11.
 
 **El scheduler de la fase de grupos no existe.** Solo se programa el último día. Los
 partidos de grupo no tienen `scheduled_at` ni `court_label`, y la pantalla del

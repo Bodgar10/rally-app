@@ -159,6 +159,35 @@ describe('planAvance · la captura que cierra la ronda avanza el cuadro', () => 
   });
 });
 
+describe('planAvance · el 3.er lugar es configurable', () => {
+  const cuadro = [ganado(semis()[0], 'A'), semis()[1]];
+
+  it('por defecto se crea: es lo que se venía haciendo', () => {
+    const r = planAvance(cuadro, 's2', 'C');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.crear.some((c) => c.stage === 'third_place')).toBe(true);
+  });
+
+  it('apagado, se crea la final y NADA más', () => {
+    const r = planAvance(cuadro, 's2', 'C', false);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.crear).toHaveLength(1);
+    expect(r.crear[0].stage).toBe('final');
+  });
+
+  it('apagarlo no toca el resto del avance', () => {
+    const con = planAvance(cuadro, 's2', 'C', true);
+    const sin = planAvance(cuadro, 's2', 'C', false);
+    expect(con.ok && sin.ok).toBe(true);
+    if (!con.ok || !sin.ok) return;
+    const final = (x: typeof con) => x.crear.find((c) => c.stage === 'final');
+    expect(final(sin)).toEqual(final(con));
+    expect(sin.reapuntar).toEqual(con.reapuntar);
+  });
+});
+
 // ── Idempotencia ────────────────────────────────────────────────────────────
 
 describe('planAvance · no duplica lo que ya existe', () => {

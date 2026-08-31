@@ -32,6 +32,7 @@ import {
   finRealistaEncadenado,
   cadenasDePartidos,
   formatHora,
+  hayTercerLugar,
   type CategoriaCuadro,
 } from '../schedule/knockout';
 
@@ -45,6 +46,15 @@ export interface VentanaDia {
 
 export interface Capacidad {
   canchas: number;
+  /**
+   * ¿Se juega el 3.er lugar? Default true, que es lo que se venía haciendo.
+   *
+   * Cuenta para el presupuesto del último día: un partido más por categoría
+   * con dos semifinales reales, y todos en la transición de semis a final —el
+   * momento en que las ocho categorías convergen y el día va más cargado.
+   * Ignorarlo era subestimar justo esa hora.
+   */
+  tercerLugar?: boolean;
   /** Una por día, en orden cronológico. La última es la de eliminatorias. */
   ventanas: VentanaDia[];
   /** Se planifica a esto aunque en la práctica dure entre 60 y 90. */
@@ -98,7 +108,7 @@ export interface PlanCategoria {
   advancePerGroup: number;
   repescados: number;
   /**
-   * SIEMPRE clasificados − 1.
+   * clasificados − 1, más el 3.er lugar si el torneo lo juega.
    *
    * Cada partido elimina exactamente a una pareja, y hay que eliminar a
    * C−1 para dejar campeón. Los byes no cambian ese número: solo cambian en
@@ -108,6 +118,10 @@ export interface PlanCategoria {
    * de 2 contaba partidos que nadie juega. Contra las ocho categorías de
    * Cimepa daba 76 en vez de 47 — un 62% de más, y ese porcentaje inflado era
    * lo que impedía subir de plan en el paso 2.
+   *
+   * El 3.er lugar se suma aparte porque no está en el cuadro: sale de los dos
+   * perdedores de semifinal, no de un ganador. Necesita DOS, así que con 3
+   * clasificados —una semifinal es bye— no lo hay.
    */
   costeEliminacion: number;
   knockoutStart: KnockoutStart;
@@ -249,8 +263,14 @@ function fraseDeSegundos(avanzan: number, grupos: number): string {
   return 'Solo avanzan los primeros de grupo. Quien pierda su primer partido queda eliminado en la práctica.';
 }
 
-/** Todos los planes válidos de una categoría: partición × tamaño de cuadro. */
-export function candidatos(cat: CategoriaEntrada): PlanCategoria[] {
+/**
+ * Todos los planes válidos de una categoría: partición × tamaño de cuadro.
+ *
+ * `tercerLugar` es de TORNEO, no de categoría: o se juega en todas o en
+ * ninguna. Entra aquí porque cambia `costeEliminacion`, que es lo que el paso 2
+ * compara contra el presupuesto.
+ */
+export function candidatos(cat: CategoriaEntrada, tercerLugar = true): PlanCategoria[] {
   const salida: PlanCategoria[] = [];
 
   for (const sizes of particiones(cat.parejas)) {
@@ -266,6 +286,7 @@ export function candidatos(cat: CategoriaEntrada): PlanCategoria[] {
         groupSizes: sizes, grupos, costeGrupos, asegurados,
         clasificados: 2, bracketSize: 2, byes: 0, partidosPrimeraRonda: 1,
         advancePerGroup: 2, repescados: 0,
+        // Sin semifinales no hay 3.er lugar que jugar.
         costeEliminacion: 1, knockoutStart: 'final',
         segundosQueAvanzan: 1, ratioSegundos: 1,
         fraseSegundos: fraseDeSegundos(1, 1),
@@ -295,7 +316,7 @@ export function candidatos(cat: CategoriaEntrada): PlanCategoria[] {
         partidosPrimeraRonda: clasificados - bracketSize / 2,
         advancePerGroup,
         repescados: advancePerGroup === 2 ? 0 : repescados,
-        costeEliminacion: clasificados - 1,
+        costeEliminacion: clasificados - 1 + (hayTercerLugar(clasificados, tercerLugar) ? 1 : 0),
         knockoutStart: knockoutStartFor(bracketSize),
         segundosQueAvanzan,
         ratioSegundos: segundosQueAvanzan / grupos,
@@ -374,6 +395,7 @@ function horaFinRealista(
       hasta: '23:59',
       categorias: cuadros,
       minutosPorPartido: cap.minutosPorPartido,
+      tercerLugar: cap.tercerLugar ?? true,
     });
     if (!r.cabe) return null;
     const min = finRealistaEncadenado(cadenasDePartidos(r.partidos), cap.minutosPorPartido);
@@ -436,6 +458,9 @@ export function planTournament(
   // "último" que aislar y el criterio por hora no aplica (ver okElim).
   const ventanaElim = dias > 0 ? cap.ventanas[dias - 1] : null;
 
+  // Default true: es lo que se venía haciendo antes de que fuera configurable.
+  const tercerLugar = cap.tercerLugar ?? true;
+
   /**
    * La hora de fin de una configuración, cacheada.
    *
@@ -458,7 +483,7 @@ export function planTournament(
   const cands = new Map<string, PlanCategoria[]>();
   const elegido = new Map<string, PlanCategoria>();
   for (const c of activas) {
-    const lista = candidatos(c);
+    const lista = candidatos(c, tercerLugar);
     cands.set(c.id, lista);
     elegido.set(c.id, piso(lista));
   }
@@ -618,6 +643,7 @@ export function planTournament(
           hasta: ventanaElim.hasta,
           categorias: cuadros,
           minutosPorPartido: cap.minutosPorPartido,
+          tercerLugar,
         });
         ultimoDia = {
           finEstimado: r.finEstimado,
@@ -712,7 +738,7 @@ function parejasQueSobran(
     const vivas = copia.filter((c) => c.parejas >= 3);
     let g = 0, e = 0;
     for (const c of vivas) {
-      const p = piso(candidatos(c));
+      const p = piso(candidatos(c, cap.tercerLugar ?? true));
       g += p.costeGrupos; e += p.costeEliminacion;
     }
     const usaG = unSoloDia ? g + e : g;

@@ -74,26 +74,56 @@ describe('horas', () => {
 
 describe('cota inferior', () => {
   it('manda el encadenamiento, no la division simple', () => {
-    expect(formatHora(cotaInferior(CIMEPA))).toBe('16:30');
+    // 17:00 con el 3.er lugar contando cancha en la oleada de las finales;
+    // 16:30 sin el. La cota mide dos cosas a la vez: el camino critico y si
+    // los partidos caben en las canchas.
+    expect(formatHora(cotaInferior(CIMEPA))).toBe('17:00');
+    expect(formatHora(cotaInferior({ ...CIMEPA, tercerLugar: false }))).toBe('16:30');
   });
 });
 
 describe('Cimepa', () => {
   const r = programarEliminatorias(CIMEPA);
 
-  it('programa los 62 partidos', () => {
-    expect(r.totalPartidos).toBe(62);
-    expect(r.partidos).toHaveLength(62);
+  it('programa los 70 partidos: 62 de cuadro y 8 terceros lugares', () => {
+    // El 3.er lugar entra en el presupuesto desde que es configurable. Antes
+    // eran 8 partidos invisibles que aun asi ocupaban cancha, y justo en la
+    // transicion de semis a final: el momento en que las ocho categorias
+    // convergen y el dia va mas cargado.
+    expect(r.totalPartidos).toBe(70);
+    expect(r.partidos).toHaveLength(70);
     expect(r.cabe).toBe(true);
+    expect(r.partidos.filter((p) => p.etapa === 'third_place')).toHaveLength(8);
   });
 
-  it('termina a las 16:30 y alcanza la cota', () => {
-    expect(r.finEstimado).toBe('16:30');
-    expect(r.cotaInferior).toBe('16:30');
+  it('termina a las 17:00; sin 3.er lugar eran las 16:30', () => {
+    expect(r.finEstimado).toBe('17:00');
+    // La cota tambien sube: el 3.er lugar no alarga la cadena —corre en
+    // paralelo a la final— pero si ocupa cancha en esa oleada, y la cota mide
+    // las dos cosas.
+    expect(r.cotaInferior).toBe('17:00');
   });
 
-  it('mejora el domingo real, que acabo 19:15', () => {
-    expect(parseHora(r.finEstimado!)).toBeLessThan(parseHora('17:00'));
+  it('sigue mejorando el domingo real, que acabo 19:15', () => {
+    expect(parseHora(r.finEstimado!)).toBeLessThan(parseHora('19:15'));
+  });
+
+  it('sin 3.er lugar vuelve exactamente a los numeros de antes', () => {
+    const sin = programarEliminatorias({ ...CIMEPA, tercerLugar: false });
+    expect(sin.totalPartidos).toBe(62);
+    expect(sin.finEstimado).toBe('16:30');
+    expect(sin.partidos.some((p) => p.etapa === 'third_place')).toBe(false);
+  });
+
+  it('el 3.er lugar corre a la vez que su final, o despues, nunca antes', () => {
+    // Depende de las dos semifinales, igual que la final. No hay razon para
+    // que espere, pero tampoco puede adelantarse.
+    const finales = new Map<string, number>();
+    for (const p of r.partidos) if (p.etapa === 'final') finales.set(p.categoryId, p.inicioMin);
+    for (const p of r.partidos) {
+      if (p.etapa !== 'third_place') continue;
+      expect(p.inicioMin).toBeGreaterThanOrEqual(finales.get(p.categoryId)! - 0);
+    }
   });
 
   it('nunca pone dos partidos en la misma cancha a la misma hora', () => {
@@ -171,7 +201,9 @@ describe('efecto de la repesca', () => {
         { id: 'mixC', clasificados: 3 },
       ],
     });
-    expect(sin.totalPartidos).toBe(47);
+    // 47 de cuadro + 7 terceros lugares: la categoria de 3 clasificados no
+    // tiene dos perdedores de semifinal, asi que no juega el suyo.
+    expect(sin.totalPartidos).toBe(54);
     expect(parseHora(sin.finEstimado!)).toBeLessThan(parseHora('16:30'));
   });
 });
@@ -184,7 +216,7 @@ describe('casos limite', () => {
       hasta: '22:00',
       categorias: [{ id: 'x', clasificados: 32 }],
     });
-    expect(r.totalPartidos).toBe(31);
+    expect(r.totalPartidos).toBe(32);   // 31 de cuadro + el 3.er lugar
     expect(r.avisos.some((a) => a.includes('oleadas'))).toBe(true);
   });
 
@@ -271,6 +303,9 @@ describe('mapeo a match_stage', () => {
     expect(etapas.has('final')).toBe(true);
     expect(etapas.has('round_of_16')).toBe(true);
     for (const p of r.partidos) {
+      // El 3.er lugar cuelga del arbol, no esta dentro: sale de los dos
+      // perdedores de semifinal y `etapaDeRonda` nunca lo devuelve.
+      if (p.etapa === 'third_place') continue;
       expect(p.etapa).toBe(etapaDeRonda(p.ronda, p.totalRondas));
     }
   });
@@ -283,8 +318,8 @@ describe('mapeo a match_stage', () => {
 describe('las tres horas', () => {
   const r = programarEliminatorias(CIMEPA);
 
-  it('el plan sigue dando 16:30', () => {
-    expect(r.finEstimado).toBe('16:30');
+  it('el plan sigue dando 17:00', () => {
+    expect(r.finEstimado).toBe('17:00');
   });
 
   it('la realista es posterior al plan', () => {
@@ -302,13 +337,13 @@ describe('las tres horas', () => {
   });
 
   it('las corridas 2 y 3 no tocan lo que produce el plan', () => {
-    // 62 partidos, cabe, cota alcanzada: todo sale de la corrida 1 y las
+    // 70 partidos, cabe, cota alcanzada: todo sale de la corrida 1 y las
     // simulaciones con 23:59 no lo contaminan.
     expect(r.cabe).toBe(true);
-    expect(r.totalPartidos).toBe(62);
-    expect(r.partidos).toHaveLength(62);
-    expect(r.cotaInferior).toBe('16:30');
-    expect(r.ultimoInicio).toBe('15:30');
+    expect(r.totalPartidos).toBe(70);
+    expect(r.partidos).toHaveLength(70);
+    expect(r.cotaInferior).toBe('17:00');
+    expect(r.ultimoInicio).toBe('16:00');
   });
 
   it('con una sola cancha no simula la averia y no revienta', () => {
@@ -410,13 +445,13 @@ describe('separacion de categorias hermanas', () => {
     expect(sin.empalmes).toEqual([]);
   });
 
-  it('Cimepa sin jugadores da exactamente el mismo calendario que antes', () => {
-    // La garantia de no-regresion: el campo es opcional y su ausencia deja el
-    // motor como estaba.
+  it('Cimepa sin jugadores no activa la separacion de hermanas', () => {
+    // La garantia de no-regresion del campo `jugadores`: es opcional y su
+    // ausencia deja el motor sin hermandades que separar.
     const r = programarEliminatorias(CIMEPA);
-    expect(r.finEstimado).toBe('16:30');
+    expect(r.finEstimado).toBe('17:00');
     expect(r.empalmes).toEqual([]);
-    expect(r.partidos).toHaveLength(62);
+    expect(r.partidos).toHaveLength(70);
   });
 
   it('sigue siendo determinista con hermandades', () => {
@@ -430,12 +465,18 @@ describe('separacion de categorias hermanas', () => {
   });
 
   it('no se bloquea cuando todas son hermanas de todas', () => {
-    // Grafo completo y sin holgura: la regla es preferencia, no restriccion.
+    // Grafo completo y SIN HOLGURA: la regla es preferencia, no restriccion.
     // Sin el tope de espera esto dejaria canchas ociosas para siempre.
+    //
+    // `tercerLugar: false` a proposito. El encaje exacto es la premisa —28
+    // partidos en 14 horas de dos canchas, ni un hueco— y es lo que hace que
+    // este test signifique algo. Anadir los cuatro terceros lugares lo
+    // convertiria en un test de capacidad, que es otra cosa y ya esta cubierta.
     const r = programarEliminatorias({
       canchas: 2,
       desde: '08:00',
       hasta: '22:00',
+      tercerLugar: false,
       categorias: ['A', 'B', 'C', 'D'].map((id) => ({
         id, clasificados: 8, jugadores: ['todos', `p${id}`],
       })),

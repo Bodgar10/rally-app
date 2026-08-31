@@ -57,7 +57,8 @@ describe('candidatos (§5)', () => {
     expect(diezDeTres.bracketSize).toBe(16);
     expect(diezDeTres.byes).toBe(6);
     expect(diezDeTres.partidosPrimeraRonda).toBe(2);
-    expect(diezDeTres.costeEliminacion).toBe(9);   // C−1, no bracketSize−1
+    // C−1 más el 3.er lugar, que va por defecto. Sin él serían 9.
+    expect(diezDeTres.costeEliminacion).toBe(10);
 
     const seisDeCinco = c.find((p) =>
       p.groupSizes.every((s) => s === 5) && p.segundosQueAvanzan === 0)!;
@@ -65,7 +66,7 @@ describe('candidatos (§5)', () => {
     expect(seisDeCinco.costeGrupos).toBe(60);
     expect(seisDeCinco.asegurados).toBe(4);
     expect(seisDeCinco.bracketSize).toBe(8);
-    expect(seisDeCinco.costeEliminacion).toBe(5);
+    expect(seisDeCinco.costeEliminacion).toBe(6);   // 5 de cuadro + el 3.er lugar
   });
 
   it('reproduce el cuadro real de 5ª Fuerza: 12 clasificados, 4 byes, 4 partidos', () => {
@@ -76,14 +77,15 @@ describe('candidatos (§5)', () => {
     expect(p.bracketSize).toBe(16);
     expect(p.byes).toBe(4);
     expect(p.partidosPrimeraRonda).toBe(4);
-    expect(p.costeEliminacion).toBe(11);
+    expect(p.costeEliminacion).toBe(12);   // 11 de cuadro + el 3.er lugar
   });
 
   it('el total de eliminatorias es siempre C−1, con byes o sin ellos', () => {
     // Cada partido elimina a una pareja; hay que eliminar a C−1 para dejar
     // campeón. Los byes cambian en qué ronda entra cada quien, no el total.
     for (let n = 6; n <= 40; n++) {
-      for (const p of candidatos({ id: 'x', parejas: n })) {
+      // Sin 3.er lugar el coste es exactamente el del cuadro.
+      for (const p of candidatos({ id: 'x', parejas: n }, false)) {
         expect(p.costeEliminacion).toBe(p.clasificados - 1);
         expect(p.byes).toBe(p.bracketSize - p.clasificados);
         expect(p.partidosPrimeraRonda).toBe(p.clasificados - p.bracketSize / 2);
@@ -153,14 +155,37 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     //
     // Este fixture NO pasa `jugadores`, así que no hay separación de hermanas.
     // Con ella el día se alarga y el planificador baja de nuevo la repesca.
-    expect(r.eliminacion.usados).toBe(80);
+    expect(r.eliminacion.usados).toBe(88);   // 80 de cuadro + 8 terceros lugares
     expect(r.ultimoDia!.finRealista! <= '20:00').toBe(true);
   });
 
+  it('el 3.er lugar se come los 30 minutos de margen que parecía haber', () => {
+    // Los 8 partidos que antes eran invisibles caen todos en la transición de
+    // semis a final, el momento en que las ocho categorías convergen. No
+    // cambian el plan —los clasificados son los mismos— pero sí la hora:
+    //
+    //            sin 3.er lugar   con 3.er lugar
+    //   usados          80              88
+    //   ocupación       83%             92%
+    //   finEstimado     18:30           19:00
+    //   finRealista     19:30           20:00   ← el cierre, exacto
+    //
+    // Sigue cabiendo, pero sin un minuto de sobra. Antes el plan prometía
+    // media hora de margen que no existía.
+    const sin = planTournament(CATEGORIAS_CIMEPA, { ...CIMEPA, tercerLugar: false });
+    expect(sin.eliminacion.usados).toBe(80);
+    expect(sin.ultimoDia!.finRealista).toBe('19:30');
+    expect(r.ultimoDia!.finRealista).toBe('20:00');
+
+    // El plan elegido NO cambia: los mismos clasificados en las dos corridas.
+    const clas = (x: typeof r) => [...x.planes.values()].map((p) => p.clasificados).join(',');
+    expect(clas(r)).toBe(clas(sin));
+  });
+
   it('la ocupación en slots sobrevive como dato, pero ya no manda', () => {
-    // 83% suena apretado; la hora dice que cabe. Que las dos cifras cuenten
-    // historias distintas es justo el motivo del cambio.
-    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(83);
+    // 92% suena a que no cabe; la hora dice que sí, justo. Que las dos cifras
+    // cuenten historias distintas es el motivo del cambio de criterio.
+    expect(Math.round(r.eliminacion.ocupacion * 100)).toBe(92);
   });
 
   it('repesca aunque la fase de grupos esté por encima del umbral', () => {
@@ -244,7 +269,7 @@ describe('criterio "quedar segundo debe servir"', () => {
     expect(p.groupSizes).toEqual([3, 3, 3, 3]);
     expect(p.segundosQueAvanzan).toBe(0);
     expect(p.clasificados).toBe(4);
-    expect(p.costeEliminacion).toBe(3);
+    expect(p.costeEliminacion).toBe(4);   // 3 de cuadro + el 3.er lugar
   });
 });
 

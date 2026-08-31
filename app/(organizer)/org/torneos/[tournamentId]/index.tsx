@@ -108,7 +108,7 @@ export default function OrgTournamentScreen() {
     const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }, { data: ws }] = await Promise.all([
       supabase
         .from('tournaments')
-        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,organizer_id,venues:venue_id(name,city)')
+        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,tercer_lugar,organizer_id,venues:venue_id(name,city)')
         .eq('id', tournamentId)
         .single(),
       supabase
@@ -213,6 +213,8 @@ export default function OrgTournamentScreen() {
   const enCurso   = tournament.status === 'in_progress';
 
   const tieneSede       = !!tournament.venues;
+  // Default true: es lo que hacían todos los torneos antes de la migración 052.
+  const tercerLugar     = (tournament as { tercer_lugar?: boolean | null }).tercer_lugar !== false;
 
   /** "Vie, Sáb y Dom · 34 h" o "Sin definir". */
   const resumenHorarios = (() => {
@@ -361,6 +363,16 @@ export default function OrgTournamentScreen() {
             value={resumenHorarios}
             iconColor={ventanas.length > 0 ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/horarios`)}
+          />
+          {/* El formato es la otra mitad de lo que ocupa el último día: el
+              3.er lugar son ocho partidos que caen todos a la vez, entre
+              semifinales y finales. Va aquí, junto a la capacidad, porque es
+              donde se decide cuánto cabe. */}
+          <SettingRow
+            icon="flag"
+            title="Formato"
+            value={tercerLugar ? 'Con 3.er lugar' : 'Sin 3.er lugar'}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}
           />
           {/* Va pegada a Canchas y Horarios porque es su consecuencia: aquí se
               ve si lo capturado alcanza para la gente que se está inscribiendo. */}

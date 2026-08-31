@@ -264,7 +264,12 @@ declare const etiquetaDeRonda: (stage: string, indice: number) => string;
  * `partidos` son TODOS los partidos de eliminatorias de la categoría, tal como
  * están hoy. No se muta nada.
  */
-declare function planAvance(partidos: PartidoCuadro[], matchId: string, winnerPairId: string): PlanAvance;
+declare function planAvance(partidos: PartidoCuadro[], matchId: string, winnerPairId: string, 
+/**
+ * ¿El torneo juega el 3.er lugar? Decisión de torneo (migración 052).
+ * Default true: es lo que se venía haciendo antes de que fuera configurable.
+ */
+tercerLugar?: boolean): PlanAvance;
 
 /**
  * Scheduler de eliminatorias.
@@ -279,6 +284,15 @@ interface CategoriaCuadro {
 }
 interface EntradaScheduler {
     canchas: number;
+    /**
+     * ¿Se juega el partido por el 3.er lugar? Default true.
+     *
+     * Es una decisión de TORNEO, no de categoría: o se juega en todas o en
+     * ninguna. Cuenta para el presupuesto porque ocupa una cancha, y lo hace en
+     * el peor momento —a la vez que las finales, cuando las ocho categorías
+     * convergen— así que ignorarlo era subestimar justo la hora más cargada.
+     */
+    tercerLugar?: boolean;
     desde: string;
     hasta: string;
     categorias: CategoriaCuadro[];
@@ -352,7 +366,7 @@ interface Calendario {
  */
 declare function programarEliminatorias(entrada: EntradaScheduler): Calendario;
 /** Valores del enum match_stage de la base para eliminatorias. */
-type EtapaEliminatoria = 'round_of_32' | 'round_of_16' | 'quarter' | 'semi' | 'final';
+type EtapaEliminatoria = 'round_of_32' | 'round_of_16' | 'quarter' | 'semi' | 'final' | 'third_place';
 /**
  * Mapea una ronda del calendario al enum match_stage.
  * Se calcula por distancia a la final, no por numero de ronda,

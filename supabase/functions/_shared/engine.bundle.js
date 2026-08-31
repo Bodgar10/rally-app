@@ -648,7 +648,7 @@ function mismosOrigenes(a, b) {
 function buscarExistente(partidos, stage, roundLabel, origenes) {
   return partidos.find((p) => p.stage === stage && mismosOrigenes(p.sourceMatchIds, origenes)) ?? partidos.find((p) => p.stage === stage && p.roundLabel === roundLabel);
 }
-function planAvance(partidos, matchId, winnerPairId) {
+function planAvance(partidos, matchId, winnerPairId, tercerLugar = true) {
   const partido = partidos.find((p) => p.id === matchId);
   if (!partido) {
     return { ok: false, motivo: "match_not_found", detalle: `El partido ${matchId} no est\xE1 en el cuadro.` };
@@ -713,7 +713,7 @@ function planAvance(partidos, matchId, winnerPairId) {
   next.forEach((cruce, i) => {
     encajar(siguienteEtapa, etiquetaDeRonda(siguienteEtapa, i), cruce.pairAId, cruce.pairBId, cruce.sourceMatchIds);
   });
-  if (partido.stage === "semi" && rondaConResultado.length === 2) {
+  if (tercerLugar && partido.stage === "semi" && rondaConResultado.length === 2) {
     const tercero = thirdPlaceFromSemis([rondaConResultado[0], rondaConResultado[1]]);
     if (tercero) {
       encajar("third_place", ETIQUETA_TERCERO, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);
@@ -761,16 +761,23 @@ function partidosPorRonda(clasificados) {
   }
   return out.filter((n2, i) => i === 0 || n2 >= 1);
 }
+function hayTercerLugar(clasificados, activo) {
+  return activo && clasificados >= 4;
+}
 function cotaInferior(entrada) {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
   const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
   const inicio = parseHora(entrada.desde);
+  const tercerLugar = entrada.tercerLugar ?? true;
   const items = [];
   for (const cat of entrada.categorias) {
     const rondas = partidosPorRonda(cat.clasificados);
     rondas.forEach((n, i) => {
       items.push({ distancia: rondas.length - 1 - i, partidos: n });
     });
+    if (hayTercerLugar(cat.clasificados, tercerLugar)) {
+      items.push({ distancia: 0, partidos: 1 });
+    }
   }
   if (items.length === 0) return inicio;
   const maxDist = Math.max(...items.map((i) => i.distancia));
@@ -810,6 +817,7 @@ function correrCalendario(entrada) {
   const paso = entrada.paso ?? DEFAULT_PASO;
   const inicio = parseHora(entrada.desde);
   const techo = parseHora(entrada.hasta);
+  const tercerLugar = entrada.tercerLugar ?? true;
   const avisos = [];
   if (entrada.canchas < 1) throw new Error("Se necesita al menos una cancha");
   if (techo <= inicio) throw new Error("La ventana termina antes de empezar");
@@ -832,6 +840,18 @@ function correrCalendario(entrada) {
         finMin: null
       });
     });
+    if (hayTercerLugar(cat.clasificados, tercerLugar)) {
+      tareas.push({
+        categoryId: cat.id,
+        ronda: rondas.length,
+        totalRondas: rondas.length,
+        partidos: 1,
+        restantes: 1,
+        colocados: 0,
+        finMin: null,
+        tercerLugar: true
+      });
+    }
   }
   const totalPartidos = tareas.reduce((a, t) => a + t.partidos, 0);
   const ocupadaHasta = [];
@@ -847,7 +867,9 @@ function correrCalendario(entrada) {
     return libres;
   };
   const finDe = (categoryId, ronda) => {
-    const t = tareas.find((x) => x.categoryId === categoryId && x.ronda === ronda);
+    const t = tareas.find(
+      (x) => x.categoryId === categoryId && x.ronda === ronda && !x.tercerLugar
+    );
     return t ? t.finMin : null;
   };
   const pendientes = () => tareas.filter((t) => t.restantes > 0);
@@ -897,7 +919,7 @@ function correrCalendario(entrada) {
             categoriaA: otra,
             categoriaB: tarea.categoryId,
             hora: formatHora(t),
-            etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas)
+            etapa: tarea.tercerLugar ? "third_place" : etapaDeRonda(tarea.ronda, tarea.totalRondas)
           });
         }
       }
@@ -910,7 +932,7 @@ function correrCalendario(entrada) {
           categoryId: tarea.categoryId,
           ronda: tarea.ronda,
           totalRondas: tarea.totalRondas,
-          etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas),
+          etapa: tarea.tercerLugar ? "third_place" : etapaDeRonda(tarea.ronda, tarea.totalRondas),
           indiceEnRonda: tarea.colocados + k,
           inicio: formatHora(t),
           inicioMin: t,
