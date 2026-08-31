@@ -76,13 +76,14 @@ function parsearArgs(argv) {
   const args = {
     tournamentId: null, categoria: null, todas: false,
     reiniciar: false, email: null, password: null, verificar: false,
-    soloGrupos: false,
+    soloGrupos: false, resembrar: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--todas') args.todas = true;
     else if (a === '--verificar') args.verificar = true;
     else if (a === '--solo-grupos') args.soloGrupos = true;
+    else if (a === '--resembrar') args.resembrar = true;
     else if (a === '--reiniciar') args.reiniciar = true;
     else if (a === '--categoria') args.categoria = argv[++i] ?? null;
     else if (a === '--email') args.email = argv[++i] ?? null;
@@ -352,8 +353,24 @@ RALLY · Simular la captura de resultados de la fase de grupos
   }
 
   // ── Reinicio (única escritura directa; deshace la prueba anterior) ────────
-  if (args.reiniciar) {
+  //
+  // `--reiniciar` borra TODO lo jugado de la categoría, cuadro incluido: sin
+  // eso, volver a correr chocaba con el guard `bracket_already_seeded` y el
+  // reinicio se quedaba a medias.
+  // `--resembrar` borra SOLO el cuadro y deja los grupos jugados, para volver a
+  // sembrar con otra configuración de clasificados sin repetir 165 partidos.
+  if (args.reiniciar || args.resembrar) {
     for (const cat of cats) {
+      const { data: ko } = await admin
+        .from('matches').select('id').eq('category_id', cat.id).neq('stage', 'group');
+      const koIds = (ko ?? []).map((m) => m.id);
+      if (koIds.length) {
+        await admin.from('match_sets').delete().in('match_id', koIds);
+        await admin.from('matches').delete().in('id', koIds);
+      }
+      info(`${cat.display_name}: cuadro borrado (${koIds.length} partidos)`);
+      if (!args.reiniciar) continue;
+
       const { data: ms } = await admin
         .from('matches').select('id').eq('category_id', cat.id).eq('stage', 'group');
       const ids = (ms ?? []).map((m) => m.id);
@@ -639,13 +656,53 @@ async function jugarCuadro({
   }
 
   // ── Los byes nacen resueltos ──────────────────────────────────────────────
+  // Un bye es un RESULTADO CONOCIDO desde que se siembra (migración 045), no un
+  // partido pendiente. Nace 'finished' con ganador y SIN played_at: nadie lo
+  // jugó, y ponerle hora sería inventarla.
   const byes = cuadro.filter((m) => !m.pair_a_id || !m.pair_b_id);
-  const byesMal = byes.filter((m) => m.status !== 'finished' || !m.winner_pair_id);
-  if (byesMal.length) {
-    fallo(`${cat.display_name}: ${byesMal.length} bye(s) sin resolver al sembrar`);
-  } else if (byes.length) {
-    bien(`${byes.length} bye(s) nacen resueltos; el script no los toca`);
+  if (byes.length === 0) {
+    info('Este cuadro no tiene byes (los clasificados cuadran en potencia de 2)');
+  } else {
+    const sinResolver = byes.filter((m) => m.status !== 'finished' || !m.winner_pair_id);
+    const conHora     = byes.filter((m) => m.played_at !== null);
+    const solo        = (m) => m.pair_a_id ?? m.pair_b_id;
+    const ganadorMal  = byes.filter((m) => m.winner_pair_id !== solo(m));
+
+    if (sinResolver.length) fallo(`${cat.display_name}: ${sinResolver.length} bye(s) no nacen finished con ganador`);
+    if (conHora.length)     fallo(`${cat.display_name}: ${conHora.length} bye(s) nacen con played_at; nadie los jugó`);
+    if (ganadorMal.length)  fallo(`${cat.display_name}: ${ganadorMal.length} bye(s) con un ganador que no es la pareja presente`);
+    if (!sinResolver.length && !conHora.length && !ganadorMal.length) {
+      bien(`${byes.length} bye(s) nacen finished, con la pareja presente como ganadora y sin played_at`);
+    }
+
+    // La Edge Function tiene que rechazar capturarlo, venga de donde venga.
+    const b = byes[0];
+    const r = await fetch(`${URL}/functions/v1/match-result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        match_id: b.id,
+        winner_pair_id: solo(b),
+        sets: [
+          { set_number: 1, games_a: 6, games_b: 0, is_super_tiebreak: false, tiebreak_a: null, tiebreak_b: null },
+          { set_number: 2, games_a: 6, games_b: 0, is_super_tiebreak: false, tiebreak_a: null, tiebreak_b: null },
+        ],
+      }),
+    });
+    const rc = await r.json().catch(() => null);
+    if (r.ok) fallo(`${cat.display_name}: la Edge Function ACEPTÓ capturar un bye`);
+    else if (rc?.error !== 'is_a_bye') {
+      fallo(`${cat.display_name}: capturar un bye devolvió ${r.status} ${rc?.error ?? '?'}, se esperaba is_a_bye`);
+    } else {
+      bien('Capturar un bye se rechaza con is_a_bye');
+    }
   }
+
+  // Foto de los byes ANTES de jugar: el avance los lee, no los reescribe.
+  const byesAntes = new Map(byes.map((m) => [m.id, {
+    status: m.status, winner: m.winner_pair_id, played_at: m.played_at,
+    a: m.pair_a_id, b: m.pair_b_id,
+  }]));
 
   // ── Rondas ────────────────────────────────────────────────────────────────
   let ronda = 0;
@@ -686,10 +743,67 @@ async function jugarCuadro({
   cuadro = await leerCuadro();
   if (!cuadro) return { capturados, conSuper, campeon };
 
+  // ── El avance leyó los byes sin tocarlos ──────────────────────────────────
+  if (byesAntes.size) {
+    const tocados = [];
+    for (const m of cuadro) {
+      const antes = byesAntes.get(m.id);
+      if (!antes) continue;
+      if (m.status !== antes.status || m.winner_pair_id !== antes.winner ||
+          m.played_at !== antes.played_at || m.pair_a_id !== antes.a || m.pair_b_id !== antes.b) {
+        tocados.push(m.id);
+      }
+    }
+    if (tocados.length) {
+      fallo(`${cat.display_name}: el avance modificó ${tocados.length} bye(s) que ya estaban resueltos`);
+    } else {
+      bien(`Los ${byesAntes.size} bye(s) llegaron al final intactos: el avance los leyó, no los recalculó`);
+    }
+
+    // ── La plaza que viene de un bye se materializa en la ronda siguiente ────
+    let huecos = 0;
+    for (const [byeId, antes] of byesAntes) {
+      const hijo = cuadro.find((m) => (m.source_match_ids ?? []).includes(byeId));
+      if (!hijo) { fallo(`${cat.display_name}: el bye ${byeId.slice(0, 8)} no alimentó ningún partido`); huecos++; continue; }
+      if (hijo.pair_a_id !== antes.winner && hijo.pair_b_id !== antes.winner) {
+        fallo(`${cat.display_name}: ${hijo.stage} ${hijo.round_label} no recibió a la pareja que pasó por el bye`);
+        huecos++;
+      }
+    }
+    if (huecos === 0) {
+      bien('Cada plaza que venía de un bye apareció en la ronda siguiente');
+    }
+  }
+
+  // ── C − 1 partidos de verdad ──────────────────────────────────────────────
+  // En un cuadro de tamaño B con C clasificados hay B−1 filas, de las que B−C
+  // son byes. Los que se juegan de verdad son siempre C−1, con hueco o sin él.
+  const realesEsperados = esperados - 1;
+  const reales = cuadro.filter((m) => m.stage !== 'third_place' && m.pair_a_id && m.pair_b_id).length;
+  if (reales !== realesEsperados) {
+    fallo(`${cat.display_name}: ${reales} partidos reales en el cuadro y con ${esperados} ` +
+          `clasificados tendrían que ser ${realesEsperados}`);
+  } else {
+    bien(`${reales} partidos reales = ${esperados} clasificados − 1` +
+         (byes.length ? `, más ${byes.length} bye(s)` : ''));
+  }
+
   // ── El tercer lugar nació al cerrar semifinales ───────────────────────────
   const semis = cuadro.filter((m) => m.stage === 'semi');
   const tercero = cuadro.find((m) => m.stage === 'third_place');
-  if (semis.length === 2) {
+
+  // El tercer lugar necesita DOS perdedores de semifinal. Si una semi fue un
+  // bye, solo perdió una pareja y no hay partido que jugar: `thirdPlaceFromSemis`
+  // devuelve null y hace bien. Exigirlo ahí sería exigir un partido de uno.
+  const semisReales = semis.filter((m) => m.pair_a_id && m.pair_b_id).length === 2;
+
+  if (semis.length === 2 && !semisReales) {
+    if (tercero) {
+      fallo(`${cat.display_name}: se creó un tercer lugar con una semifinal que fue bye`);
+    } else {
+      bien('Sin tercer lugar: una semifinal fue bye, así que solo hubo un perdedor');
+    }
+  } else if (semis.length === 2) {
     if (!tercero) {
       fallo(`${cat.display_name}: se jugaron las semifinales y NO se creó el tercer lugar`);
     } else {
