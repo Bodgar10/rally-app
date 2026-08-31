@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase/client';
 import { invalidateOrganizerOwnerCache } from '@/hooks/useIsOrganizerOwner';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
+import { fallo } from '@/lib/errores-red';
 import BotonVolver from '@/components/ui/BotonVolver';
 
 /**
@@ -39,7 +40,6 @@ const MENSAJE_ERROR: Record<string, string> = {
 };
 
 const ERROR_GENERICO = 'No se pudo crear tu marca. Intenta de nuevo en un momento.';
-const ERROR_RED      = 'Sin conexión con el servidor. Revisa tu internet e intenta de nuevo.';
 
 export default function NuevoOrganizadorScreen() {
   const router = useRouter();
@@ -111,8 +111,8 @@ export default function NuevoOrganizadorScreen() {
       // `already_existed` no es un error: el usuario ya tenía marca (doble tap,
       // reintento de red, o simplemente volvió aquí). Se entra igual.
       router.replace('/(organizer)/org');
-    } catch {
-      setError(ERROR_RED);
+    } catch (e) {
+      setError(fallo('organizador-nuevo', e, ERROR_GENERICO));
     } finally {
       setSaving(false);
     }

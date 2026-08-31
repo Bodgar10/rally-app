@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase/client';
 import { findSimilarVenues, normalizeVenueName } from '@/lib/venue-search';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { inputFontSize } from '@/lib/web-layout';
+import { fallo } from '@/lib/errores-red';
 
 export interface Venue {
   id:               string;
@@ -94,8 +95,8 @@ export default function VenuePicker({ venues, selectedVenue, onSelect, onCreated
       const nueva = data as Venue;
       onCreated(nueva);
       usarSugerencia(nueva);
-    } catch {
-      setError('Sin conexión con el servidor. Revisa tu internet.');
+    } catch (e) {
+      setError(fallo('venue-picker', e, 'No se pudo guardar la sede. Intenta de nuevo.'));
     } finally {
       setGuardando(false);
     }

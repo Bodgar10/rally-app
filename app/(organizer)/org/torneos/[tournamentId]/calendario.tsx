@@ -51,6 +51,7 @@ import {
   type CategoriaCuadro,
 } from '@/lib/engine/schedule/knockout';
 import { parseFechaISO, indiceLunes, horaDeTorneo } from '@/lib/fechas';
+import { fallo, registrarFallo } from '@/lib/errores-red';
 
 // ── Presentación ────────────────────────────────────────────────────────────
 
@@ -517,7 +518,15 @@ export default function CalendarioScreen() {
         });
         fin = r.cabe ? r.finEstimado : null;
         finRealista = r.finRealista;
-      } catch { /* capacidad imposible: se queda sin horas */ }
+      } catch (e) {
+        // La previsualización se queda sin horas y la pantalla sigue viva: es
+        // un adorno, no el dato. Pero el motor puede lanzar por algo que no sea
+        // "no cabe" —un cuadro mal formado, por ejemplo— y ese caso hay que
+        // poder verlo en vez de leerlo como capacidad insuficiente.
+        registrarFallo('calendario/previsualizacion', e, {
+          canchas: t.courts, categorias: cuadros.length, minutos,
+        });
+      }
     }
 
     setEstado({
@@ -596,8 +605,10 @@ export default function CalendarioScreen() {
       }
 
       await cargar();
-    } catch {
-      setError('No se pudo contactar con el servidor.');
+    } catch (e) {
+      setError(fallo('calendario', e, 'No se pudo programar el calendario. Intenta de nuevo.', {
+        tournamentId,
+      }));
       setFase({ t: 'lista' });
     }
   }

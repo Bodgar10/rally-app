@@ -33,6 +33,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, inputFontSize } from '@/lib/web-layout';
+import { fallo } from '@/lib/errores-red';
 
 export default function RecuperarScreen() {
   const router = useRouter();
@@ -104,9 +105,9 @@ export default function RecuperarScreen() {
       }
 
       router.replace('/(protected)/dashboard');
-    } catch {
+    } catch (e) {
       setLoading(false);
-      setError('Sin conexión con el servidor. Revisa tu internet.');
+      setError(fallo('recuperar', e, 'No se pudo activar la cuenta. Intenta de nuevo.'));
     }
   }
 
