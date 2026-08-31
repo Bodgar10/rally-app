@@ -68,7 +68,12 @@ function cimepa(): GrupoAProgramar[] {
 
   // Carriles libres por bloque. El primero, el del viernes a las 14:00, solo
   // recibe 3: es lo que se lleno de verdad.
-  const hueco = RETICULA.bloques.map((_, i) => (i === 0 ? 3 : 8));
+  //
+  // El `: number[]` no es decorativo. Sin el, TS infiere `(3 | 8)[]` de los dos
+  // literales y luego declara imposible el `=== 0` de mas abajo, que es el que
+  // detecta el bloque lleno. Los tests pasaban igual; el que se caia era
+  // `typecheck:test`.
+  const hueco: number[] = RETICULA.bloques.map((_, i) => (i === 0 ? 3 : 8));
 
   CATEGORIAS.forEach((cat, iCat) => {
     const sizes = computeFormat(cat.parejas).groupSizes;
