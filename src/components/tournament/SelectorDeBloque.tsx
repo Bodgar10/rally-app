@@ -25,6 +25,13 @@
  *   Salvo para el organizador (`permitirLlenos`). Él sí puede meter una pareja
  *   en un bloque lleno — esa pareja ya le pagó — y lo que le debemos es el
  *   aviso de la consecuencia antes de guardar, no un botón muerto.
+ *
+ * LOS BLOQUES QUE ACABAN TARDE SÍ SE MUESTRAN, CON SU HORA REAL
+ *   El bloque de 20:00 a 23:00 termina de verdad cerca de las 23:45: tres
+ *   partidos encadenados en una cancha se alargan 45 minutos. Ese bloque NO se
+ *   oculta — en Cimepa se jugó a las 22:00 y la gente lo eligió — pero lleva la
+ *   hora real debajo. Elegir a las 20:00 sin saber que sales del club casi a
+ *   medianoche no es elegir.
  */
 
 import { View, Text, Pressable, StyleSheet } from 'react-native';
@@ -114,7 +121,10 @@ export default function SelectorDeBloque({
                   accessibilityRole="radio"
                   accessibilityState={{ selected: activo, disabled: false }}
                   accessibilityLabel={
-                    `${formatearConDia(dia)}, de ${rangoLegible(b.desde, b.hasta)}. ${textoCupo(b.cupo)}`
+                    `${formatearConDia(dia)}, de ${rangoLegible(b.desde, b.hasta)}. ${textoCupo(b.cupo)}.` +
+                    (b.seSaleDeLaVentana
+                      ? ` Puede terminar cerca de las ${horaLegible(b.hastaRealista)}.`
+                      : '')
                   }
                 >
                   {activo && (
@@ -130,6 +140,13 @@ export default function SelectorDeBloque({
                   <Text style={[s.cupo, lleno && s.cupoLleno, activo && !lleno && s.cupoActivo]}>
                     {textoCupo(b.cupo)}
                   </Text>
+
+                  {/* Sin drama y sin bloquear: el dato, y decide el jugador. */}
+                  {b.seSaleDeLaVentana && (
+                    <Text style={s.tarde}>
+                      Puede terminar cerca de las {horaLegible(b.hastaRealista)}
+                    </Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -156,6 +173,9 @@ export default function SelectorDeBloque({
       <Text style={s.pie}>
         Se juegan los 3 partidos del grupo seguidos, en la misma cancha. Elige
         una sola vez: el lugar se aparta al confirmar.
+        {visibles.some((b) => b.seSaleDeLaVentana) && (
+          ' Los horarios marcados en ámbar suelen alargarse: la hora que ves es la real.'
+        )}
       </Text>
     </View>
   );
@@ -179,7 +199,7 @@ const s = StyleSheet.create({
   rejilla: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
 
   tarjeta: {
-    flexGrow: 1, flexBasis: 104, minHeight: touchTarget + 34,
+    flexGrow: 1, flexBasis: 124, minHeight: touchTarget + 34,
     backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft,
     borderRadius: radius.md, paddingVertical: space[3], paddingHorizontal: space[3],
     justifyContent: 'center',
@@ -203,6 +223,8 @@ const s = StyleSheet.create({
   hasta:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: -2 },
 
   cupo:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: space[1.5] },
+  // Ámbar, no rojo: es un aviso, no un error. El bloque es elegible.
+  tarde:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, marginTop: space[1], lineHeight: 15 },
   cupoActivo: { color: color.champagne },
   cupoLleno:  { color: color.danger },
 

@@ -21,6 +21,7 @@ import {
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { generarBloques } from '@/lib/engine/schedule/bloques';
 import { parseFechaISO, aFechaISO, formatearConDia } from '@/lib/fechas';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
@@ -193,6 +194,36 @@ export default function HorariosScreen() {
     return <View style={s.centro}><ActivityIndicator color={color.gold} /></View>;
   }
 
+  /**
+   * Los días cuyo último bloque se sale de la ventana que se está capturando.
+   *
+   * Un bloque son tres partidos seguidos en una cancha y se alarga unos 45
+   * minutos. Una ventana que cierra a las 23:00 produce un bloque de 20:00 que
+   * en la práctica termina cerca de las 23:45, y quien captura el horario es
+   * quien puede decidir si eso le sirve — pero solo si lo sabe AHORA, no
+   * cuando ya hay veinte parejas inscritas ahí.
+   *
+   * Se recalcula en cada tecla a propósito: el aviso tiene que moverse
+   * mientras se escribe la hora, no al guardar.
+   */
+  const bloquesTardios = (() => {
+    const validas = activas.filter(
+      (v) => RE_HORA.test(v.desde) && RE_HORA.test(v.hasta) && minutos(v.hasta) > minutos(v.desde),
+    );
+    if (validas.length === 0) return [];
+    const dur = Number(duracion);
+    if (!Number.isFinite(dur) || dur < 30 || dur > 180) return [];
+    try {
+      return generarBloques({
+        ventanas: validas.map((v) => ({ dia: v.dia, desde: v.desde, hasta: v.hasta })),
+        canchas: 1,                    // el número no importa: solo las horas
+        minutosPorPartido: dur,
+      }).bloques.filter((b) => b.seSaleDeLaVentana);
+    } catch {
+      return [];
+    }
+  })();
+
   const total = activas.reduce((a, v) => {
     const m = minutos(v.hasta) - minutos(v.desde);
     return a + (m > 0 ? m : 0);
@@ -287,6 +318,26 @@ export default function HorariosScreen() {
           </View>
         )}
 
+        {/* No bloquea nada: es una consecuencia de lo que acaba de escribir,
+            dicha en el momento en que todavía la puede cambiar. */}
+        {bloquesTardios.length > 0 && (
+          <View style={s.avisoTarde}>
+            <Text style={s.avisoTardeTitulo}>El último bloque acaba más tarde de lo que parece</Text>
+            {bloquesTardios.map((b) => (
+              <Text key={b.id} style={s.avisoTardeLinea}>
+                · El último bloque del {formatearConDia(b.dia)} empieza a las{' '}
+                {b.desde} y terminaría cerca de las {b.hastaRealista} con los
+                retrasos habituales.
+              </Text>
+            ))}
+            <Text style={s.avisoTardeNota}>
+              Un grupo son tres partidos seguidos en una cancha, y en la práctica
+              se alargan unos 45 minutos. Puedes dejarlo así —en Cimepa se jugó a
+              las 22:00— o cerrar el día antes para que el último bloque no salga.
+            </Text>
+          </View>
+        )}
+
         {error && <Text style={s.error}>{error}</Text>}
 
         <Pressable
@@ -345,6 +396,11 @@ const s = StyleSheet.create({
   },
 
   nota:      { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3] },
+
+  avisoTarde:       { backgroundColor: color.surface, borderWidth: 1, borderColor: color.alive, borderRadius: radius.md, padding: space[3.5], gap: space[1.5] },
+  avisoTardeTitulo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
+  avisoTardeLinea:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 18 },
+  avisoTardeNota:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
   notaTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 17 },
 
   error:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },

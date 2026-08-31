@@ -17,6 +17,12 @@
  *   categoría con 4 parejas gasta DOS carriles. Medir en "lugares libres" diría
  *   que caben y no es verdad. Ver `capacidadDelTorneo`.
  *
+ * BLOQUES QUE SE VAN DE HORA
+ *   El de 20:00 a 23:00 termina de verdad cerca de las 23:45. Es elegible y la
+ *   gente lo elige, así que aquí lo que importa es CUÁNTA: si el sábado a las
+ *   20:00 hay 24 parejas, eso son 24 parejas saliendo del club a medianoche, y
+ *   es un dato que el organizador quiere tener antes del torneo y no durante.
+ *
  * BLOQUES QUE YA NO EXISTEN
  *   `bloque_id` es derivado de las ventanas del torneo. Si el organizador
  *   cambia los horarios, hay elecciones apuntando a bloques que desaparecieron.
@@ -222,6 +228,44 @@ export default function BloquesScreen() {
               </View>
             )}
 
+            {/* ── Los que se van de hora ────────────────────────────────── */}
+            {(() => {
+              const tarde = datos.bloques
+                .filter((b) => b.seSaleDeLaVentana)
+                .map((b) => ({
+                  bloque: b,
+                  parejas: Object.values(ocupacion[b.id] ?? {}).reduce((a, n) => a + n, 0),
+                }))
+                .filter((x) => x.parejas > 0);
+
+              if (tarde.length === 0) return null;
+              const total = tarde.reduce((a, x) => a + x.parejas, 0);
+
+              return (
+                <View style={s.cajaTarde}>
+                  <Text style={s.tardeTitulo}>
+                    {total} pareja{total === 1 ? '' : 's'} en horarios que se alargan
+                  </Text>
+                  <Text style={s.avisoTexto}>
+                    Tres partidos seguidos en una cancha se alargan unos 45 minutos.
+                    Estos bloques acaban después del cierre que capturaste:
+                  </Text>
+                  {tarde.map(({ bloque, parejas }) => (
+                    <Text key={bloque.id} style={s.avisoLinea}>
+                      ·  {formatearConDia(bloque.dia)} {horaLegible(bloque.desde)} —
+                      {' '}termina cerca de las {horaLegible(bloque.hastaRealista)}
+                      {' · '}{parejas} pareja{parejas === 1 ? '' : 's'}
+                    </Text>
+                  ))}
+                  <Text style={s.avisoTexto}>
+                    No hay que quitarlos: en el Cimepa real se jugó a las 22:00 y
+                    funcionó. Sí conviene avisar al club y a esa gente, o alargar
+                    la ventana del día en Horarios.
+                  </Text>
+                </View>
+              );
+            })()}
+
             {/* ── Bloque a bloque ───────────────────────────────────────── */}
             {dias.map((dia) => (
               <View key={dia} style={s.dia}>
@@ -261,7 +305,12 @@ export default function BloquesScreen() {
                     <View key={b.id} style={[s.bloque, sobrevendido && s.bloqueAlerta]}>
                       <View style={s.bloqueCabecera}>
                         <Text style={s.bloqueHora}>{horaLegible(b.desde)}</Text>
-                        <Text style={s.bloqueRango}>a {horaLegible(b.hasta)}</Text>
+                        <Text style={s.bloqueRango}>
+                          a {horaLegible(b.hasta)}
+                          {b.seSaleDeLaVentana && (
+                            <Text style={s.bloqueTarde}> · real {horaLegible(b.hastaRealista)}</Text>
+                          )}
+                        </Text>
                         <View style={s.bloqueDerecha}>
                           <Text style={[s.bloqueCarriles, sobrevendido && s.textoAlerta]}>
                             {carriles}/{b.carriles} carriles
@@ -405,6 +454,10 @@ const s = StyleSheet.create({
   catDato:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
 
   textoAlerta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, lineHeight: 17 },
+
+  cajaTarde:   { backgroundColor: color.surface, borderWidth: 1, borderColor: color.alive, borderRadius: radius.md, padding: space[3.5], gap: space[1.5] },
+  tardeTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.alive },
+  bloqueTarde: { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive },
 
   // Avisos
   cajaAviso:   { backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3.5], gap: space[1.5] },
