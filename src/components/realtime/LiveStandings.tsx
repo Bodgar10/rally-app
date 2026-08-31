@@ -396,15 +396,20 @@ export default function LiveStandings({
         </View>
       )}
 
-      {/* Sin resultados no hay orden que enseñar. Se dice, en vez de dejar
-          una tabla de ceros que parece un error de carga. */}
-      {!hayResultados && (
-        <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: color.lineSoft }}>
-          <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, lineHeight: 16 }}>
-            El orden se define al jugar.
-          </Text>
-        </View>
-      )}
+      {/* Pie de tabla.
+          Sin resultados no hay orden que enseñar: se dice, en vez de dejar una
+          tabla de ceros que parece un error de carga.
+          Con resultados se explica la columna PTS. Hacía falta: mientras la
+          derrota jugada valía 1 punto, un jugador veía 0 ganados y 1 punto y
+          no había en toda la app dónde leer por qué. Ahora PTS son victorias
+          por dos y la línea lo dice, para que nadie tenga que deducirlo. */}
+      <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: color.lineSoft }}>
+        <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, lineHeight: 16 }}>
+          {hayResultados
+            ? '2 puntos por partido ganado, 0 por perderlo. Si dos parejas empatan, decide la diferencia de sets y luego la de games.'
+            : 'El orden se define al jugar.'}
+        </Text>
+      </View>
     </View>
   );
 }

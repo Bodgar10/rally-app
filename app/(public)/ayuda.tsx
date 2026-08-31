@@ -50,6 +50,14 @@ const CATEGORIES: Category[] = [
         a: 'Una vez que el organizador publique el calendario, verás tu próximo partido en el Dashboard ("Home"). Recibirás una notificación con la hora y cancha asignadas.',
       },
       {
+        q: '¿Cómo se cuentan los puntos de la tabla del grupo?',
+        a: '2 puntos por partido ganado y 0 por perderlo: tus puntos son tus victorias por dos. Si dos parejas quedan con los mismos puntos, decide primero el resultado entre ellas, luego la diferencia de sets y después la de games. No se reparten puntos por jugar, así que un grupo de 4 no da más puntos que uno de 3 por el simple hecho de tener un partido más.',
+      },
+      {
+        q: 'Si pasa 1 por grupo, ¿cómo se eligen los "mejores segundos"?',
+        a: 'Cuando el cuadro no se llena solo con los primeros de cada grupo, se completa con los mejores segundos de toda la categoría. Se comparan por puntos, luego por diferencia de sets, luego por diferencia de games y por último por el porcentaje de games ganados. Todos los criterios son proporciones o diferencias, para que un segundo de un grupo de 4 no salga favorecido por haber jugado un partido más.',
+      },
+      {
         q: '¿Qué significa "Ya clasificaste"?',
         a: 'Es el motor de clasificación anticipada de RALLY. Significa que matemáticamente ya no puedes quedar fuera, sin importar los resultados restantes. Puedes jugar tranquilo.',
       },
@@ -68,7 +76,7 @@ const CATEGORIES: Category[] = [
     faqs: [
       {
         q: '¿Cómo se calculan los puntos de ranking?',
-        a: 'Ganas puntos por victorias en fase de grupos (50 pts c/u), por clasificar de grupos (+100), y según la ronda eliminatoria que alcances (cuartos +250, semis +400, final +650, campeón +1,000). Los puntos se multiplican según el tamaño del cuadro.',
+        a: 'Son distintos de los puntos de la tabla del grupo, que solo ordenan ese grupo. Los de ranking: ganas por victorias en fase de grupos (50 pts c/u), por clasificar de grupos (+100), y según la ronda eliminatoria que alcances (cuartos +250, semis +400, final +650, campeón +1,000). Los puntos se multiplican según el tamaño del cuadro.',
       },
       {
         q: '¿Los puntos se acumulan entre torneos?',

@@ -5,14 +5,44 @@ import type { MatchResultInput, SetScore, StandingRow } from '../types';
 
 export interface StandingsConfig {
   pointsWin: number;
+  /**
+   * Puntos por partido JUGADO y PERDIDO. Hoy 0. Ver DEFAULT_STANDINGS_CONFIG.
+   * Se conserva como parámetro porque `computeClinch` lo usa como cota
+   * inferior de puntos por partido restante.
+   */
   pointsPlayedLoss: number;
   /** Cómo cuentan los games del super muerte para el desempate. */
   superTiebreakGames: 'one' | 'score';
 }
 
+/**
+ * 2 por victoria, 0 por derrota. Los puntos son victorias × 2, punto.
+ *
+ * ► NO LO DEVUELVAS A 1 PENSANDO QUE PREMIA LA PARTICIPACIÓN. Era 1 y hubo
+ *   que quitarlo. El punto por presentarse no premia a nadie: se lo lleva
+ *   TODO el que juega, así que no distingue entre parejas — lo único que
+ *   hace es escalar la columna PTS con el número de partidos del grupo.
+ *
+ *   Y los grupos no son todos del mismo tamaño. `computeFormat` reparte el
+ *   resto (ver `distribute` en ../format/index.ts) y la tabla literal tiene
+ *   escritos a mano los mixtos: 10 = [4,3,3], 16 = [4,3,3,3,3],
+ *   20 = [4,4,3,3,3,3], 32 = [4,4,3,3,3,3,3,3,3,3]. En todos ellos pasa 1
+ *   por grupo y el resto del cuadro se llena con los MEJORES SEGUNDOS, que
+ *   `selectQualifiers` compara entre grupos distintos por esta misma columna.
+ *
+ *   Con 1 por derrota, un 1-2 en grupo de 4 sumaba 4 puntos y un 1-1 en
+ *   grupo de 3 sumaba 3: el que perdió dos de tres clasificaba por encima
+ *   del que ganó uno de dos, y ni siquiera se llegaban a comparar los sets.
+ *   Peor: un 0-3 en grupo de 4 sumaba 3 y EMPATABA con ese 1-1.
+ *
+ *   Con 0, ambos quedan en 2 puntos y decide el desempate, que son
+ *   diferencias y no acumulados. La tabla además se lee sola: el jugador que
+ *   ve 2 puntos sabe que ganó un partido. No hacía falta normalizar por
+ *   partidos jugados; hacía falta dejar de repartir puntos por jugar.
+ */
 export const DEFAULT_STANDINGS_CONFIG: StandingsConfig = {
   pointsWin: 2,
-  pointsPlayedLoss: 1,
+  pointsPlayedLoss: 0,
   superTiebreakGames: 'one',
 };
 

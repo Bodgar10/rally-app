@@ -94,6 +94,11 @@ declare function validateScore(sets: SetScore[], config?: ScoreConfig): Validate
 
 interface StandingsConfig {
     pointsWin: number;
+    /**
+     * Puntos por partido JUGADO y PERDIDO. Hoy 0. Ver DEFAULT_STANDINGS_CONFIG.
+     * Se conserva como parámetro porque `computeClinch` lo usa como cota
+     * inferior de puntos por partido restante.
+     */
     pointsPlayedLoss: number;
     /** Cómo cuentan los games del super muerte para el desempate. */
     superTiebreakGames: 'one' | 'score';

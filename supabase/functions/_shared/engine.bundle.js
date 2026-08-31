@@ -253,7 +253,7 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
 // src/lib/engine/standings/index.ts
 var DEFAULT_STANDINGS_CONFIG = {
   pointsWin: 2,
-  pointsPlayedLoss: 1,
+  pointsPlayedLoss: 0,
   superTiebreakGames: "one"
 };
 var emptyStats = () => ({
@@ -473,7 +473,14 @@ function cmpTiebreak(a, b) {
   if (setsB !== setsA) return setsB - setsA;
   const gA = a.gamesWon - a.gamesLost, gB = b.gamesWon - b.gamesLost;
   if (gB !== gA) return gB - gA;
-  return b.gamesWon - a.gamesWon;
+  const totalA = a.gamesWon + a.gamesLost, totalB = b.gamesWon + b.gamesLost;
+  if (totalA === 0 || totalB === 0) {
+    if (totalA !== totalB) return totalA === 0 ? 1 : -1;
+  } else {
+    const cruzada = b.gamesWon * totalA - a.gamesWon * totalB;
+    if (cruzada !== 0) return cruzada;
+  }
+  return a.pairId < b.pairId ? -1 : a.pairId > b.pairId ? 1 : 0;
 }
 function selectQualifiers(standings, advancePerGroup, bestExtraQualifiers) {
   if (advancePerGroup < 1) throw new Error("advancePerGroup must be >= 1");
@@ -746,8 +753,9 @@ function parseHora(hhmm) {
   return h * 60 + min;
 }
 function formatHora(min) {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
+  const enElDia = (min % 1440 + 1440) % 1440;
+  const h = Math.floor(enElDia / 60);
+  const m = enElDia % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 function partidosPorRonda(clasificados) {

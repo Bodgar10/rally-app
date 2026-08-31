@@ -12,14 +12,49 @@ export type QualifierStanding = {
   gamesLost: number;
 };
 
-/** Desempate cross-grupo: puntos → dif. sets → dif. games → games ganados (todo desc). */
+/**
+ * Desempate CROSS-GRUPO: puntos → dif. sets → dif. games → % de games → pairId.
+ *
+ * OJO CON LO QUE SE COMPARA AQUÍ. Esta función mide parejas de grupos
+ * DISTINTOS, que pueden haber jugado distinto número de partidos: los planes
+ * con repesca y tamaños mixtos (10 = [4,3,3], 16 = [4,3,3,3,3],
+ * 20 = [4,4,3,3,3,3], 32 = [4,4,3,3,3,3,3,3,3,3]) son justamente los que
+ * llenan el cuadro con los mejores segundos. Cualquier criterio ACUMULADO
+ * premia aquí al que jugó más, no al que jugó mejor.
+ *
+ * Por eso los puntos son victorias × 2 (ver DEFAULT_STANDINGS_CONFIG) y los
+ * criterios 2 y 3 son diferencias.
+ *
+ * El criterio 4 ERA `gamesWon` a secas — un acumulado, el mismo defecto que
+ * se acababa de quitar de los puntos, escondido un escalón más abajo. Ahora
+ * es la PROPORCIÓN de games ganados sobre los jugados, comparada por
+ * multiplicación cruzada para no meter flotantes en un motor determinista.
+ * Una pareja sin games jugados (grupo sin capturar) va al fondo de este
+ * criterio en vez de dividir entre cero.
+ *
+ * El último criterio es `pairId`. No es deportivo y no pretende serlo: sin él
+ * la comparación no es un orden total, y estas filas llegan de un `select` de
+ * Postgres SIN `order by` (ver generate-bracket/index.ts), así que un empate
+ * perfecto sembraba el cuadro según el orden en que la base devolviera las
+ * filas. Empate perfecto = el organizador debería sortear; mientras eso no
+ * exista, que al menos sea reproducible y no dependa del planificador de
+ * consultas.
+ */
 function cmpTiebreak(a: QualifierStanding, b: QualifierStanding): number {
   if (b.points !== a.points) return b.points - a.points;
   const setsA = a.setsWon - a.setsLost, setsB = b.setsWon - b.setsLost;
   if (setsB !== setsA) return setsB - setsA;
   const gA = a.gamesWon - a.gamesLost, gB = b.gamesWon - b.gamesLost;
   if (gB !== gA) return gB - gA;
-  return b.gamesWon - a.gamesWon;
+  // % de games ganados: a.won/a.total vs b.won/b.total, sin dividir.
+  const totalA = a.gamesWon + a.gamesLost, totalB = b.gamesWon + b.gamesLost;
+  if (totalA === 0 || totalB === 0) {
+    if (totalA !== totalB) return totalA === 0 ? 1 : -1;
+  } else {
+    const cruzada = b.gamesWon * totalA - a.gamesWon * totalB;
+    if (cruzada !== 0) return cruzada;
+  }
+  return a.pairId < b.pairId ? -1 : a.pairId > b.pairId ? 1 : 0;
 }
 
 /**
