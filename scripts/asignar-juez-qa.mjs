@@ -36,6 +36,46 @@ const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const CORREO_JUEZ_QA = 'qa_juez@rally.test';
 export const PASSWORD_QA = 'qa-rally-2026';
 
+/**
+ * Presta al usuario QA la membresía de owner del organizador.
+ *
+ * POR QUÉ HACE FALTA, Y POR QUÉ SE DEVUELVE
+ *   Capturar resultados y ADMINISTRAR el torneo son permisos distintos, y está
+ *   bien que lo sean: `close_registration_for_category` y
+ *   `seed_bracket_for_category` solo admiten admin u owner, mientras que
+ *   `record_match_result` y `record_knockout_result` también admiten al juez
+ *   asignado. Un juez captura; no decide quién entra al cuadro.
+ *
+ *   Los scripts de QA tienen que hacer las dos cosas, así que piden prestado el
+ *   permiso para el paso de organizador y lo devuelven inmediatamente. La
+ *   alternativa —llamar a la RPC con service_role pasando el id del owner real
+ *   como p_actor— sería actuar en su nombre sin que se entere, y eso es peor
+ *   aunque escriba exactamente lo mismo.
+ *
+ * Devuelve true si REALMENTE se prestó (y por tanto hay que devolverlo).
+ */
+export async function prestarOwner(admin, organizerId, userId) {
+  const { data: ya } = await admin
+    .from('organizer_members')
+    .select('user_id')
+    .eq('organizer_id', organizerId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (ya) return false;
+
+  const { error } = await admin.from('organizer_members')
+    .insert({ organizer_id: organizerId, user_id: userId, member_role: 'owner' });
+  if (error) throw new Error(`no se pudo prestar la membresía de owner: ${error.message}`);
+  return true;
+}
+
+/** Retira la membresía prestada. Llamar SIEMPRE, en un `finally`. */
+export async function devolverOwner(admin, organizerId, userId) {
+  const { error } = await admin.from('organizer_members')
+    .delete().eq('organizer_id', organizerId).eq('user_id', userId);
+  if (error) throw new Error(`no se pudo retirar la membresía prestada: ${error.message}`);
+}
+
 function leerEnv() {
   const txt = readFileSync(resolve(raiz, '.env.local'), 'utf8');
   const env = {};
@@ -117,4 +157,8 @@ async function main() {
   console.log(`      --email ${CORREO_JUEZ_QA} --password ${PASSWORD_QA}\n`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Solo cuando se invoca directamente: `cerrar-categorias-qa.mjs` importa este
+// módulo por sus dos constantes, y sin este guard le corría el main entero.
+const invocadoDirecto = process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invocadoDirecto) main().catch((e) => { console.error(e); process.exit(1); });

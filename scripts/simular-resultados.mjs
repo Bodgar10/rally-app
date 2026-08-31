@@ -42,6 +42,8 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { prestarOwner, devolverOwner } from './asignar-juez-qa.mjs';
+
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ── Colores de terminal ─────────────────────────────────────────────────────
@@ -74,11 +76,13 @@ function parsearArgs(argv) {
   const args = {
     tournamentId: null, categoria: null, todas: false,
     reiniciar: false, email: null, password: null, verificar: false,
+    soloGrupos: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--todas') args.todas = true;
     else if (a === '--verificar') args.verificar = true;
+    else if (a === '--solo-grupos') args.soloGrupos = true;
     else if (a === '--reiniciar') args.reiniciar = true;
     else if (a === '--categoria') args.categoria = argv[++i] ?? null;
     else if (a === '--email') args.email = argv[++i] ?? null;
@@ -164,6 +168,24 @@ function generarMarcador(matchId) {
 
   return { sets: sets.map((s, i) => ({ set_number: i + 1, ...s })), ganador };
 }
+
+/**
+ * Hora de juego, calculada y NO dejada a `now()`.
+ *
+ * POR QUÉ IMPORTA
+ *   Si el script no manda `played_at`, la Edge Function pone `now()` y los 165
+ *   partidos quedan capturados con milisegundos de diferencia: una pareja
+ *   aparecería jugando dos partidos a la vez. Eso rompería el orden cronológico
+ *   del que depende Glicko (migración 001 lo llama crítico) y haría imposible
+ *   detectar un solapamiento de verdad.
+ *
+ *   Aquí cada partido recibe una hora coherente con cómo se juega el torneo:
+ *   un grupo es un BLOQUE de partidos consecutivos en una cancha, así que sus
+ *   tres partidos van en horas seguidas. Como una pareja pertenece a un solo
+ *   grupo, nunca coincide consigo misma. En el cuadro, cada ronda ocupa su hora.
+ */
+const horaDeJuego = (baseISO, offsetHoras) =>
+  new Date(new Date(baseISO).getTime() + offsetHoras * 3600_000).toISOString();
 
 /** '6-4 7-5' · '6-3 4-6 [10-7]' */
 const textoMarcador = (sets) =>
@@ -272,7 +294,9 @@ RALLY · Simular la captura de resultados de la fase de grupos
 
   // ── Torneo ────────────────────────────────────────────────────────────────
   const { data: torneo, error: te } = await admin
-    .from('tournaments').select('id, name, status').eq('id', args.tournamentId).single();
+    .from('tournaments')
+    .select('id, name, status, organizer_id, start_date')
+    .eq('id', args.tournamentId).single();
   if (te || !torneo) {
     console.error(`No se encontró el torneo ${args.tournamentId}: ${te?.message ?? 'sin filas'}`);
     process.exit(1);
@@ -353,7 +377,13 @@ RALLY · Simular la captura de resultados de la fase de grupos
   }
 
   // ── Captura ───────────────────────────────────────────────────────────────
+  // Los grupos ocupan las horas 0..2 del primer día; el cuadro, de la 3 en
+  // adelante, una hora por ronda.
+  const baseHoraria = `${torneo.start_date ?? '2026-09-11'}T14:00:00.000Z`;
+  const HORA_CUADRO = 3;
+
   let capturados = 0, saltados = 0, conSuper = 0;
+  const campeones = [];
 
   for (const cat of cats) {
     log(`${C.bold}${cat.display_name}${C.reset}  (pasan ${cat.advance_per_group} por grupo` +
@@ -378,7 +408,7 @@ RALLY · Simular la captura de resultados de la fase de grupos
         .filter((m) => m.group_id === grupo.id)
         .sort((a, b) => (a.id < b.id ? -1 : 1));
 
-      for (const m of delGrupo) {
+      for (const [iPartido, m] of delGrupo.entries()) {
         if (m.status === 'finished') { saltados++; continue; }
 
         const { sets, ganador } = generarMarcador(m.id);
@@ -388,7 +418,12 @@ RALLY · Simular la captura de resultados de la fase de grupos
         const res = await fetch(`${URL}/functions/v1/match-result`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ match_id: m.id, sets, winner_pair_id: winner }),
+          body: JSON.stringify({
+            match_id: m.id, sets, winner_pair_id: winner,
+            // Horas seguidas dentro del grupo: es como se juega, y garantiza
+            // que ninguna pareja quede con dos partidos a la misma hora.
+            played_at: horaDeJuego(baseHoraria, iPartido),
+          }),
         });
         const cuerpo = await res.json().catch(() => null);
 
@@ -478,11 +513,37 @@ RALLY · Simular la captura de resultados de la fase de grupos
         info(`Más ${cat.best_extra_qualifiers} repescado(s): los elige el motor al sembrar el cuadro.`);
       }
     }
+
+    // ── Cuadro ────────────────────────────────────────────────────────────────
+    if (!args.soloGrupos) {
+      const r = await jugarCuadro({
+        admin, URL, token, cat, grupos, baseHoraria, horaCuadro: HORA_CUADRO, fallo,
+        organizerId: torneo.organizer_id, actorId: sesion.user.id,
+      });
+      capturados += r.capturados;
+      conSuper += r.conSuper;
+      if (r.campeon) campeones.push({ categoria: cat.display_name, ...r.campeon });
+    }
+
     log('');
+  }
+
+  // ── Nadie juega dos partidos a la misma hora ──────────────────────────────
+  if (!args.soloGrupos) {
+    await verificarSolapamientos(admin, torneo.id, cats.map((c) => c.id), fallo, bien);
   }
 
   // ── Resumen ───────────────────────────────────────────────────────────────
   log('─'.repeat(60));
+  if (campeones.length) {
+    log(`${C.bold}Campeones${C.reset}`);
+    for (const c of campeones) {
+      log(`  ${c.categoria.padEnd(14)} ${c.campeon}`);
+      log(`  ${''.padEnd(14)} 2o ${c.subcampeon}`);
+      if (c.tercero) log(`  ${''.padEnd(14)} 3o ${c.tercero}`);
+    }
+    log('');
+  }
   log(`Capturados: ${capturados}   Con super muerte: ${conSuper}   ` +
       `Ya estaban: ${saltados}   Fallos: ${fallos}`);
   if (fallos > 0) {
@@ -490,6 +551,297 @@ RALLY · Simular la captura de resultados de la fase de grupos
     process.exit(1);
   }
   log(`${C.green}Todo cuadra.${C.reset}`);
+}
+
+/**
+ * Siembra el cuadro y lo juega entero, ronda a ronda, hasta el campeón.
+ *
+ * TODO PASA POR EL CAMINO REAL: `generate-bracket` para sembrar y
+ * `match-result` para cada resultado. Capturar AVANZA el cuadro solo (RPC 050),
+ * así que no se llama a `advance` en ningún momento: la ronda siguiente tiene
+ * que aparecer sola. Si no aparece, es que el avance automático no funciona,
+ * que es justo lo que se está probando.
+ */
+async function jugarCuadro({
+  admin, URL, token, cat, grupos, baseHoraria, horaCuadro, fallo, organizerId, actorId,
+}) {
+  let capturados = 0, conSuper = 0, campeon = null;
+
+  const leerCuadro = async () => {
+    const { data, error } = await admin
+      .from('matches')
+      .select('id, stage, round_label, pair_a_id, pair_b_id, winner_pair_id, status, played_at, source_match_ids')
+      .eq('category_id', cat.id).neq('stage', 'group');
+    if (error) { fallo(`${cat.display_name}: no se pudo leer el cuadro (${error.message})`); return null; }
+    return (data ?? []).sort((a, b) => (a.round_label ?? '').localeCompare(b.round_label ?? ''));
+  };
+
+  // ── Siembra ───────────────────────────────────────────────────────────────
+  // SEMBRAR ES ACTO DE ORGANIZADOR, NO DE JUEZ. `generate-bracket` deja pasar
+  // al juez en su pre-chequeo, pero la RPC `seed_bracket_for_category` solo
+  // admite admin u owner — y hace bien: quién entra al cuadro no lo decide
+  // quien anota los marcadores. Por eso aquí se pide prestado el permiso para
+  // este paso concreto y se devuelve enseguida, como hace el cierre de
+  // categorías. El botón de la app vive en la pantalla del organizador,
+  // que es coherente con esto.
+  let res, cuerpo;
+  let prestado = false;
+  try {
+    prestado = await prestarOwner(admin, organizerId, actorId);
+    res = await fetch(`${URL}/functions/v1/generate-bracket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: 'seed', category_id: cat.id }),
+    });
+    cuerpo = await res.json().catch(() => null);
+  } catch (e) {
+    fallo(`${cat.display_name}: ${e instanceof Error ? e.message : String(e)}`);
+    return { capturados, conSuper, campeon };
+  } finally {
+    if (prestado) {
+      try { await devolverOwner(admin, organizerId, actorId); }
+      catch (e) { fallo(`membresía prestada SIN retirar: ${e.message}`); }
+    }
+  }
+  // Un cuadro ya sembrado NO es un fallo: el script es idempotente y este es
+  // justo el guard que se añadió al servidor para no re-sembrar encima.
+  const yaSembrado = res.status === 409 && cuerpo?.error === 'bracket_already_seeded';
+  if (!res.ok && !yaSembrado) {
+    fallo(`${cat.display_name}: no se pudo sembrar el cuadro (${res.status} ${cuerpo?.error ?? '?'} ${cuerpo?.detail ?? ''})`);
+    return { capturados, conSuper, campeon };
+  }
+  if (yaSembrado) info(`${cat.display_name}: el cuadro ya estaba sembrado, se juega el que hay`);
+  let bracketSize = cuerpo?.bracket_size ?? 0;
+
+  let cuadro = await leerCuadro();
+  if (!cuadro) return { capturados, conSuper, campeon };
+  if (!bracketSize) {
+    // Cuadro preexistente: el tamaño sale de la ronda más grande que hay.
+    const porEtapa = new Map();
+    for (const m of cuadro.filter((x) => x.stage !== 'third_place')) {
+      porEtapa.set(m.stage, (porEtapa.get(m.stage) ?? 0) + 1);
+    }
+    bracketSize = 2 * Math.max(0, ...porEtapa.values());
+  }
+
+  // ── Los que suben son los que dicta la configuración ──────────────────────
+  const esperados = grupos.length * cat.advance_per_group + (cat.best_extra_qualifiers ?? 0);
+  const primera = cuadro.filter((m) => m.stage !== 'third_place');
+  const parejasEnCuadro = new Set(
+    primera.flatMap((m) => [m.pair_a_id, m.pair_b_id]).filter(Boolean),
+  );
+  if (parejasEnCuadro.size !== esperados) {
+    fallo(`${cat.display_name}: al cuadro subieron ${parejasEnCuadro.size} parejas y la ` +
+          `configuración dicta ${esperados} (${grupos.length} grupos x ${cat.advance_per_group}` +
+          `${cat.best_extra_qualifiers ? ` + ${cat.best_extra_qualifiers} repescados` : ''})`);
+  } else {
+    bien(`Cuadro de ${bracketSize}: subieron ${esperados} parejas, las que dicta la configuración`);
+  }
+
+  // ── Los byes nacen resueltos ──────────────────────────────────────────────
+  const byes = cuadro.filter((m) => !m.pair_a_id || !m.pair_b_id);
+  const byesMal = byes.filter((m) => m.status !== 'finished' || !m.winner_pair_id);
+  if (byesMal.length) {
+    fallo(`${cat.display_name}: ${byesMal.length} bye(s) sin resolver al sembrar`);
+  } else if (byes.length) {
+    bien(`${byes.length} bye(s) nacen resueltos; el script no los toca`);
+  }
+
+  // ── Rondas ────────────────────────────────────────────────────────────────
+  let ronda = 0;
+  while (ronda < 8) {
+    cuadro = await leerCuadro();
+    if (!cuadro) break;
+
+    // Un bye no se captura: ya está finished y le falta rival.
+    const pendientes = cuadro.filter(
+      (m) => m.status !== 'finished' && m.pair_a_id && m.pair_b_id,
+    );
+    if (pendientes.length === 0) break;
+
+    for (const m of pendientes) {
+      const { sets, ganador } = generarMarcador(m.id);
+      const winner = ganador === 'A' ? m.pair_a_id : m.pair_b_id;
+      if (sets.some((x) => x.is_super_tiebreak)) conSuper++;
+
+      const r = await fetch(`${URL}/functions/v1/match-result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          match_id: m.id, sets, winner_pair_id: winner,
+          played_at: horaDeJuego(baseHoraria, horaCuadro + ronda),
+        }),
+      });
+      const c = await r.json().catch(() => null);
+      if (!r.ok) {
+        fallo(`${cat.display_name} · ${m.stage} ${m.round_label}: rechazado ${r.status} ` +
+              `${c?.error ?? '?'} ${c?.detail ?? ''}`);
+        continue;
+      }
+      capturados++;
+    }
+    ronda++;
+  }
+
+  cuadro = await leerCuadro();
+  if (!cuadro) return { capturados, conSuper, campeon };
+
+  // ── El tercer lugar nació al cerrar semifinales ───────────────────────────
+  const semis = cuadro.filter((m) => m.stage === 'semi');
+  const tercero = cuadro.find((m) => m.stage === 'third_place');
+  if (semis.length === 2) {
+    if (!tercero) {
+      fallo(`${cat.display_name}: se jugaron las semifinales y NO se creó el tercer lugar`);
+    } else {
+      const perdedores = semis.map((sm) =>
+        sm.winner_pair_id === sm.pair_a_id ? sm.pair_b_id : sm.pair_a_id);
+      const enTercero = [tercero.pair_a_id, tercero.pair_b_id];
+      const cuadra = perdedores.every((x) => enTercero.includes(x));
+      if (!cuadra) fallo(`${cat.display_name}: el tercer lugar no lo juegan los perdedores de semis`);
+      else bien('El tercer lugar se creó al cerrar semifinales, con los dos perdedores');
+    }
+  }
+
+  // ── Campeón ───────────────────────────────────────────────────────────────
+  const final = cuadro.find((m) => m.stage === 'final');
+  if (!final) {
+    fallo(`${cat.display_name}: el cuadro no llegó a la final`);
+  } else if (final.status !== 'finished' || !final.winner_pair_id) {
+    fallo(`${cat.display_name}: la final quedó sin resultado`);
+  } else {
+    const ids = [final.winner_pair_id,
+                 final.winner_pair_id === final.pair_a_id ? final.pair_b_id : final.pair_a_id];
+    if (tercero?.winner_pair_id) ids.push(tercero.winner_pair_id);
+    const nombres = await nombresDeParejas(admin, ids);
+    campeon = {
+      campeon: nombres.get(ids[0]) ?? ids[0].slice(0, 8),
+      subcampeon: nombres.get(ids[1]) ?? ids[1].slice(0, 8),
+      tercero: ids[2] ? (nombres.get(ids[2]) ?? ids[2].slice(0, 8)) : null,
+    };
+    bien(`Campeón: ${campeon.campeon}`);
+  }
+
+  // ── Corrección ────────────────────────────────────────────────────────────
+  if (semis.length === 2) {
+    await probarCorreccion({ admin, URL, token, cat, semis, baseHoraria, horaCuadro, fallo });
+  }
+
+  return { capturados, conSuper, campeon };
+}
+
+/**
+ * Las dos caras de la invariante de corrección, sobre una semifinal cuya final
+ * YA se jugó:
+ *   · cambiar solo el marcador, mismo ganador  -> se acepta
+ *   · cambiar el ganador                       -> downstream_already_played
+ * y comprueba que el rechazo no dejó nada escrito a medias.
+ */
+async function probarCorreccion({ admin, URL, token, cat, semis, baseHoraria, horaCuadro, fallo }) {
+  const semi = semis.find((m) => m.status === 'finished' && m.pair_a_id && m.pair_b_id);
+  if (!semi) return;
+
+  const enviar = (winner, sets) => fetch(`${URL}/functions/v1/match-result`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      match_id: semi.id, sets, winner_pair_id: winner,
+      played_at: semi.played_at ?? horaDeJuego(baseHoraria, horaCuadro),
+    }),
+  });
+
+  const ganador = semi.winner_pair_id;
+  const perdedor = ganador === semi.pair_a_id ? semi.pair_b_id : semi.pair_a_id;
+  const ganaA = ganador === semi.pair_a_id;
+
+  // 1) Mismo ganador, marcador distinto. No mueve a nadie de sitio: se acepta.
+  const setsIguales = [
+    { set_number: 1, games_a: ganaA ? 6 : 1, games_b: ganaA ? 1 : 6, is_super_tiebreak: false, tiebreak_a: null, tiebreak_b: null },
+    { set_number: 2, games_a: ganaA ? 6 : 0, games_b: ganaA ? 0 : 6, is_super_tiebreak: false, tiebreak_a: null, tiebreak_b: null },
+  ];
+  const r1 = await enviar(ganador, setsIguales);
+  const c1 = await r1.json().catch(() => null);
+  if (!r1.ok) {
+    fallo(`${cat.display_name}: corregir el marcador sin cambiar de ganador fue rechazado ` +
+          `(${r1.status} ${c1?.error ?? '?'} ${c1?.detail ?? ''})`);
+  } else {
+    bien('Corrección que no cambia el ganador: aceptada');
+  }
+
+  // 2) Cambiar el ganador con la final ya jugada: tiene que rebotar.
+  const setsAlReves = [
+    { set_number: 1, games_a: ganaA ? 1 : 6, games_b: ganaA ? 6 : 1, is_super_tiebreak: false, tiebreak_a: null, tiebreak_b: null },
+    { set_number: 2, games_a: ganaA ? 0 : 6, games_b: ganaA ? 6 : 0, is_super_tiebreak: false, tiebreak_a: null, tiebreak_b: null },
+  ];
+  const r2 = await enviar(perdedor, setsAlReves);
+  const c2 = await r2.json().catch(() => null);
+  if (r2.ok) {
+    fallo(`${cat.display_name}: se ACEPTÓ cambiar el ganador de una semifinal con la final ya jugada`);
+  } else if (c2?.error !== 'downstream_already_played') {
+    fallo(`${cat.display_name}: el rechazo esperado era downstream_already_played y llegó ` +
+          `${r2.status} ${c2?.error ?? '?'}`);
+  } else {
+    bien('Corrección que cambia el ganador con la ronda siguiente jugada: rechazada');
+  }
+
+  // 3) El rechazo no puede haber escrito nada.
+  const { data: despues } = await admin
+    .from('matches').select('winner_pair_id, status').eq('id', semi.id).maybeSingle();
+  if (despues?.winner_pair_id !== ganador) {
+    fallo(`${cat.display_name}: el rechazo dejó la semifinal con otro ganador`);
+  } else {
+    bien('El rechazo no dejó nada escrito');
+  }
+}
+
+/**
+ * Ninguna pareja puede tener dos partidos capturados a la misma hora.
+ *
+ * Es físicamente imposible y además el orden cronológico de `played_at` es lo
+ * que consume Glicko (migración 001 lo marca como crítico). Si dos partidos de
+ * la misma pareja comparten hora, el rating se calcula sobre un orden que no
+ * existe.
+ */
+async function verificarSolapamientos(admin, tournamentId, categoryIds, fallo, bien) {
+  const { data, error } = await admin
+    .from('matches')
+    .select('id, pair_a_id, pair_b_id, played_at, stage, round_label')
+    .eq('tournament_id', tournamentId)
+    .in('category_id', categoryIds)
+    .eq('status', 'finished')
+    .not('played_at', 'is', null);
+  if (error) { fallo(`No se pudieron leer los partidos para el cruce de horas: ${error.message}`); return; }
+
+  const porPareja = new Map();
+  for (const m of data ?? []) {
+    for (const pid of [m.pair_a_id, m.pair_b_id]) {
+      if (!pid) continue;
+      const ya = porPareja.get(pid) ?? [];
+      ya.push(m);
+      porPareja.set(pid, ya);
+    }
+  }
+
+  let choques = 0;
+  for (const [pid, ms] of porPareja) {
+    const horas = new Map();
+    for (const m of ms) {
+      const h = m.played_at;
+      if (horas.has(h)) {
+        choques++;
+        if (choques <= 3) {
+          fallo(`La pareja ${pid.slice(0, 8)} tiene dos partidos a las ${h}: ` +
+                `${horas.get(h).stage}/${horas.get(h).round_label} y ${m.stage}/${m.round_label}`);
+        }
+        continue;
+      }
+      horas.set(h, m);
+    }
+  }
+  if (choques === 0) {
+    bien(`Nadie juega dos partidos a la misma hora (${porPareja.size} parejas revisadas)`);
+  } else if (choques > 3) {
+    fallo(`... y ${choques - 3} choques más`);
+  }
 }
 
 /** Nombres por `bracket_pairs_public`, el mismo read-path que la app. */
