@@ -45,9 +45,6 @@ const VACIO: BloquesDelTorneo = {
   bloques: [], ocupacion: {}, reticula: null, motivoSinBloques: null,
 };
 
-interface FilaVentana { dia: string; desde: string; hasta: string }
-interface FilaOcupacion { bloque_id: string; category_id: string; parejas: number }
-
 /** 'HH:MM:SS' de Postgres → 'HH:MM', que es lo que espera el motor. */
 const aHoraCorta = (t: string) => t.slice(0, 5);
 
@@ -58,26 +55,17 @@ const aHoraCorta = (t: string) => t.slice(0, 5);
 export async function cargarBloquesDelTorneo(
   tournamentId: string,
 ): Promise<BloquesDelTorneo> {
-  // Casts: `tournament_windows` y la RPC `bloques_ocupacion` son de migraciones
-  // posteriores a la última generación de database.types.ts.
   const [torneoRes, ventanasRes, ocupacionRes] = await Promise.all([
     supabase
       .from('tournaments')
       .select('courts, match_minutes')
       .eq('id', tournamentId)
-      .maybeSingle() as unknown as Promise<{
-        data: { courts: number | null; match_minutes: number | null } | null;
-      }>,
-    (supabase.from as unknown as (t: string) => {
-      select: (c: string) => { eq: (c: string, v: string) => Promise<{ data: FilaVentana[] | null }> };
-    })('tournament_windows')
+      .maybeSingle(),
+    supabase
+      .from('tournament_windows')
       .select('dia, desde, hasta')
       .eq('tournament_id', tournamentId),
-    (supabase.rpc as unknown as (
-      f: string, a: Record<string, string>,
-    ) => Promise<{ data: FilaOcupacion[] | null }>)(
-      'bloques_ocupacion', { p_tournament_id: tournamentId },
-    ),
+    supabase.rpc('bloques_ocupacion', { p_tournament_id: tournamentId }),
   ]);
 
   const torneo   = torneoRes.data;
@@ -151,11 +139,7 @@ export async function guardarEleccionDeBloque(args: {
   /** Solo el organizador: metió la pareja en un bloque sin cupo. */
   forzado?:     boolean;
 }): Promise<string | null> {
-  // Cast: `pair_block_choices` es de la migración 051, posterior a la última
-  // generación de database.types.ts.
-  const { error } = await (supabase.from as unknown as (t: string) => {
-    upsert: (row: unknown, opts: { onConflict: string }) => Promise<{ error: { message?: string } | null }>;
-  })('pair_block_choices').upsert(
+  const { error } = await supabase.from('pair_block_choices').upsert(
     {
       pair_id:       args.pairId,
       tournament_id: args.tournamentId,

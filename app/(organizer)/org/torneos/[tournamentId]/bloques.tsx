@@ -73,10 +73,8 @@ export default function BloquesScreen() {
       supabase.from('tournaments').select('name, courts').eq('id', tournamentId).maybeSingle(),
       supabase.from('pairs').select('id, category_id').eq('tournament_id', tournamentId),
       supabase.from('categories').select('id, display_name').eq('tournament_id', tournamentId),
-      // Cast: `pair_block_choices` es de la migración 051.
-      (supabase.from as unknown as (v: string) => {
-        select: (c: string) => { eq: (c: string, v: string) => Promise<{ data: FilaEleccion[] | null }> };
-      })('pair_block_choices')
+      supabase
+        .from('pair_block_choices')
         .select('pair_id, bloque_id, forzado')
         .eq('tournament_id', tournamentId),
     ]);

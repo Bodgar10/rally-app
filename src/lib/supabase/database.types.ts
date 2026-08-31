@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -541,6 +541,7 @@ export type Database = {
           round_label: string | null
           scheduled_at: string | null
           scheduled_at_original: string | null
+          source_match_ids: string[] | null
           stage: Database["public"]["Enums"]["match_stage"]
           status: Database["public"]["Enums"]["match_status"]
           tournament_id: string
@@ -558,6 +559,7 @@ export type Database = {
           round_label?: string | null
           scheduled_at?: string | null
           scheduled_at_original?: string | null
+          source_match_ids?: string[] | null
           stage: Database["public"]["Enums"]["match_stage"]
           status?: Database["public"]["Enums"]["match_status"]
           tournament_id: string
@@ -575,6 +577,7 @@ export type Database = {
           round_label?: string | null
           scheduled_at?: string | null
           scheduled_at_original?: string | null
+          source_match_ids?: string[] | null
           stage?: Database["public"]["Enums"]["match_stage"]
           status?: Database["public"]["Enums"]["match_status"]
           tournament_id?: string
@@ -762,6 +765,62 @@ export type Database = {
           stripe_connect_account_id?: string | null
         }
         Relationships: []
+      }
+      pair_block_choices: {
+        Row: {
+          bloque_id: string
+          created_at: string
+          forzado: boolean
+          pair_id: string
+          tournament_id: string
+          updated_at: string
+        }
+        Insert: {
+          bloque_id: string
+          created_at?: string
+          forzado?: boolean
+          pair_id: string
+          tournament_id: string
+          updated_at?: string
+        }
+        Update: {
+          bloque_id?: string
+          created_at?: string
+          forzado?: boolean
+          pair_id?: string
+          tournament_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pair_block_choices_pair_fkey"
+            columns: ["pair_id", "tournament_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id", "tournament_id"]
+          },
+          {
+            foreignKeyName: "pair_block_choices_pair_fkey"
+            columns: ["pair_id", "tournament_id"]
+            isOneToOne: false
+            referencedRelation: "my_pairs"
+            referencedColumns: ["pair_id", "tournament_id"]
+          },
+          {
+            foreignKeyName: "pair_block_choices_pair_fkey"
+            columns: ["pair_id", "tournament_id"]
+            isOneToOne: false
+            referencedRelation: "organizer_pairs_admin"
+            referencedColumns: ["pair_id", "tournament_id"]
+          },
+          {
+            foreignKeyName: "pair_block_choices_pair_fkey"
+            columns: ["pair_id", "tournament_id"]
+            isOneToOne: false
+            referencedRelation: "pairs"
+            referencedColumns: ["id", "tournament_id"]
+          },
+        ]
       }
       pairs: {
         Row: {
@@ -2043,6 +2102,14 @@ export type Database = {
         Returns: Json
       }
       auth_email_status: { Args: { p_email: string }; Returns: string }
+      bloques_ocupacion: {
+        Args: { p_tournament_id: string }
+        Returns: {
+          bloque_id: string
+          category_id: string
+          parejas: number
+        }[]
+      }
       can_capture_tournament: {
         Args: { p_tournament_id: string }
         Returns: boolean
@@ -2082,6 +2149,7 @@ export type Database = {
         Returns: Json
       }
       is_admin: { Args: never; Returns: boolean }
+      is_my_pair: { Args: { p_pair_id: string }; Returns: boolean }
       is_org_member: { Args: { org: string }; Returns: boolean }
       is_org_owner: { Args: { org: string }; Returns: boolean }
       is_tournament_judge: {
@@ -2096,9 +2164,23 @@ export type Database = {
         Args: { p_division: string; p_history: Json; p_player_ratings: Json }
         Returns: Json
       }
+      record_knockout_result: {
+        Args: {
+          p_actor: string
+          p_bracket_state: Json
+          p_crear: Json
+          p_match_id: string
+          p_played_at: string
+          p_reapuntar: Json
+          p_sets: Json
+          p_winner_pair: string
+        }
+        Returns: Json
+      }
       record_match_result: {
         Args: {
           p_actor: string
+          p_group_state: Json
           p_match_id: string
           p_played_at: string
           p_sets: Json
