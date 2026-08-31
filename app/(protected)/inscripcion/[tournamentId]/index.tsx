@@ -40,10 +40,8 @@ import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
-import {
-  cargarBloquesDelTorneo, guardarEleccionDeBloque, rangoLegible,
-  type BloquesDelTorneo,
-} from '@/lib/bloques-torneo';
+import { cargarBloquesDelTorneo, guardarEleccionDeBloque, type BloquesDelTorneo } from '@/lib/bloques-torneo';
+import { rangoLegible } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────

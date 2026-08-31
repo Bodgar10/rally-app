@@ -31,6 +31,7 @@ import { supabase }               from '@/lib/supabase/client';
 import SettingRow                 from '@/components/organizer/SettingRow';
 import ChecklistApertura, { type ItemChecklist } from '@/components/organizer/ChecklistApertura';
 import { formatearRango }     from '@/lib/fechas';
+import { generarBloques }     from '@/lib/engine/schedule/bloques';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -223,6 +224,39 @@ export default function OrgTournamentScreen() {
     const dias = ventanas.length === 1 ? '1 día' : `${ventanas.length} días`;
     return `${dias} · ${Math.round(minutos / 60)} h`;
   })();
+  /**
+   * Cuántas parejas caben en los bloques de fase de grupos, con las canchas y
+   * los horarios capturados. Se calcula aquí y no en la subpantalla porque el
+   * aviso de que ya no caben tiene que llegar MIENTRAS se inscriben: enterarse
+   * al cerrar es enterarse tarde, las canchas se apalabran con días de margen.
+   *
+   * Es la cuenta gruesa —lugares, no carriles—: la fina, que sabe que un grupo
+   * son 3 parejas de la misma categoría, vive en la pantalla de ocupación.
+   */
+  const capacidadBloques = (() => {
+    if (!tournament.courts || ventanas.length === 0) return null;
+    try {
+      return generarBloques({
+        ventanas: ventanas.map((v) => ({
+          dia: v.dia, desde: v.desde.slice(0, 5), hasta: v.hasta.slice(0, 5),
+        })),
+        canchas:           tournament.courts,
+        minutosPorPartido: tournament.match_minutes ?? 60,
+      });
+    } catch {
+      return null;
+    }
+  })();
+
+  const resumenBloques = !capacidadBloques || capacidadBloques.bloques.length === 0
+    ? 'Faltan canchas u horarios'
+    : `${pairCount} de ${capacidadBloques.capacidadParejas} lugares · ${capacidadBloques.bloques.length} bloques`;
+
+  /** El aviso se enciende ANTES de llenarse del todo: al 90 % ya hay que mover algo. */
+  const bloquesApretados = !!capacidadBloques
+    && capacidadBloques.capacidadParejas > 0
+    && pairCount >= capacidadBloques.capacidadParejas * 0.9;
+
   const tieneCategorias = categories.length > 0;
 
   // El juez es el único no-obligatorio: no entra en `puedeAbrir`.
@@ -328,6 +362,15 @@ export default function OrgTournamentScreen() {
             iconColor={ventanas.length > 0 ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/horarios`)}
           />
+          {/* Va pegada a Canchas y Horarios porque es su consecuencia: aquí se
+              ve si lo capturado alcanza para la gente que se está inscribiendo. */}
+          <SettingRow
+            icon="grid"
+            title="Ocupación por bloque"
+            value={resumenBloques}
+            iconColor={bloquesApretados || !capacidadBloques ? color.alive : undefined}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/bloques`)}
+          />
           {/* El calendario cuelga de la capacidad: sin canchas ni horarios no
               hay nada que programar, y la propia pantalla lo dice. */}
           <SettingRow
@@ -335,6 +378,12 @@ export default function OrgTournamentScreen() {
             title="Calendario"
             value="Horas y canchas del último día"
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
+          />
+          <SettingRow
+            icon="users"
+            title="Grupos"
+            value="Tablas y partidos de la fase de grupos"
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/grupos`)}
           />
           <SettingRow
             icon="whistle"

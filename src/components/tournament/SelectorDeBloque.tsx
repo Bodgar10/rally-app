@@ -25,7 +25,7 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 
 import { cupoDeBloque, type Bloque, type Ocupacion } from '@/lib/engine/schedule/bloques';
-import { rangoLegible, horaLegible, textoCupo } from '@/lib/bloques-torneo';
+import { rangoLegible, horaLegible, textoCupo } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 

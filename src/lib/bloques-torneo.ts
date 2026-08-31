@@ -125,35 +125,6 @@ export async function cargarBloquesDelTorneo(
   };
 }
 
-// ── Presentación ────────────────────────────────────────────────────────────
-
-/** '08:00' → '8:00'. Sin cero a la izquierda: así se dice y así se lee. */
-export function horaLegible(hhmm: string): string {
-  return hhmm.replace(/^0/, '');
-}
-
-/** '08:00' + '11:00' → '8:00 a 11:00'. */
-export function rangoLegible(desde: string, hasta: string): string {
-  return `${horaLegible(desde)} a ${horaLegible(hasta)}`;
-}
-
-/** El cupo como se le dice a alguien que está a punto de elegir. */
-export function textoCupo(cupo: number): string {
-  if (cupo <= 0) return 'Lleno';
-  if (cupo === 1) return 'Queda 1 lugar';
-  return `Quedan ${cupo} lugares`;
-}
-
-/**
- * `${dia}-${desde}` → sus dos partes. El id lo genera el motor y es estable,
- * pero puede venir de una elección vieja apuntando a un bloque que ya no
- * existe: por eso devuelve null en vez de romper.
- */
-export function partesDeBloqueId(id: string): { dia: string; desde: string } | null {
-  const m = /^(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(id);
-  return m ? { dia: m[1], desde: m[2] } : null;
-}
-
 // ── Guardar la elección ─────────────────────────────────────────────────────
 
 /**
