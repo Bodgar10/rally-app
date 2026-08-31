@@ -596,15 +596,34 @@ export function planTournament(
         elegido.set(c.id, siguiente);
         const despuesG = usaGrupos(), despuesE = usaElim();
 
-        // GRUPOS: sin cambios. Ahí los partidos son independientes y corren en
-        // paralelo, así que el porcentaje de ocupación sí mide algo y el 15%
-        // de margen del umbral es la forma correcta de reservarlo.
+        // GRUPOS: porcentaje. ELIMINATORIAS: hora. Y NO es una inconsistencia
+        // pendiente de unificar — es la diferencia entre las dos fases.
+        //
+        //   Un día de eliminatorias es una CADENA: la semifinal no empieza
+        //   hasta que acaban los cuartos, así que un retraso se hereda ronda a
+        //   ronda y la pregunta correcta es a qué hora se acaba. Por eso ahí
+        //   manda `okElim`, con la hora y su MARGEN_CIERRE_MIN.
+        //
+        //   La fase de grupos NO lo es. Cada grupo son tres horas en una
+        //   cancha y no depende de ningún otro: si la cancha 3 se alarga
+        //   cuarenta minutos, las otras siete siguen a su ritmo. No hay cadena
+        //   que estirar, así que un porcentaje sí mide lo que hay que medir —
+        //   cuánta holgura queda— y el 15% del umbral es la forma correcta de
+        //   reservarla.
+        //
+        //   Lo que sí se hereda dentro de un bloque es el retraso de sus tres
+        //   partidos, y eso lo modela `generarBloques` con `hastaRealista`:
+        //   el bloque de 20:00 a 23:00 se sale del club cerca de las 23:45. Es
+        //   el mismo FACTOR_RETRASO un nivel más abajo, aplicado donde sí hay
+        //   encadenamiento.
+        //
+        // Si alguien viene a "arreglar" esta asimetría, que lea esto primero.
         //
         // Una fase deja pasar la subida si queda bajo el umbral O si la subida
         // no la toca. Sin esta segunda condición, un torneo con la fase de
-        // grupos ya al 94% —como Cimepa— no podría repescar a nadie, aunque
-        // repescar solo gasta slots del último día y ese va al 49%. Se estaba
-        // bloqueando una mejora gratuita por culpa de un presupuesto ajeno.
+        // grupos ya al 86% —como Cimepa— no podría repescar a nadie, aunque
+        // repescar solo gasta slots del último día. Se estaba bloqueando una
+        // mejora gratuita por culpa de un presupuesto ajeno.
         const ok = (despues: number, antes: number, presupuesto: number) =>
           despues <= presupuesto * UMBRAL_SUBIDA || despues === antes;
 

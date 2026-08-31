@@ -208,6 +208,8 @@ describe('cupoDeBloque', () => {
     dia: '2025-11-08',
     desde: '08:00',
     hasta: '11:00',
+    hastaRealista: '11:45',
+    seSaleDeLaVentana: false,
     carriles: 8,
   };
 
@@ -298,7 +300,7 @@ describe('coste de un grupo en carriles', () => {
 describe('cupoDeBloque con una categoria de grupos de 4', () => {
   const bloque: Bloque = {
     id: '2025-11-08-08:00', dia: '2025-11-08', desde: '08:00', hasta: '11:00',
-    carriles: 8,
+    hastaRealista: '11:45', seSaleDeLaVentana: false, carriles: 8,
   };
 
   // 8 parejas -> computeFormat da [4,4]. Es el caso que anunciaba capacidad
@@ -416,5 +418,89 @@ describe('helpers de hora', () => {
   it('rechaza horas invalidas', () => {
     expect(() => parseHoraBloque('25:00')).toThrow();
     expect(() => parseHoraBloque('8h')).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// La hora a la que se sale del club
+// ---------------------------------------------------------------------------
+
+describe('hora realista de fin', () => {
+  it('un bloque de 3 h acaba de verdad 45 minutos mas tarde', () => {
+    // 3 partidos x 60 min x 1.25 = 225 min. Los tres van encadenados en la
+    // misma cancha: el retraso del primero empuja al segundo.
+    const r = generarBloques({
+      ventanas: [{ dia: '2026-09-12', desde: '08:00', hasta: '11:00' }],
+      canchas: 4, minutosPorPartido: 60,
+    });
+    expect(r.bloques[0].hasta).toBe('11:00');
+    expect(r.bloques[0].hastaRealista).toBe('11:45');
+  });
+
+  it('el bloque de las 20:00 de Cimepa sale del club cerca de las 23:45', () => {
+    // Es el caso que motivo todo esto: el bloque existe, la gente lo elige, y
+    // termina casi una hora despues de lo que dice el horario.
+    const r = generarBloques(CIMEPA);
+    const tarde = r.bloques.find((b) => b.id === '2025-11-08-20:00')!;
+    expect(tarde.hasta).toBe('23:00');
+    expect(tarde.hastaRealista).toBe('23:45');
+    expect(tarde.seSaleDeLaVentana).toBe(true);
+  });
+
+  it('solo el ultimo bloque de cada dia se sale de la ventana', () => {
+    // Los de en medio tambien se alargan 45 min, pero se los come el bloque
+    // siguiente: quien no tiene bloque siguiente es el ultimo.
+    const r = generarBloques(CIMEPA);
+    const fuera = r.bloques.filter((b) => b.seSaleDeLaVentana).map((b) => b.id);
+    expect(fuera).toEqual(['2025-11-07-20:00', '2025-11-08-20:00']);
+  });
+
+  it('con horas de sobra en la ventana, el ultimo bloque no se sale', () => {
+    // 08:00-12:00 da UN bloque de 08:00 a 11:00 y sobra una hora: los 45 min
+    // de retraso caben dentro.
+    const r = generarBloques({
+      ventanas: [{ dia: '2026-09-12', desde: '08:00', hasta: '12:00' }],
+      canchas: 4, minutosPorPartido: 60,
+    });
+    expect(r.bloques.length).toBe(1);
+    expect(r.bloques[0].hastaRealista).toBe('11:45');
+    expect(r.bloques[0].seSaleDeLaVentana).toBe(false);
+  });
+
+  it('el retraso se escala con la duracion del partido', () => {
+    // 90 min por partido: 3 x 90 x 1.25 = 337.5 min, redondeado a 338 = 5 h 38.
+    const r = generarBloques({
+      ventanas: [{ dia: '2026-09-12', desde: '08:00', hasta: '18:00' }],
+      canchas: 2, minutosPorPartido: 90,
+    });
+    expect(r.bloques[0].hasta).toBe('12:30');
+    expect(r.bloques[0].hastaRealista).toBe('13:38');
+  });
+
+  it('pasada la medianoche se envuelve en vez de decir 24:44', () => {
+    // Una ventana que cierra a las 23:59 es patologica, pero emitir "24:15"
+    // no lo arregla: nadie sabe leer esa hora.
+    const r = generarBloques({
+      ventanas: [{ dia: '2026-09-12', desde: '20:30', hasta: '23:59' }],
+      canchas: 2, minutosPorPartido: 60,
+    });
+    expect(r.bloques[0].desde).toBe('20:30');
+    expect(r.bloques[0].hastaRealista).toBe('00:15');
+    expect(r.bloques[0].seSaleDeLaVentana).toBe(true);
+  });
+
+  it('NO acumula la deriva del dia: cada bloque cuenta solo su retraso', () => {
+    // Cinco bloques el sabado. Si se acumulara, el ultimo acabaria pasadas las
+    // dos de la madrugada, que es una hora que nadie va a ver: un club recupera
+    // entre bloques. Cada uno se mide por si mismo, y esta escrito para que
+    // nadie lo "arregle" encadenandolos.
+    const r = generarBloques(CIMEPA);
+    const sabado = r.bloques.filter((b) => b.dia === '2025-11-08');
+    expect(sabado.length).toBe(5);
+    for (const b of sabado) {
+      const min = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3));
+      const fin = min(b.hastaRealista) < min(b.desde) ? min(b.hastaRealista) + 1440 : min(b.hastaRealista);
+      expect(fin - min(b.desde)).toBe(225);
+    }
   });
 });

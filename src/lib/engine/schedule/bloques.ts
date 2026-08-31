@@ -10,8 +10,12 @@
  * tengan cupo. No se pregunta disponibilidad para repartir despues; se reserva,
  * como un asiento. Los bloques agotados se ocultan.
  *
- * Logica pura y determinista: misma entrada -> misma salida. Sin dependencias.
+ * Logica pura y determinista: misma entrada -> misma salida. Su unica
+ * dependencia es FACTOR_RETRASO, que se importa en vez de copiarse: el retraso
+ * de un partido es un hecho del deporte, no de cada motor.
  */
+
+import { FACTOR_RETRASO } from './knockout';
 
 /**
  * Parejas del grupo tipico. NO es una constante del dominio: `computeFormat`
@@ -63,7 +67,31 @@ export interface Bloque {
   id: string;
   dia: string;
   desde: string;
+  /** Hora a la que TERMINA el bloque si todo corre a tiempo. */
   hasta: string;
+  /**
+   * Hora a la que termina de VERDAD, con los retrasos habituales.
+   *
+   * Un partido planificado a 60 minutos dura 75 de media (FACTOR_RETRASO), y
+   * los tres de un grupo van encadenados en la misma cancha: el retraso del
+   * primero empuja al segundo. Un bloque de 20:00 a 23:00 acaba realmente
+   * cerca de las 23:45.
+   *
+   * OJO CON LO QUE ESTO NO MODELA: es el retraso de ESTE bloque, no la deriva
+   * acumulada del dia. Si el bloque anterior de la misma cancha tambien se
+   * alargo, el siguiente empieza tarde y esta hora se queda corta. No se
+   * acumula a proposito — un club recupera entre bloques, y encadenar cinco
+   * retrasos daria una hora que nadie va a ver.
+   */
+  hastaRealista: string;
+  /**
+   * El bloque se sale de la ventana del dia con los retrasos habituales.
+   *
+   * No lo convierte en invalido: Cimepa jugo a las 22:00 de verdad y el bloque
+   * de las 20:00 existe porque la gente lo usa. Lo que no puede pasar es que
+   * alguien lo elija sin saberlo.
+   */
+  seSaleDeLaVentana: boolean;
   /** Carriles simultaneos = canchas del club. Cada carril aloja un grupo. */
   carriles: number;
 }
@@ -157,6 +185,16 @@ export function generarBloques(entrada: EntradaBloques): ReticulaBloques {
 
   const minutosPorBloque = partidosPorGrupo * entrada.minutosPorPartido;
 
+  /**
+   * Lo que dura un bloque de verdad. Los partidos van encadenados en la misma
+   * cancha, asi que el retraso de cada uno empuja al siguiente:
+   *
+   *   3 partidos x 60 min x 1.25 = 225 min = 3 h 45
+   *
+   * Se redondea al minuto para no arrastrar decimales a una hora 'HH:MM'.
+   */
+  const minutosRealistas = Math.round(minutosPorBloque * FACTOR_RETRASO);
+
   // Orden canonico: por dia y luego por hora de inicio. La entrada puede venir
   // desordenada; la salida no depende de ese orden.
   const ventanas = [...entrada.ventanas].sort(
@@ -220,11 +258,17 @@ export function generarBloques(entrada: EntradaBloques): ReticulaBloques {
           avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
         } else {
           vistos.add(id);
+          // Con una ventana que cierra muy tarde el retraso puede cruzar la
+          // medianoche. Se envuelve para no emitir un "24:44" que nadie sabe
+          // leer; `seSaleDeLaVentana` sigue comparando el minuto crudo.
+          const finRealista = t + minutosRealistas;
           bloques.push({
             id,
             dia,
             desde: formatHoraBloque(t),
             hasta: formatHoraBloque(t + minutosPorBloque),
+            hastaRealista: formatHoraBloque(finRealista % 1440),
+            seSaleDeLaVentana: finRealista > fin,
             carriles: entrada.canchas,
           });
           bloquesDelDia += 1;
