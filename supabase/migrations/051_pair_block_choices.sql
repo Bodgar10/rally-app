@@ -1,5 +1,5 @@
 -- ============================================================================
--- 049_pair_block_choices.sql  ·  RALLY
+-- 051_pair_block_choices.sql  ·  RALLY
 --
 -- La pareja ELIGE su bloque horario al inscribirse.
 --

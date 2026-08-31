@@ -14,7 +14,7 @@
  * registrada así. Un organizador que todavía no capturó sus canchas no puede
  * ser la razón por la que alguien no se inscriba.
  *
- * La ocupación viene de `bloques_ocupacion` (migración 049), una RPC agregada:
+ * La ocupación viene de `bloques_ocupacion` (migración 051), una RPC agregada:
  * el jugador que está eligiendo necesita ver el cupo, pero no puede leer las
  * elecciones de los demás.
  */
@@ -134,7 +134,7 @@ export async function cargarBloquesDelTorneo(
  *   La fila de `pairs` nace en `pair-register-self` / `pair-register-manual`,
  *   y el bloque necesita su id. Meterlo dentro obligaría a redesplegar las dos
  *   funciones para que la elección se guarde; aquí basta con correr la
- *   migración. La RLS de la 049 ya permite exactamente este insert: la pareja
+ *   migración. La RLS de la 051 ya permite exactamente este insert: la pareja
  *   la suya, el organizador cualquiera de su torneo.
  *
  *   LO QUE SE ACEPTA A CAMBIO: la pareja puede quedar inscrita sin bloque si
@@ -151,7 +151,7 @@ export async function guardarEleccionDeBloque(args: {
   /** Solo el organizador: metió la pareja en un bloque sin cupo. */
   forzado?:     boolean;
 }): Promise<string | null> {
-  // Cast: `pair_block_choices` es de la migración 049, posterior a la última
+  // Cast: `pair_block_choices` es de la migración 051, posterior a la última
   // generación de database.types.ts.
   const { error } = await (supabase.from as unknown as (t: string) => {
     upsert: (row: unknown, opts: { onConflict: string }) => Promise<{ error: { message?: string } | null }>;
