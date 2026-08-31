@@ -7,14 +7,16 @@
  *   hasta ahora eran invisibles: el organizador cerraba inscripciones, se
  *   generaban 55 grupos, y no tenía dónde verlos.
  *
- * SIN HORAS, Y SE DICE
- *   El scheduler de grupos no existe: solo se programó el último día. Los
- *   partidos de grupo no tienen `scheduled_at` ni `court_label`, así que aquí
- *   no se inventan ni se calculan. Se dice UNA vez, en la cabecera de la
- *   categoría, en vez de repetir un guion en cada partido.
+ * ESTA PANTALLA RESPONDE "¿CÓMO VA 5ª FUERZA?"
+ *   El calendario responde otra: "¿qué pasa el sábado a las 11?". Son dos
+ *   preguntas distintas y por eso son dos pantallas — una tabla de posiciones
+ *   ordenada por puntos y una parrilla ordenada por hora no se pueden fundir
+ *   sin que una de las dos deje de leerse. El enlace entre ellas va abajo.
  *
- *   Las dos columnas están cableadas: el día que el scheduler las escriba,
- *   aparecen solas.
+ * LAS HORAS APARECEN SOLAS
+ *   Hora y cancha están cableadas desde `scheduled_at` y `court_label`. Con
+ *   NULL no se pinta nada y se dice una vez en la cabecera; en cuanto
+ *   `schedule-groups` las escriba, salen sin tocar esta pantalla.
  *
  * UNA CONSULTA POR PESTAÑA, NO POR GRUPO
  *   5ª Fuerza tiene 10 grupos. Diez `LiveStandings` autoabasteciéndose serían
@@ -26,7 +28,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable,
 } from 'react-native';
-import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
@@ -80,6 +82,8 @@ interface Categoria {
   grupos: Grupo[];
   /** Cuántos de sus grupos ya están completos. */
   gruposCompletos: number;
+  /** True en cuanto alguno de sus partidos tiene hora. */
+  conHorario: boolean;
   /** True si ya existen partidos de eliminatorias: el cuadro está sembrado. */
   cuadroSembrado: boolean;
 }
@@ -88,6 +92,7 @@ interface Categoria {
 
 export default function GruposScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
+  const router = useRouter();
 
   const [cats, setCats]     = useState<Categoria[]>([]);
   const [tab, setTab]       = useState<string>('');
@@ -231,6 +236,7 @@ export default function GruposScreen() {
         partidos: partidosPorCat.get(c.id) ?? 0,
         grupos: gs,
         gruposCompletos: gs.filter((g) => g.completo).length,
+        conHorario: (partidos ?? []).some((m) => m.category_id === c.id && m.scheduled_at),
         cuadroSembrado: catsConCuadro.has(c.id),
       });
     }
@@ -337,10 +343,13 @@ export default function GruposScreen() {
                       ? `, más ${activa.repescados} ${activa.repescados === 1 ? 'repescado' : 'repescados'} entre los mejores segundos de toda la categoría.`
                       : '.'}
                   </Text>
-                  {/* Una sola vez, no en cada partido. */}
-                  <Text style={s.sinHorario}>
-                    El horario de la fase de grupos todavía no está publicado.
-                  </Text>
+                  {/* Una sola vez, no en cada partido. Y solo mientras sea
+                      verdad: en cuanto haya horas, sobra. */}
+                  {!activa.conHorario && (
+                    <Text style={s.sinHorario}>
+                      El horario de la fase de grupos todavía no está publicado.
+                    </Text>
+                  )}
 
                   {/* Progreso de la fase de grupos. */}
                   <Text style={s.progreso}>
@@ -378,6 +387,17 @@ export default function GruposScreen() {
                   )}
 
                   {avisoSiembra && <Text style={s.aviso}>{avisoSiembra}</Text>}
+
+                  {/* El puente a la otra pregunta. Aquí se ve cómo va la
+                      categoría; allí, qué pasa a cada hora del fin de semana. */}
+                  <Pressable
+                    onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
+                    style={({ pressed }) => [s.enlace, pressed && { opacity: 0.7 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ver el calendario del fin de semana"
+                  >
+                    <Text style={s.enlaceTexto}>Ver el calendario del fin de semana →</Text>
+                  </Pressable>
                 </View>
 
                 {activa.grupos.map((g) => (
@@ -474,6 +494,8 @@ const s = StyleSheet.create({
   siembraBloqueada:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
   siembraHecha:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, lineHeight: 18, marginTop: space[2] },
   aviso:             { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18, marginTop: space[2] },
+  enlace:            { marginTop: space[3], paddingVertical: space[2] },
+  enlaceTexto:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },
 
   grupo:         { gap: space[2], marginTop: space[2] },
   grupoCabecera: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: space[2] },

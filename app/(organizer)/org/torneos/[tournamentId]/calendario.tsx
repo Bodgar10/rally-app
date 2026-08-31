@@ -43,6 +43,12 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import HorasUltimoDia from '@/components/tournament/HorasUltimoDia';
 import { fetchParejasPublicas, type ParejaPublica } from '@/lib/parejas-publicas';
 import { frasePersonas } from '@/lib/frase-personas';
+import VistaCronologica from '@/components/organizer/VistaCronologica';
+import MoverPartido from '@/components/organizer/MoverPartido';
+import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
+import {
+  agruparPorHora, type Franja, type FilaCalendario,
+} from '@/lib/calendario-franjas';
 import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracket';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import { ORDEN_ETAPAS, type EtapaCuadro } from '@/components/realtime/bracket-layout';
@@ -51,12 +57,14 @@ import {
   finRealistaEncadenado,
   type CategoriaCuadro,
 } from '@/lib/engine/schedule/knockout';
-import { parseFechaISO, indiceLunes, horaDeTorneo } from '@/lib/fechas';
+import { parseFechaISO, indiceLunes, horaDeTorneo, diaDeTorneo } from '@/lib/fechas';
 import { fallo, registrarFallo } from '@/lib/errores-red';
 
 // ── Presentación ────────────────────────────────────────────────────────────
 
 const ETAPA: Record<string, string> = {
+  // 'group' entra desde que la pantalla cubre el fin de semana entero.
+  group:       'grupos',
   round_of_32: 'ronda de 32',
   round_of_16: 'octavos',
   quarter:     'cuartos',
@@ -64,6 +72,8 @@ const ETAPA: Record<string, string> = {
   final:       'final',
   third_place: '3.er lugar',
 };
+
+const DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 const DIAS_LARGOS = [
   'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
@@ -90,34 +100,16 @@ const deMinutos = (m: number): string =>
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
-interface Fila {
-  id: string;                 // id del match, o una clave sintética del plan
-  categoriaId: string;
-  categoria: string;
-  /** El valor del enum, para agrupar por columna del cuadro. */
-  stage: EtapaCuadro;
-  etapa: string;              // ya traducida, para la vista cronológica
-  cancha: string;
-  hora: string;
-  horaMin: number;            // para ordenar sin volver a parsear
-  /** El timestamptz crudo. LiveBracket lo formatea con la zona del club. */
-  iso: string;
-  parejaAId: string | null;
-  parejaBId: string | null;
-  parejaA: string | null;
-  parejaB: string | null;
-  estado: 'scheduled' | 'in_progress' | 'finished';
-  jugadores: string[];        // ids, para detectar choques reales
+/**
+ * Una fila del calendario. La forma vive en `@/lib/calendario-franjas` porque
+ * la comparten esta pantalla y la vista cronológica; aquí solo se le añade el
+ * día, que es lo que permite repartir el fin de semana en pestañas.
+ */
+interface Fila extends FilaCalendario {
+  /** 'YYYY-MM-DD' en la zona del club. Ver diaDeTorneo. */
+  dia: string;
 }
 
-/** Un tramo de la vista cronológica: partidos seguidos de la misma ronda. */
-interface Bloque {
-  clave: string;
-  categoria: string;
-  etapa: string;
-  canchas: string;
-  filas: Fila[];
-}
 
 interface EmpalmeReal {
   jugador: string;
@@ -156,9 +148,26 @@ interface Estado {
    * igual, y confundirlas es dar por hecho un calendario que nadie guardó.
    */
   previsualizacion: boolean;
-  franjas: { hora: string; filas: Fila[] }[];
-  /** Todas las filas, para poder filtrarlas por categoría en las pestañas. */
+  /**
+   * El fin de semana entero, un elemento por día CON partidos.
+   *
+   * Antes esta pantalla solo miraba el último día. Los grupos viven en los
+   * otros dos y no tenían dónde verse: la pantalla de grupos enseña las
+   * tablas, que responden otra pregunta.
+   */
+  dias: {
+    dia: string;
+    etiqueta: string;
+    filas: Fila[];
+    franjas: Franja[];
+    categorias: { id: string; nombre: string; partidos: number }[];
+  }[];
+  /** Todas las filas del torneo, de los tres días. */
   filas: Fila[];
+  /** Canchas del torneo. Sin ellas la ocupación se dice sin cociente. */
+  canchas: number | null;
+  /** playerId -> nombre. Lo consume el motor de movimientos para sus mensajes. */
+  nombres: Record<string, string>;
   /** Categorías con partidos, en el orden en que empiezan a jugar. */
   categorias: { id: string; nombre: string; partidos: number }[];
   reales: EmpalmeReal[];
@@ -181,78 +190,6 @@ const TEXTO_PENDIENTE = 'Se define en la fase de grupos';
 // ── Las dos vistas ──────────────────────────────────────────────────────────
 
 /**
- * El día completo, franja a franja.
- *
- * Los partidos consecutivos de la misma categoría y ronda van en UN bloque
- * plegado. Las franjas vacías siguen mostrándose: ver el hueco es parte del
- * valor — una hora muerta a media tarde es sitio para adelantar la final.
- */
-function VistaCronologica({ franjas }: { franjas: { hora: string; filas: Fila[] }[] }) {
-  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
-
-  const alternar = (k: string) => setAbiertos((prev) => {
-    const n = new Set(prev);
-    if (n.has(k)) n.delete(k); else n.add(k);
-    return n;
-  });
-
-  return (
-    <>
-      {franjas.map((f) => (
-        <View key={f.hora} style={s.franja}>
-          <Text style={[s.franjaHora, f.filas.length === 0 && s.franjaHueca]}>{f.hora}</Text>
-
-          {f.filas.length === 0 ? (
-            <Text style={s.hueco}>Sin partidos</Text>
-          ) : (
-            agruparEnBloques(f.filas).map((b) => {
-              const clave = `${f.hora}#${b.clave}`;
-              const abierto = abiertos.has(clave);
-              const uno = b.filas.length === 1;
-
-              return (
-                <View key={clave} style={s.bloque}>
-                  <Pressable
-                    onPress={() => !uno && alternar(clave)}
-                    disabled={uno}
-                    style={({ pressed }) => [s.bloqueCabecera, pressed && !uno && { opacity: 0.8 }]}
-                    accessibilityRole={uno ? undefined : 'button'}
-                    accessibilityState={uno ? undefined : { expanded: abierto }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.bloqueCat}>{b.categoria}</Text>
-                      <Text style={s.bloqueDetalle}>
-                        {b.etapa} · {b.filas.length} {b.filas.length === 1 ? 'partido' : 'partidos'} · {b.canchas}
-                      </Text>
-                    </View>
-                    {!uno && <Text style={s.chevron}>{abierto ? '▾' : '▸'}</Text>}
-                  </Pressable>
-
-                  {(abierto || uno) && (
-                    <View style={s.bloqueCuerpo}>
-                      {b.filas.map((p) => (
-                        <View key={p.id} style={s.partido}>
-                          <Text style={s.partidoCancha}>{p.cancha}</Text>
-                          {p.parejaA && p.parejaB ? (
-                            <Text style={s.partidoParejas}>{p.parejaA}  vs  {p.parejaB}</Text>
-                          ) : (
-                            <Text style={s.partidoSinParejas}>{TEXTO_PENDIENTE}</Text>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              );
-            })
-          )}
-        </View>
-      ))}
-    </>
-  );
-}
-
-/**
  * El cuadro de una categoría: rondas en columnas, de octavos a la final.
  *
  * Reusa LiveBracket con partidos inyectados. No consulta ni se suscribe: los
@@ -266,11 +203,14 @@ function VistaCuadro({ filas, categoria }: { filas: Fila[]; categoria: string })
       // Por ronda y luego por cancha: dentro de una columna el orden es el del
       // cuadro, y la cancha es lo más parecido que tenemos a ese orden.
       .sort((a, b) =>
-        ORDEN_ETAPAS.indexOf(a.stage) - ORDEN_ETAPAS.indexOf(b.stage)
+        ORDEN_ETAPAS.indexOf(a.stage as EtapaCuadro) - ORDEN_ETAPAS.indexOf(b.stage as EtapaCuadro)
         || a.cancha.localeCompare(b.cancha, 'es', { numeric: true }))
       .map((f) => ({
         id: f.id,
-        stage: f.stage,
+        // `Fila.stage` es string desde que la forma vive en la lib compartida
+        // —los partidos de grupo también pasan por aquí—; VistaCuadro solo
+        // recibe filas de eliminatorias, que sí son EtapaCuadro.
+        stage: f.stage as EtapaCuadro,
         roundLabel: null,
         status: f.estado,
         pairAId: f.parejaAId,
@@ -310,6 +250,10 @@ export default function CalendarioScreen() {
 
   const [estado, setEstado] = useState<Estado | null>(null);
   const [tab, setTab]       = useState<string>(TODO_EL_DIA);
+  /** Día elegido. Null = el primero con partidos, que es por donde se empieza a leer. */
+  const [diaTab, setDiaTab] = useState<string | null>(null);
+  /** El partido que se está moviendo. Null = nadie. */
+  const [moviendo, setMoviendo] = useState<Fila | null>(null);
   const [fase, setFase]     = useState<Fase>({ t: 'cargando' });
   const [error, setError]   = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
@@ -352,10 +296,17 @@ export default function CalendarioScreen() {
         .select('category_id, stage, slot_index, scheduled_at, court_label')
         .eq('tournament_id', tournamentId)
         .order('scheduled_at'),
+      // TODOS los partidos con hora, grupos incluidos.
+      //
+      // Antes esta consulta llevaba `.neq('stage','group')` porque la pantalla
+      // solo enseñaba el último día. Los partidos de grupo no tenían hora y no
+      // había nada que excluir; en cuanto `schedule-groups` empiece a
+      // escribirla, aparecen solos en el viernes y el sábado sin tocar nada
+      // más. Mientras `scheduled_at` sea NULL, este filtro los deja fuera y la
+      // pantalla se comporta como hasta hoy.
       supabase.from('matches')
         .select('id, category_id, stage, round_label, scheduled_at, court_label, pair_a_id, pair_b_id, status')
         .eq('tournament_id', tournamentId)
-        .neq('stage', 'group')
         .not('scheduled_at', 'is', null),
     ]);
 
@@ -388,6 +339,7 @@ export default function CalendarioScreen() {
         hora,
         horaMin: aMinutos(hora),
         iso: m.scheduled_at!,
+        dia: diaDeTorneo(m.scheduled_at!),
         parejaAId: m.pair_a_id,
         parejaBId: m.pair_b_id,
         parejaA: nombreDe(pa),
@@ -412,6 +364,7 @@ export default function CalendarioScreen() {
         hora,
         horaMin: aMinutos(hora),
         iso: p.scheduled_at,
+        dia: diaDeTorneo(p.scheduled_at),
         parejaAId: null,
         parejaBId: null,
         parejaA: null,
@@ -556,8 +509,10 @@ export default function CalendarioScreen() {
       seVaDeHora: finRealista != null && finRealista > cierre,
       sinCuadros,
       previsualizacion,
-      franjas: agruparPorHora(filas),
+      dias: repartirPorDia(filas),
       filas,
+      canchas: t?.courts ?? null,
+      nombres: Object.fromEntries(nombrePorJugador),
       categorias: categoriasConPartidos(filas),
       reales,
       riesgos,
@@ -631,6 +586,26 @@ export default function CalendarioScreen() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  /**
+   * El día que se está mirando.
+   *
+   * Se elige el PRIMERO con partidos y no el último: el fin de semana se lee
+   * de viernes a domingo, y abrir en la final sería empezar por el desenlace.
+   * Si el día guardado ya no existe —se reprogramó— se cae al primero en vez
+   * de quedarse en blanco.
+   */
+  const diaActivo =
+    estado?.dias.find((d) => d.dia === diaTab)
+    ?? estado?.dias[0]
+    ?? { dia: '', etiqueta: '', filas: [] as Fila[], franjas: [] as Franja[], categorias: [] };
+
+  function abrirMover(f: Fila) {
+    // Las filas que vienen del plan y no de `matches` no tienen partido que
+    // mover: su id es 'plan:...' y no existe en la base.
+    if (f.id.startsWith('plan:')) return;
+    setMoviendo(f);
+  }
 
   if (fase.t === 'cargando') {
     return (
@@ -754,10 +729,24 @@ export default function CalendarioScreen() {
               )
             ) : (
               <>
+                {/* PRIMERO el día, DESPUÉS la categoría. En ese orden porque
+                    esa es la pregunta que se hace el organizador: primero
+                    "¿qué pasa el sábado?" y solo entonces "¿y 3ª Fuerza?".
+                    Con un día solo, la tira sobra y no se pinta. */}
+                {estado.dias.length > 1 && (
+                  <SelectorPestanas
+                    pestanas={estado.dias.map((d) => ({
+                      id: d.dia, etiqueta: d.etiqueta, cuenta: d.filas.length,
+                    }))}
+                    activa={diaActivo.dia}
+                    onCambiar={(id) => { setDiaTab(id); setTab(TODO_EL_DIA); }}
+                  />
+                )}
+
                 <SelectorPestanas
                   pestanas={[
-                    { id: TODO_EL_DIA, etiqueta: 'Todo el día', cuenta: estado.filas.length },
-                    ...estado.categorias.map((c) => ({
+                    { id: TODO_EL_DIA, etiqueta: 'Todo el día', cuenta: diaActivo.filas.length },
+                    ...diaActivo.categorias.map((c) => ({
                       id: c.id, etiqueta: c.nombre, cuenta: c.partidos,
                     })),
                   ]}
@@ -766,17 +755,38 @@ export default function CalendarioScreen() {
                 />
 
                 {tab === TODO_EL_DIA ? (
-                  <VistaCronologica franjas={estado.franjas} />
+                  <VistaCronologica
+                    franjas={diaActivo.franjas}
+                    canchas={estado.canchas}
+                    onPartido={(f) => abrirMover(f as Fila)}
+                  />
                 ) : (
                   <VistaCuadro
-                    filas={estado.filas.filter((f) => f.categoriaId === tab)}
-                    categoria={estado.categorias.find((c) => c.id === tab)?.nombre ?? ''}
+                    filas={diaActivo.filas.filter((f) => f.categoriaId === tab && f.stage !== 'group')}
+                    categoria={diaActivo.categorias.find((c) => c.id === tab)?.nombre ?? ''}
                   />
                 )}
               </>
             )}
 
-            {/* 4 · Correr el scheduler */}
+            {/* El modal de mover. La validación es del engine; aquí solo se pinta. */}
+      {moviendo && estado && (
+        <MoverPartido
+          partido={{
+            id: moviendo.id, categoria: moviendo.categoria, etapa: moviendo.etapa,
+            parejaA: moviendo.parejaA, parejaB: moviendo.parejaB,
+          }}
+          dia={moviendo.dia}
+          partidos={aPartidosDelMotor(estado.filas)}
+          nombres={estado.nombres}
+          canchas={estado.canchas ?? 8}
+          minutosPorPartido={estado.minutos}
+          onCerrar={() => setMoviendo(null)}
+          onGuardado={() => { setMoviendo(null); void cargar(); }}
+        />
+      )}
+
+      {/* 4 · Correr el scheduler */}
             <Pressable
               onPress={programar}
               disabled={fase.t === 'programando' || estado.sinCuadros}
@@ -934,83 +944,66 @@ function empalmesDeLasFilas(
   return out;
 }
 
+
+
+
 /**
- * Dentro de una franja, junta los partidos consecutivos de la misma categoría
- * y ronda en un solo bloque.
+ * Fila de pantalla -> partido del motor.
  *
- * Ocho octavos de 5ª Fuerza a la misma hora eran ocho tarjetas idénticas que
- * llenaban la pantalla y no decían nada que no dijera una: "5ª Fuerza ·
- * Octavos · 8 partidos · Canchas 1-8". El detalle sigue estando, a un toque.
+ * El motor no sabe de nombres de pareja ni de etiquetas: quiere día, minutos,
+ * cancha y los cuatro jugadores. Las filas que vienen del PLAN y no de
+ * `matches` se quedan fuera — no tienen id real y no se pueden mover — pero
+ * sus horas sí cuentan como ocupación, así que se mandan igual: quitarlas
+ * dejaría al motor creyendo que la cancha está libre.
  */
-function agruparEnBloques(filas: Fila[]): Bloque[] {
-  const porRonda = new Map<string, Fila[]>();
-  for (const f of filas) {
-    const k = `${f.categoriaId}#${f.stage}`;
-    const ya = porRonda.get(k);
-    if (ya) ya.push(f); else porRonda.set(k, [f]);
-  }
-
-  return [...porRonda.entries()].map(([clave, fs]) => {
-    const ordenadas = [...fs].sort((a, b) => a.cancha.localeCompare(b.cancha, 'es', { numeric: true }));
-    return {
-      clave,
-      categoria: ordenadas[0].categoria,
-      etapa: ordenadas[0].etapa,
-      canchas: resumirCanchas(ordenadas.map((f) => f.cancha)),
-      filas: ordenadas,
-    };
-  }).sort((a, b) => a.categoria.localeCompare(b.categoria));
-}
-
-/** ['Cancha 1','Cancha 2','Cancha 3'] → 'Canchas 1-3'. Sin rango, las lista. */
-function resumirCanchas(etiquetas: string[]): string {
-  if (etiquetas.length === 0) return '';
-  if (etiquetas.length === 1) return etiquetas[0];
-
-  const nums = etiquetas
-    .map((e) => Number(/(\d+)/.exec(e)?.[1] ?? NaN))
-    .filter((n) => !Number.isNaN(n))
-    .sort((a, b) => a - b);
-
-  // Solo se colapsa si son consecutivas: 'Canchas 1-8' tiene que significar
-  // que están las ocho, no que hay dos y la mayor es la 8.
-  const consecutivas = nums.length === etiquetas.length
-    && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
-
-  return consecutivas
-    ? `Canchas ${nums[0]}-${nums[nums.length - 1]}`
-    : `Canchas ${nums.join(', ')}`;
+function aPartidosDelMotor(filas: Fila[]): PartidoEnCalendario[] {
+  return filas.map((f) => ({
+    id: f.id,
+    categoryId: f.categoriaId,
+    stage: f.stage,
+    roundLabel: null,
+    jugadores: f.jugadores,
+    dia: f.dia,
+    inicioMin: f.horaMin,
+    cancha: f.cancha,
+    status: f.estado,
+    // La pantalla no trae el enlace del árbol; el motor cae a "la ronda
+    // anterior de la categoría", que sobre-restringe pero nunca deja pasar un
+    // imposible.
+    sourceMatchIds: null,
+  }));
 }
 
 /**
- * Agrupa por hora y RELLENA los huecos entre la primera y la última.
+ * El fin de semana, un elemento por día CON partidos.
  *
- * Colapsar las franjas vacías escondería justo lo accionable: una hora muerta
- * a media tarde es sitio para adelantar la final y terminar antes.
+ * Los días sin nada no salen: una pestaña vacía es una pregunta sin respuesta.
+ * Los huecos que importan son los de DENTRO de un día —el viernes de 14 a 17
+ * con 3 canchas de 8— y esos los enseña la vista cronológica.
  */
-function agruparPorHora(filas: Fila[]): { hora: string; filas: Fila[] }[] {
-  if (filas.length === 0) return [];
-
-  const porHora = new Map<string, Fila[]>();
+function repartirPorDia(filas: Fila[]): Estado['dias'] {
+  const porDia = new Map<string, Fila[]>();
   for (const f of filas) {
-    const ya = porHora.get(f.hora);
-    if (ya) ya.push(f); else porHora.set(f.hora, [f]);
+    if (!f.dia) continue;
+    const ya = porDia.get(f.dia);
+    if (ya) ya.push(f); else porDia.set(f.dia, [f]);
   }
+  return [...porDia.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([dia, suyas]) => ({
+      dia,
+      etiqueta: etiquetaDeDia(dia),
+      filas: suyas,
+      franjas: agruparPorHora(suyas),
+      categorias: categoriasConPartidos(suyas),
+    }));
+}
 
-  const aMin = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
-  const fmt = (m: number) =>
-    `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-
-  const horas = [...porHora.keys()].map(aMin).sort((a, b) => a - b);
-  const paso = 30;
-  const salida: { hora: string; filas: Fila[] }[] = [];
-  for (let m = horas[0]; m <= horas[horas.length - 1]; m += paso) {
-    const h = fmt(m);
-    salida.push({ hora: h, filas: (porHora.get(h) ?? []).sort(
-      (a, b) => a.categoria.localeCompare(b.categoria) || a.cancha.localeCompare(b.cancha),
-    ) });
-  }
-  return salida;
+/** 'Vie 11'. Corto porque va en una pestaña, con día para no confundirse. */
+function etiquetaDeDia(dia: string): string {
+  const d = parseFechaISO(dia);
+  if (!d) return dia;
+  return `${DIAS_CORTOS[indiceLunes(d)]} ${d.getDate()}`;
 }
 
 // ── Estilos ─────────────────────────────────────────────────────────────────

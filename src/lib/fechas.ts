@@ -292,6 +292,36 @@ export function horaDeTorneo(iso: string | null | undefined): string {
  * 'dom, 13 sept, 08:00' en la zona del club. Para cuando el día importa tanto
  * como la hora — el próximo partido de un torneo de tres días, por ejemplo.
  */
+/**
+ * 'YYYY-MM-DD' del día EN LA ZONA DEL CLUB.
+ *
+ * POR QUÉ NO VALE `iso.slice(0, 10)`
+ *   Un partido del sábado a las 20:00 en Ciudad de México es `...T02:00:00Z`
+ *   del DOMINGO. Cortar la cadena lo mandaría al día siguiente y con él la
+ *   última franja de cada noche, que es justo la que el organizador mira para
+ *   saber a qué hora cierra.
+ *
+ * Se usa para agrupar el calendario por día y para el motor de movimientos,
+ * que trabaja con día + minutos y no quiere saber de zonas.
+ */
+export function diaDeTorneo(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  // 'en-CA' da directamente YYYY-MM-DD; el resto de locales obligan a recomponer.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: ZONA_TORNEO,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/** Minutos desde medianoche en la zona del club. Para el motor de movimientos. */
+export function minutosDeTorneo(iso: string | null | undefined): number | null {
+  const hhmm = horaDeTorneo(iso);
+  if (!hhmm) return null;
+  return Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+}
+
 export function fechaHoraDeTorneo(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);

@@ -29,6 +29,8 @@ import {
   horaDeTorneo,
   fechaHoraDeTorneo,
   ZONA_TORNEO,
+  diaDeTorneo,
+  minutosDeTorneo,
 } from '../fechas';
 
 describe('entorno de los tests', () => {
@@ -363,5 +365,32 @@ describe('horas de torneo (timestamptz)', () => {
 
   it('la zona vive en un solo sitio', () => {
     expect(ZONA_TORNEO).toBe('America/Mexico_City');
+  });
+});
+
+describe('diaDeTorneo y minutosDeTorneo', () => {
+  it('un partido de sábado noche NO se va al domingo', () => {
+    // 2026-09-13T02:00:00Z son las 20:00 del sábado 12 en Ciudad de México.
+    // `iso.slice(0,10)` habría dicho domingo y con él la última franja del día.
+    expect(diaDeTorneo('2026-09-13T02:00:00Z')).toBe('2026-09-12');
+    expect(horaDeTorneo('2026-09-13T02:00:00Z')).toBe('20:00');
+  });
+
+  it('el mediodía cae donde se espera', () => {
+    expect(diaDeTorneo('2026-09-12T18:00:00Z')).toBe('2026-09-12');
+    expect(minutosDeTorneo('2026-09-12T18:00:00Z')).toBe(12 * 60);
+  });
+
+  it('minutosDeTorneo cuadra con horaDeTorneo, siempre', () => {
+    for (const iso of ['2026-09-11T20:00:00Z', '2026-09-13T02:30:00Z', '2026-03-01T14:15:00Z']) {
+      const h = horaDeTorneo(iso);
+      expect(minutosDeTorneo(iso)).toBe(Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5)));
+    }
+  });
+
+  it('aguanta basura sin reventar', () => {
+    expect(diaDeTorneo(null)).toBe('');
+    expect(diaDeTorneo('no es una fecha')).toBe('');
+    expect(minutosDeTorneo(undefined)).toBeNull();
   });
 });
