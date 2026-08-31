@@ -6,9 +6,28 @@
  * Lo único nuevo es la envoltura de pantalla y que el botón de asignar dejó de
  * ser dorado — la única acción dorada del flujo vive en el panel.
  *
- * Un juez debe estar registrado en RALLY y ser miembro del organizador; la
- * política de `tournament_judges` rechaza lo contrario, y ese rechazo se
- * traduce a un mensaje humano abajo.
+ * EL JUEZ NO TIENE QUE SER DE TU ORGANIZACIÓN
+ *   Solo necesita cuenta en RALLY. Este comentario decía lo contrario —"debe
+ *   ser miembro del organizador"— y era falso: verificado asignando tres
+ *   jueces sin membresía, los tres entraron y los tres capturaron. El texto de
+ *   ayuda del buscador ya lo decía bien; era la cabecera la que mentía.
+ *
+ * EL OWNER PUEDE CAPTURAR SIN SER JUEZ
+ *   `can_capture_tournament` es `is_admin() OR is_org_owner(...) OR
+ *   is_tournament_judge(...)`. El owner entra por la segunda rama, sin fila en
+ *   `tournament_judges`. NO es un hueco de seguridad: el organizador de un
+ *   torneo chico ES el juez, y obligarle a asignarse a sí mismo para capturar
+ *   su propio torneo sería ceremonia sin nadie a quien proteger.
+ *
+ *   Por eso la lista vacía no dice "nadie podrá capturar": sería mentira.
+ *   Documentado también en la migración 054, para quien lea la función y no
+ *   esta pantalla.
+ *
+ * VARIOS JUECES, QUE ES EL CASO NORMAL
+ *   Con ocho canchas simultáneas una sola persona capturando no da abasto. El
+ *   buscador sigue disponible después del primero a propósito, y
+ *   `yaElegidos` solo impide repetir a la misma persona — que es lo que
+ *   también impide el UNIQUE (tournament_id, user_id) de la tabla.
  */
 
 import { useCallback, useState } from 'react';
@@ -167,15 +186,18 @@ export default function JuecesTorneoScreen() {
         <Text style={s.eyebrow}>CONFIGURACIÓN</Text>
         <Text style={s.title}>Jueces</Text>
         <Text style={s.ayuda}>
-          Quien captura los resultados durante el torneo. Puedes ser tú mismo.
+          Quien captura los resultados durante el torneo. Tú ya puedes hacerlo
+          por ser el organizador; asigna jueces para repartir el trabajo — con
+          varias canchas a la vez, una sola persona no da abasto.
         </Text>
 
         {/* Asignados */}
         {judges.length === 0 ? (
           <View style={s.vacio}>
             <Text style={s.vacioTexto}>
-              Todavía no hay jueces. Sin al menos uno, nadie podrá capturar
-              marcadores cuando empiecen los partidos.
+              Todavía no hay jueces asignados. Tú puedes capturar igual: el
+              organizador no necesita asignarse a sí mismo. Añade jueces si vas
+              a tener varias canchas jugando a la vez.
             </Text>
           </View>
         ) : (
@@ -207,7 +229,7 @@ export default function JuecesTorneoScreen() {
           <BuscadorDeUsuario
             label="Asignar juez"
             placeholder="Nombre o correo"
-            ayuda="Busca a cualquier persona con cuenta en RALLY. No hace falta que sea de tu organización."
+            ayuda="Busca a cualquier persona con cuenta en RALLY. No hace falta que sea de tu organización. Puedes asignar todos los que necesites."
             yaElegidos={judges.map((j) => j.userId)}
             textoYaElegido="Ya es juez"
             onElegir={asignar}

@@ -97,6 +97,16 @@ Deno.serve(async (req) => {
     if (esGrupo && !match.group_id) return json({ error: 'group_missing' }, 400);
 
     // Pre-chequeo de autorización con el JWT del usuario (can_capture_tournament usa auth.uid()).
+    //
+    // QUIÉN PASA POR AQUÍ: admin de RALLY, OWNER del organizador, o juez
+    // asignado. El owner entra SIN estar en `tournament_judges` y es
+    // deliberado — el organizador de un torneo chico es el juez, y obligarle a
+    // asignarse a sí mismo sería ceremonia sin nadie a quien proteger. No lo
+    // endurezcas creyendo que es un hueco; está en la migración 054.
+    //
+    // Lo que NO pasa: un miembro del organizador con member_role='judge' que no
+    // esté en `tournament_judges`, y cualquier jugador. Los cuatro casos
+    // verificados contra esta misma función, no deducidos del código.
     const { data: canUser, error: ae } = await asUser.rpc('can_capture_tournament', { p_tournament_id: match.tournament_id });
     if (ae) return json({ error: 'auth_check_failed', detail: ae.message }, 500);
     if (!canUser) return json({ error: 'not_authorized' }, 403);
