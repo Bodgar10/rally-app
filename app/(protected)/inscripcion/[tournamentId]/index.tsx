@@ -13,17 +13,27 @@
  * El alta va por la Edge Function `pair-register-self`: crear usuarios exige
  * service_role, y auth.users no comparte transacción con pairs (la función
  * compensa borrando lo que creó si el insert falla).
- *   Paso 3 — Elegir bloque horario + confirmar
+ *   Paso 3 — Elegir horario + confirmar
  *
  * EL PASO 3 ERA UNA PREFERENCIA SUAVE Y AHORA ES UNA RESERVA
  *   Antes preguntaba "mañana / tarde / cualquier hora" y el organizador
  *   repartía después. Eso lo convertía en el responsable del horario que le
- *   tocaba a cada quien. Ahora la pareja ELIGE su bloque de 3 horas de los que
- *   tengan cupo, como quien reserva un asiento, y los agotados no se enseñan.
+ *   tocaba a cada quien. Ahora la pareja ELIGE su horario de los que tengan
+ *   cupo, como quien reserva un asiento, y los agotados no se enseñan.
  *
- *   Si el torneo todavía no tiene canchas ni horarios capturados no hay bloques
- *   que ofrecer: el paso desaparece y la inscripción sigue funcionando. Una
- *   configuración que el organizador no ha hecho no puede bloquear a nadie.
+ * NADA DE ESTO PUEDE DEJAR A NADIE FUERA
+ *   Hay dos formas de quedarse sin horario que elegir, y ninguna bloquea la
+ *   inscripción:
+ *     · El torneo no tiene canchas ni horarios capturados. El paso desaparece.
+ *       Una configuración que el organizador no ha hecho no puede frenar a nadie.
+ *     · La categoría llenó todos sus horarios. Se explica y se inscribe sin
+ *       hora; el organizador se la asigna después. Quedarse fuera del torneo es
+ *       peor que quedarse sin hora.
+ *
+ * EL VOCABULARIO ES EL DEL JUGADOR
+ *   Aquí no se dice "bloque" ni "lugares". Un bloque es un HORARIO y lo que se
+ *   cuenta son PAREJAS. Esta es la pantalla que más gente va a ver en toda la
+ *   app: si alguien tiene que traducir, la pantalla está mal escrita.
  */
 
 import { useEffect, useState } from 'react';
@@ -41,7 +51,8 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
 import { cargarBloquesDelTorneo, guardarEleccionDeBloque, type BloquesDelTorneo } from '@/lib/bloques-torneo';
-import { rangoLegible } from '@/lib/bloques-formato';
+import { rangoLegible, textoDuracion } from '@/lib/bloques-formato';
+import { bloquesDisponibles } from '@/lib/engine/schedule/bloques';
 import { formatearConDia } from '@/lib/fechas';
 import { fallo } from '@/lib/errores-red';
 
@@ -205,10 +216,37 @@ export default function InscripcionScreen() {
   /** Hay pareja resuelta, venga de donde venga. */
   const parejaLista = !!partnerFound || parejaNuevaValida;
 
-  /** Hay algo que elegir. Con `false` el paso 3 no existe y no se exige nada. */
-  const hayBloques = (bloques?.bloques.length ?? 0) > 0;
+  /** El torneo tiene horarios capturados. Con `false` el paso 3 no existe. */
+  const hayHorarios = (bloques?.bloques.length ?? 0) > 0;
 
-  /** El bloque elegido, para el resumen. */
+  /**
+   * Los horarios que esta categoría puede elegir. Puede ser vacío aunque el
+   * torneo SÍ tenga horarios: si la categoría llenó todos, no queda ninguno.
+   */
+  const opciones = hayHorarios && selectedCategory
+    ? bloquesDisponibles(
+        bloques!.bloques, bloques!.ocupacion, selectedCategory.id, bloques!.opcionesCupo,
+      )
+    : [];
+
+  /**
+   * SOLO se exige elegir cuando hay algo que elegir.
+   *
+   * EL BUG QUE ARREGLA: con la categoría llena en todos los horarios, el
+   * selector decía "ya no quedan horarios" y el botón de confirmar se quedaba
+   * deshabilitado para siempre. La categoría seguía abierta, así que la app
+   * invitaba a entrar y luego no daba puerta.
+   *
+   * Ahora se inscribe sin horario, que es un estado que el sistema ya conoce:
+   * el organizador las ve en su pantalla de horarios como "parejas sin hora" y
+   * les asigna una. Quedarse fuera del torneo es peor que quedarse sin hora.
+   */
+  const debeElegirHorario = opciones.length > 0;
+
+  /** La categoría llenó todos los horarios: se inscribe igual, sin hora. */
+  const categoriaSinHorarios = hayHorarios && !!selectedCategory && opciones.length === 0;
+
+  /** El horario elegido, para el resumen. */
   const bloqueElegido = bloques?.bloques.find((b) => b.id === bloqueId) ?? null;
 
 
@@ -218,9 +256,9 @@ export default function InscripcionScreen() {
     setError(null);
     if (!selectedCategory) { setError('Elige una categoría.'); return; }
     if (!parejaLista)      { setError('Elige a tu pareja o créale una cuenta.'); return; }
-    // Obligatoria solo si hay algo que elegir. Sin canchas ni horarios
-    // capturados no hay bloques, y eso no es culpa de quien se inscribe.
-    if (hayBloques && !bloqueId) { setError('Elige el horario en el que vas a jugar.'); return; }
+    // Obligatorio solo si hay algo que elegir. Sin horarios capturados —o con
+    // todos llenos para esta categoría— no es culpa de quien se inscribe.
+    if (debeElegirHorario && !bloqueId) { setError('Elige el horario en el que vas a jugar.'); return; }
 
     setSubmitting(true);
 
@@ -291,7 +329,7 @@ export default function InscripcionScreen() {
       // inscripción NO se deshace: queda registrada sin bloque, igual que en un
       // torneo sin horarios capturados, y el organizador lo ve en su pantalla
       // de ocupación.
-      if (hayBloques && bloqueId && json.pair_id) {
+      if (bloqueId && json.pair_id) {
         const fallo = await guardarEleccionDeBloque({
           pairId:       json.pair_id as string,
           tournamentId: tournamentId as string,
@@ -338,8 +376,8 @@ export default function InscripcionScreen() {
             <Text style={s.comoEntrarTitulo}>Falta apartar tu horario</Text>
             <Text style={s.comoEntrarTexto}>{sinHorario.aviso}</Text>
             <Text style={s.comoEntrarNota}>
-              Tu lugar en el torneo no corre riesgo. El organizador puede
-              asignarte el bloque desde su panel.
+              Tu inscripción no corre riesgo. El organizador te puede dar hora
+              desde su panel.
             </Text>
           </View>
           <Button
@@ -617,22 +655,38 @@ export default function InscripcionScreen() {
             Solo existe si el torneo tiene canchas y horarios capturados. Sin
             eso no hay bloques que ofrecer y el paso no se enseña: la
             inscripción no depende de una configuración ajena. */}
-        {hayBloques && (
+        {hayHorarios && (
           <>
             <SectionLabel title="3 · Elige tu horario" />
             <Card variant="standard">
-              <Text style={s.scheduleNote}>
-                Tu grupo juega sus 3 partidos seguidos en este bloque. Elige uno:
-                el lugar se aparta al confirmar la inscripción.
-              </Text>
-              <SelectorDeBloque
-                bloques={bloques!.bloques}
-                ocupacion={bloques!.ocupacion}
-                categoriaId={selectedCategory?.id ?? null}
-                valor={bloqueId}
-                opcionesCupo={bloques!.opcionesCupo}
-                onCambio={(id) => { setError(null); setBloqueId(id); }}
-              />
+              {categoriaSinHorarios ? (
+                // La categoría llenó todos los horarios. NO se bloquea la
+                // inscripción: se explica y se sigue. Ver `debeElegirHorario`.
+                <View style={s.sinHorarioCaja}>
+                  <Text style={s.sinHorarioTitulo}>Esta categoría ya llenó todos sus horarios</Text>
+                  <Text style={s.sinHorarioTexto}>
+                    Te puedes inscribir igual: el organizador te dará hora y te
+                    avisará. Llegaste tarde al reparto, no al torneo.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={s.scheduleNote}>
+                    {bloques?.reticula
+                      ? `Elige a qué hora juegas: ${textoDuracion(bloques.reticula.minutosPorBloque)}.`
+                      : 'Elige a qué hora juegas.'}
+                  </Text>
+                  <SelectorDeBloque
+                    bloques={bloques!.bloques}
+                    ocupacion={bloques!.ocupacion}
+                    categoriaId={selectedCategory?.id ?? null}
+                    valor={bloqueId}
+                    opcionesCupo={bloques!.opcionesCupo}
+                    minutosPorHorario={bloques?.reticula?.minutosPorBloque}
+                    onCambio={(id) => { setError(null); setBloqueId(id); }}
+                  />
+                </>
+              )}
             </Card>
           </>
         )}
@@ -651,7 +705,7 @@ export default function InscripcionScreen() {
                 <Text style={s.summaryLabel}>Pareja</Text>
                 <Text style={s.summaryValue}>{partnerFound?.full_name ?? parejaNueva?.nombre.trim()}</Text>
               </View>
-              {hayBloques && (
+              {hayHorarios && (
                 <>
                   <View style={s.summaryDivider} />
                   <View style={s.summaryRow}>
@@ -659,6 +713,8 @@ export default function InscripcionScreen() {
                     <Text style={s.summaryValue}>
                       {bloqueElegido
                         ? `${formatearConDia(bloqueElegido.dia)}, ${rangoLegible(bloqueElegido.desde, bloqueElegido.hasta)}`
+                        : categoriaSinHorarios
+                        ? 'Lo asigna el organizador'
                         : 'Sin elegir'}
                     </Text>
                   </View>
@@ -673,7 +729,8 @@ export default function InscripcionScreen() {
               </View>
               {fee > 0 && (
                 <Text style={s.summaryPayNote}>
-                  💡 El pago se coordinará con el organizador. Sprint 4 habilitará pago en línea.
+                  Al confirmar pasas al pago. Tu inscripción queda firme cuando
+                  se completa.
                 </Text>
               )}
             </Card>
@@ -692,7 +749,7 @@ export default function InscripcionScreen() {
             // `parejaLista`, no `partnerFound`: con una cuenta recién creada
             // partnerFound sigue en null y el botón quedaba muerto con el
             // formulario completo.
-            disabled={!selectedCategory || !parejaLista || submitting || (hayBloques && !bloqueId)}
+            disabled={!selectedCategory || !parejaLista || submitting || (debeElegirHorario && !bloqueId)}
             onPress={handleInscribir}
           />
         </View>
@@ -810,6 +867,10 @@ const s = StyleSheet.create({
 
   // Horario
   scheduleNote:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginBottom: space[3], lineHeight: 18 },
+
+  sinHorarioCaja:   { gap: space[1.5] },
+  sinHorarioTitulo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.champagne },
+  sinHorarioTexto:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
 
   // Resumen
   summaryRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: space[2] },

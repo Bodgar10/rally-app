@@ -30,11 +30,29 @@ export function rangoLegible(desde: string, hasta: string): string {
   return `${horaLegible(desde)} a ${horaLegible(hasta)}`;
 }
 
-/** El cupo como se le dice a alguien que está a punto de elegir. */
+/**
+ * El cupo como se le dice a alguien que está a punto de elegir.
+ *
+ * En PAREJAS, no en "lugares". Un lugar es una unidad del motor —un hueco de
+ * carril— y el jugador no sabe qué es. Lo que él cuenta son parejas, que además
+ * es lo que se inscribe: él y su pareja son una.
+ */
 export function textoCupo(cupo: number): string {
   if (cupo <= 0) return 'Lleno';
-  if (cupo === 1) return 'Queda 1 lugar';
-  return `Quedan ${cupo} lugares`;
+  if (cupo === 1) return 'Cabe 1 pareja más';
+  return `Caben ${cupo} parejas más`;
+}
+
+/**
+ * Cuánto dura un horario, dicho para alguien que nunca ha jugado un torneo.
+ *
+ * "14:00 a 17:00" no le dice a nadie que tiene que estar tres horas en el club:
+ * un jugador nuevo lee la hora de inicio y cree que juega un partido y se va.
+ */
+export function textoDuracion(minutosPorBloque: number, partidos = 3): string {
+  const horas = minutosPorBloque / 60;
+  const enHoras = Number.isInteger(horas) ? `${horas}` : horas.toFixed(1).replace('.', ',');
+  return `${partidos} partidos seguidos, unas ${enHoras} horas en el club`;
 }
 
 /**

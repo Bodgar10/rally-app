@@ -458,6 +458,7 @@ export default function AgregarParejaScreen() {
               categoriaId={categoria.id}
               valor={bloqueId}
               opcionesCupo={bloques!.opcionesCupo}
+              minutosPorHorario={bloques?.reticula?.minutosPorBloque}
               permitirLlenos
               onCambio={(id, cupo) => { setBloqueId(id); setForzado(cupo <= 0); }}
             />

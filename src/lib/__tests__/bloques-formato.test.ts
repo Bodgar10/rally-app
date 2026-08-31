@@ -6,7 +6,7 @@
 
 import { generarBloques } from '@/lib/engine/schedule/bloques';
 import {
-  horaLegible, rangoLegible, textoCupo, partesDeBloqueId, capacidadDelTorneo,
+  horaLegible, rangoLegible, textoCupo, textoDuracion, partesDeBloqueId, capacidadDelTorneo,
 } from '@/lib/bloques-formato';
 
 /** Sábado de 8 a 20 con 4 canchas: 4 bloques de 3 h, 16 carriles, 48 lugares. */
@@ -31,11 +31,20 @@ describe('presentación', () => {
     expect(rangoLegible('08:00', '11:00')).toBe('8:00 a 11:00');
   });
 
-  it('el cupo se dice en singular, plural y lleno', () => {
+  it('el cupo se dice en PAREJAS, no en lugares', () => {
+    // "Lugar" es una unidad del motor: un hueco de carril. El jugador cuenta
+    // parejas, que ademas es lo que inscribe.
     expect(textoCupo(0)).toBe('Lleno');
     expect(textoCupo(-2)).toBe('Lleno');       // sobrevendido tambien es lleno
-    expect(textoCupo(1)).toBe('Queda 1 lugar');
-    expect(textoCupo(6)).toBe('Quedan 6 lugares');
+    expect(textoCupo(1)).toBe('Cabe 1 pareja más');
+    expect(textoCupo(6)).toBe('Caben 6 parejas más');
+    expect([textoCupo(1), textoCupo(6)].some((t) => /lugar/i.test(t))).toBe(false);
+  });
+
+  it('la duracion se dice en partidos y en horas de club', () => {
+    expect(textoDuracion(180)).toBe('3 partidos seguidos, unas 3 horas en el club');
+    expect(textoDuracion(360, 6)).toBe('6 partidos seguidos, unas 6 horas en el club');
+    expect(textoDuracion(270)).toBe('3 partidos seguidos, unas 4,5 horas en el club');
   });
 
   it('parte un id de bloque, y devuelve null si no tiene esa forma', () => {

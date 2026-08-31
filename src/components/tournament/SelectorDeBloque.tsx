@@ -37,7 +37,7 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 
 import { cupoDeBloque, type Bloque, type Ocupacion, type OpcionesCupo } from '@/lib/engine/schedule/bloques';
-import { rangoLegible, horaLegible, textoCupo } from '@/lib/bloques-formato';
+import { rangoLegible, horaLegible, textoCupo, textoDuracion } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 
@@ -54,19 +54,24 @@ interface Props {
   permitirLlenos?: boolean;
   /** Tamaño de grupo por categoría. Lo trae `cargarBloquesDelTorneo`. */
   opcionesCupo?: OpcionesCupo;
+  /**
+   * Duración de un horario en minutos. Sirve para decir cuántas horas hay que
+   * estar en el club, que es lo que el rango de horas NO comunica.
+   */
+  minutosPorHorario?: number;
 }
 
 interface BloqueConCupo extends Bloque { cupo: number }
 
 export default function SelectorDeBloque({
   bloques, ocupacion, categoriaId, valor, onCambio,
-  permitirLlenos = false, opcionesCupo = {},
+  permitirLlenos = false, opcionesCupo = {}, minutosPorHorario,
 }: Props) {
 
   if (!categoriaId) {
     return (
       <View style={s.aviso}>
-        <Text style={s.avisoTexto}>Elige la categoría y aquí aparecen los horarios con lugar.</Text>
+        <Text style={s.avisoTexto}>Elige tu categoría y aquí aparecen los horarios con sitio.</Text>
       </View>
     );
   }
@@ -82,8 +87,8 @@ export default function SelectorDeBloque({
     return (
       <View style={s.aviso}>
         <Text style={s.avisoTexto}>
-          Ya no quedan horarios con lugar en esta categoría. Habla con el
-          organizador: puede abrir más canchas o alargar el horario.
+          Esta categoría ya llenó todos sus horarios. Te puedes inscribir
+          igual: el organizador te dará hora y te avisará.
         </Text>
       </View>
     );
@@ -121,9 +126,11 @@ export default function SelectorDeBloque({
                   accessibilityRole="radio"
                   accessibilityState={{ selected: activo, disabled: false }}
                   accessibilityLabel={
-                    `${formatearConDia(dia)}, de ${rangoLegible(b.desde, b.hasta)}. ${textoCupo(b.cupo)}.` +
+                    `${formatearConDia(dia)}, de ${rangoLegible(b.desde, b.hasta)}. ` +
+                    (minutosPorHorario ? `${textoDuracion(minutosPorHorario)}. ` : '') +
+                    `${textoCupo(b.cupo)}.` +
                     (b.seSaleDeLaVentana
-                      ? ` Puede terminar cerca de las ${horaLegible(b.hastaRealista)}.`
+                      ? ` Sales cerca de las ${horaLegible(b.hastaRealista)}.`
                       : '')
                   }
                 >
@@ -141,10 +148,12 @@ export default function SelectorDeBloque({
                     {textoCupo(b.cupo)}
                   </Text>
 
-                  {/* Sin drama y sin bloquear: el dato, y decide el jugador. */}
+                  {/* Sin drama y sin bloquear: el dato, y decide el jugador.
+                      "Sales" y no "puede terminar": jugando tres partidos
+                      seguidos esta es la hora normal de salida, no un riesgo. */}
                   {b.seSaleDeLaVentana && (
                     <Text style={s.tarde}>
-                      Puede terminar cerca de las {horaLegible(b.hastaRealista)}
+                      Sales cerca de las {horaLegible(b.hastaRealista)}
                     </Text>
                   )}
                 </Pressable>
@@ -164,19 +173,34 @@ export default function SelectorDeBloque({
           </Text>
           <Text style={s.forzadoTexto}>
             Esta pareja quedaría sin grupo completo, o te obligaría a abrir otra
-            cancha en ese horario. Se guarda marcada como forzada y aparece así
-            en la ocupación por bloque.
+            cancha en ese horario. Se guarda marcada y aparece así en la
+            pantalla de horarios.
           </Text>
         </View>
       )}
 
-      <Text style={s.pie}>
-        Se juegan los 3 partidos del grupo seguidos, en la misma cancha. Elige
-        una sola vez: el lugar se aparta al confirmar.
+      <View style={s.pie}>
+        <Text style={s.pieTexto}>
+          <Text style={s.pieFuerte}>Tu grupo juega los 3 partidos seguidos</Text>, en la
+          misma cancha. El horario que elijas es el rato entero que tienes que
+          estar en el club, no la hora de un solo partido.
+        </Text>
+
         {visibles.some((b) => b.seSaleDeLaVentana) && (
-          ' Los horarios marcados en ámbar suelen alargarse: la hora que ves es la real.'
+          <Text style={s.pieTexto}>
+            Los horarios en ámbar salen más tarde de lo que marcan. Es lo normal
+            jugando tres partidos seguidos: se alargan un poco y la hora que ves
+            debajo ya lo cuenta.
+          </Text>
         )}
-      </Text>
+
+        {/* La elección es la decisión más consecuente de toda la pantalla, así
+            que se dice con esas palabras. "El lugar se aparta al confirmar" no
+            comunicaba que no hay vuelta atrás. */}
+        <Text style={s.pieAviso}>
+          Elige con calma: al confirmar queda apartado y no se puede cambiar.
+        </Text>
+      </View>
     </View>
   );
 }
@@ -235,5 +259,8 @@ const s = StyleSheet.create({
   forzadoTitulo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.danger },
   forzadoTexto:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
 
-  pie: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, opacity: 0.8, lineHeight: 17 },
+  pie:       { gap: space[2] },
+  pieTexto:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  pieFuerte: { color: color.text, fontWeight: '600' },
+  pieAviso:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 },
 });
