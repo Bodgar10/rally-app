@@ -457,6 +457,8 @@ export default function AgregarParejaScreen() {
               ocupacion={bloques!.ocupacion}
               categoriaId={categoria.id}
               valor={bloqueId}
+              // Aquí elige POR la pareja, no para sí: la pregunta lo dice.
+              pregunta="¿Qué horario le das a esta pareja?"
               opcionesCupo={bloques!.opcionesCupo}
               minutosPorHorario={bloques?.reticula?.minutosPorBloque}
               permitirLlenos

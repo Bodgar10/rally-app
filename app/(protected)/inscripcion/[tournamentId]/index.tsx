@@ -51,7 +51,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
 import { cargarBloquesDelTorneo, guardarEleccionDeBloque, type BloquesDelTorneo } from '@/lib/bloques-torneo';
-import { rangoLegible, textoDuracion } from '@/lib/bloques-formato';
+import { rangoLegible } from '@/lib/bloques-formato';
 import { bloquesDisponibles } from '@/lib/engine/schedule/bloques';
 import { formatearConDia } from '@/lib/fechas';
 import { fallo } from '@/lib/errores-red';
@@ -670,22 +670,18 @@ export default function InscripcionScreen() {
                   </Text>
                 </View>
               ) : (
-                <>
-                  <Text style={s.scheduleNote}>
-                    {bloques?.reticula
-                      ? `Elige a qué hora juegas: ${textoDuracion(bloques.reticula.minutosPorBloque)}.`
-                      : 'Elige a qué hora juegas.'}
-                  </Text>
-                  <SelectorDeBloque
-                    bloques={bloques!.bloques}
-                    ocupacion={bloques!.ocupacion}
-                    categoriaId={selectedCategory?.id ?? null}
-                    valor={bloqueId}
-                    opcionesCupo={bloques!.opcionesCupo}
-                    minutosPorHorario={bloques?.reticula?.minutosPorBloque}
-                    onCambio={(id) => { setError(null); setBloqueId(id); }}
-                  />
-                </>
+                // La pregunta la pone el propio selector, encima de las
+                // tarjetas: ahí es donde se está decidiendo.
+                <SelectorDeBloque
+                  bloques={bloques!.bloques}
+                  ocupacion={bloques!.ocupacion}
+                  categoriaId={selectedCategory?.id ?? null}
+                  valor={bloqueId}
+                  pregunta="¿A qué hora quieres jugar?"
+                  opcionesCupo={bloques!.opcionesCupo}
+                  minutosPorHorario={bloques?.reticula?.minutosPorBloque}
+                  onCambio={(id) => { setError(null); setBloqueId(id); }}
+                />
               )}
             </Card>
           </>
@@ -866,7 +862,6 @@ const s = StyleSheet.create({
   partnerChangeText:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },
 
   // Horario
-  scheduleNote:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginBottom: space[3], lineHeight: 18 },
 
   sinHorarioCaja:   { gap: space[1.5] },
   sinHorarioTitulo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.champagne },

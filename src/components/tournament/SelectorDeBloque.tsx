@@ -50,6 +50,15 @@ interface Props {
   valor:        string | null;
   /** `cupo` es el del bloque al momento de elegirlo: 0 significa forzado. */
   onCambio:     (bloqueId: string, cupo: number) => void;
+  /**
+   * La pregunta que encabeza las tarjetas.
+   *
+   * VA ARRIBA Y NO EN UN PÁRRAFO. Sin ella el jugador ve una parrilla de horas
+   * y tiene que deducir qué se le está pidiendo. Y cambia según quién elige:
+   * el jugador elige para sí ("¿A qué hora quieres jugar?") y el organizador
+   * elige por otro ("¿Qué horario le das a esta pareja?").
+   */
+  pregunta?: string;
   /** Solo el organizador. Muestra los llenos y deja elegirlos, con aviso. */
   permitirLlenos?: boolean;
   /** Tamaño de grupo por categoría. Lo trae `cargarBloquesDelTorneo`. */
@@ -64,7 +73,7 @@ interface Props {
 interface BloqueConCupo extends Bloque { cupo: number }
 
 export default function SelectorDeBloque({
-  bloques, ocupacion, categoriaId, valor, onCambio,
+  bloques, ocupacion, categoriaId, valor, onCambio, pregunta,
   permitirLlenos = false, opcionesCupo = {}, minutosPorHorario,
 }: Props) {
 
@@ -103,6 +112,8 @@ export default function SelectorDeBloque({
 
   return (
     <View style={s.raiz}>
+      {pregunta && <Text style={s.pregunta}>{pregunta}</Text>}
+
       {dias.map((dia) => (
         <View key={dia} style={s.dia}>
           <Text style={s.diaNombre}>{formatearConDia(dia)}</Text>
@@ -179,27 +190,18 @@ export default function SelectorDeBloque({
         </View>
       )}
 
+      {/* DOS LÍNEAS, NO TRES PÁRRAFOS.
+          Había tres bloques diciendo lo mismo desde ángulos distintos —que son
+          tres partidos, que es el rato entero en el club, que no se puede
+          cambiar—, y tres explicaciones del mismo hecho se leen como ninguna.
+          Queda el dato (cuánto dura) y la consecuencia (no hay vuelta atrás).
+          Lo del horario en ámbar ya lo dice cada tarjeta con su hora de salida. */}
       <View style={s.pie}>
         <Text style={s.pieTexto}>
-          <Text style={s.pieFuerte}>Tu grupo juega los 3 partidos seguidos</Text>, en la
-          misma cancha. El horario que elijas es el rato entero que tienes que
-          estar en el club, no la hora de un solo partido.
+          Son {minutosPorHorario ? `${minutosPorHorario / 60} horas` : 'varias horas'} seguidas
+          en el club: los 3 partidos del grupo van uno detrás de otro.
         </Text>
-
-        {visibles.some((b) => b.seSaleDeLaVentana) && (
-          <Text style={s.pieTexto}>
-            Los horarios en ámbar salen más tarde de lo que marcan. Es lo normal
-            jugando tres partidos seguidos: se alargan un poco y la hora que ves
-            debajo ya lo cuenta.
-          </Text>
-        )}
-
-        {/* La elección es la decisión más consecuente de toda la pantalla, así
-            que se dice con esas palabras. "El lugar se aparta al confirmar" no
-            comunicaba que no hay vuelta atrás. */}
-        <Text style={s.pieAviso}>
-          Elige con calma: al confirmar queda apartado y no se puede cambiar.
-        </Text>
+        <Text style={s.pieAviso}>Al confirmar queda apartado y no se puede cambiar.</Text>
       </View>
     </View>
   );
@@ -207,6 +209,10 @@ export default function SelectorDeBloque({
 
 const s = StyleSheet.create({
   raiz: { gap: space[4] },
+
+  pregunta: {
+    fontFamily: font.display, fontSize: fontSize.cardName, color: color.text,
+  },
 
   aviso: {
     backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft,
