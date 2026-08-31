@@ -13,6 +13,15 @@ export interface CategoriaCuadro {
 
 export interface EntradaScheduler {
   canchas: number;
+  /**
+   * ¿Se juega el partido por el 3.er lugar? Default true.
+   *
+   * Es una decisión de TORNEO, no de categoría: o se juega en todas o en
+   * ninguna. Cuenta para el presupuesto porque ocupa una cancha, y lo hace en
+   * el peor momento —a la vez que las finales, cuando las ocho categorías
+   * convergen— así que ignorarlo era subestimar justo la hora más cargada.
+   */
+  tercerLugar?: boolean;
   desde: string;
   hasta: string;
   categorias: CategoriaCuadro[];
@@ -117,6 +126,18 @@ export function partidosPorRonda(clasificados: number): number[] {
   return out.filter((n, i) => i === 0 || n >= 1);
 }
 
+/**
+ * ¿Esta categoría juega el 3.er lugar?
+ *
+ * Hacen falta DOS perdedores de semifinal. Con 3 clasificados una de las dos
+ * semifinales es un bye, así que solo pierde una pareja y no hay partido que
+ * jugar — `thirdPlaceFromSemis` devuelve null y hace bien. Desde 4 clasificados
+ * las dos semifinales son reales.
+ */
+export function hayTercerLugar(clasificados: number, activo: boolean): boolean {
+  return activo && clasificados >= 4;
+}
+
 export function tamanoCuadro(clasificados: number): number {
   return clasificados < 2 ? 0 : 2 ** Math.ceil(Math.log2(clasificados));
 }
@@ -135,12 +156,20 @@ export function cotaInferior(entrada: EntradaScheduler): number {
   const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
   const inicio = parseHora(entrada.desde);
 
+  const tercerLugar = entrada.tercerLugar ?? true;
   const items: { distancia: number; partidos: number }[] = [];
   for (const cat of entrada.categorias) {
     const rondas = partidosPorRonda(cat.clasificados);
     rondas.forEach((n, i) => {
       items.push({ distancia: rondas.length - 1 - i, partidos: n });
     });
+    // El 3.er lugar entra a distancia 0 —la misma que la final— porque ocupa
+    // cancha en esa oleada. No alarga la cadena, pero sin contarlo la cota
+    // prometía una hora que las canchas no dan, y el plan quedaba avisando de
+    // que no alcanzaba un mínimo que era falso.
+    if (hayTercerLugar(cat.clasificados, tercerLugar)) {
+      items.push({ distancia: 0, partidos: 1 });
+    }
   }
   if (items.length === 0) return inicio;
 
@@ -165,6 +194,15 @@ interface Tarea {
   restantes: number;
   colocados: number;
   finMin: number | null;
+  /**
+   * El 3.er lugar. Va a la MISMA profundidad que la final —los dos dependen de
+   * las semifinales y ninguno del otro— pero con su propia etapa, no fundido en
+   * la ronda final: `schedule-knockout` empareja plan y base por
+   * (categoría, stage), y dos slots de 'final' contra un solo partido de final
+   * en la base le harían saltar el aviso de descuadre y saltarse la categoría
+   * entera.
+   */
+  tercerLugar?: boolean;
 }
 
 /**
@@ -177,7 +215,7 @@ interface Tarea {
  *
  * Devuelve, por id de categoria, el conjunto de sus hermanas.
  */
-function grafoDeHermandad(categorias: CategoriaCuadro[]): Map<string, Set<string>> {
+export function grafoDeHermandad(categorias: CategoriaCuadro[]): Map<string, Set<string>> {
   const porJugador = new Map<string, string[]>();
   for (const c of categorias) {
     for (const j of c.jugadores ?? []) {
@@ -218,6 +256,7 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
   const paso = entrada.paso ?? DEFAULT_PASO;
   const inicio = parseHora(entrada.desde);
   const techo = parseHora(entrada.hasta);
+  const tercerLugar = entrada.tercerLugar ?? true;
   const avisos: string[] = [];
 
   if (entrada.canchas < 1) throw new Error('Se necesita al menos una cancha');
@@ -242,6 +281,23 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
         finMin: null,
       });
     });
+
+    // El 3.er lugar entra como tarea aparte a la altura de la final: depende de
+    // las semifinales igual que ella, así que puede correr en paralelo si hay
+    // cancha. No alarga la cadena; ocupa una pista más en el momento en que
+    // todas las categorías convergen.
+    if (hayTercerLugar(cat.clasificados, tercerLugar)) {
+      tareas.push({
+        categoryId: cat.id,
+        ronda: rondas.length,
+        totalRondas: rondas.length,
+        partidos: 1,
+        restantes: 1,
+        colocados: 0,
+        finMin: null,
+        tercerLugar: true,
+      });
+    }
   }
 
   const totalPartidos = tareas.reduce((a, t) => a + t.partidos, 0);
@@ -259,8 +315,13 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
     return libres;
   };
 
+  // La final y el 3.er lugar comparten número de ronda, así que hay que pedir
+  // explícitamente la del cuadro: si no, la dependencia de la final podría
+  // resolverse contra el 3.er lugar y viceversa.
   const finDe = (categoryId: string, ronda: number): number | null => {
-    const t = tareas.find((x) => x.categoryId === categoryId && x.ronda === ronda);
+    const t = tareas.find(
+      (x) => x.categoryId === categoryId && x.ronda === ronda && !x.tercerLugar,
+    );
     return t ? t.finMin : null;
   };
 
@@ -338,7 +399,7 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
             categoriaA: otra,
             categoriaB: tarea.categoryId,
             hora: formatHora(t),
-            etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas),
+            etapa: tarea.tercerLugar ? 'third_place' : etapaDeRonda(tarea.ronda, tarea.totalRondas),
           });
         }
       }
@@ -352,7 +413,7 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
           categoryId: tarea.categoryId,
           ronda: tarea.ronda,
           totalRondas: tarea.totalRondas,
-          etapa: etapaDeRonda(tarea.ronda, tarea.totalRondas),
+          etapa: tarea.tercerLugar ? 'third_place' : etapaDeRonda(tarea.ronda, tarea.totalRondas),
           indiceEnRonda: tarea.colocados + k,
           inicio: formatHora(t),
           inicioMin: t,
@@ -567,7 +628,11 @@ export type EtapaEliminatoria =
   | 'round_of_16'
   | 'quarter'
   | 'semi'
-  | 'final';
+  | 'final'
+  // Cuelga del árbol en vez de estar dentro: sale de los dos perdedores de
+  // semifinal, no de un ganador. `etapaDeRonda` nunca lo devuelve; lo pone
+  // `correrCalendario` en la tarea que reserva su cancha.
+  | 'third_place';
 
 /**
  * Mapea una ronda del calendario al enum match_stage.
