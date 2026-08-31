@@ -153,6 +153,9 @@ export default function RegistroScreen() {
               onChangeText={setEmail}
               autoCapitalize="none"
               autoCorrect={false}
+              // Sin estos, Chrome no ofrece guardar la credencial al registrarse.
+              autoComplete="username"
+              textContentType="username"
               keyboardType="email-address"
               returnKeyType="next"
               selectionColor={color.gold}
@@ -169,6 +172,11 @@ export default function RegistroScreen() {
               value={password}
               onChangeText={setPassword}
               secureTextEntry
+              // `new-password` y no `current-password`: le dice al gestor que
+              // proponga una contraseña y que guarde la nueva, en vez de
+              // intentar rellenar una que no existe todavía.
+              autoComplete="new-password"
+              textContentType="newPassword"
               returnKeyType="done"
               onSubmitEditing={handleRegistro}
               selectionColor={color.gold}

@@ -173,7 +173,8 @@ export default function RecuperarScreen() {
             editable={!esActivacion}
             autoCapitalize="none"
             autoCorrect={false}
-            autoComplete="email"
+            autoComplete="username"
+            textContentType="username"
             keyboardType="email-address"
             selectionColor={color.gold}
             accessibilityLabel="Correo"
@@ -188,6 +189,7 @@ export default function RecuperarScreen() {
               onChangeText={setPassword}
               secureTextEntry
               autoComplete="new-password"
+              textContentType="newPassword"
               autoFocus
               returnKeyType="done"
               onSubmitEditing={handleActivar}

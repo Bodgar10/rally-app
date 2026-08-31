@@ -180,6 +180,8 @@ export default function NuevaContrasenaScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          autoComplete="new-password"
+          textContentType="newPassword"
           selectionColor={color.gold}
           accessibilityLabel="Nueva contraseña"
         />
@@ -190,6 +192,8 @@ export default function NuevaContrasenaScreen() {
           value={confirm}
           onChangeText={setConfirm}
           secureTextEntry
+          autoComplete="new-password"
+          textContentType="newPassword"
           returnKeyType={esDeMenor ? 'next' : 'done'}
           onSubmitEditing={esDeMenor ? undefined : handleCambiar}
           selectionColor={color.gold}

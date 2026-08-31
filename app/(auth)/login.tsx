@@ -159,10 +159,19 @@ export default function LoginScreen() {
               placeholderTextColor={color.muted}
               value={email}
               onChangeText={setEmail}
-              editable={paso === 'correo'}
+              // `readOnly` y no `editable`: Chrome descarta como campo de
+              // usuario los inputs readonly, y con eso deja de ofrecer la
+              // contraseña guardada. Aquí sigue bloqueado para el usuario pero
+              // el gestor lo ve como un campo normal.
+              readOnly={paso === 'password'}
               autoCapitalize="none"
               autoCorrect={false}
-              autoComplete="email"
+              // `username`, NO `email`. Son tokens distintos: el gestor de
+              // Chrome empareja `username` con `current-password` para ofrecer
+              // una credencial guardada; con `email` trata el campo como un
+              // dato de contacto suelto y no ofrece nada.
+              autoComplete="username"
+              textContentType="username"
               keyboardType="email-address"
               returnKeyType="next"
               onSubmitEditing={paso === 'correo' ? handleContinuar : undefined}
@@ -192,6 +201,7 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 secureTextEntry
                 autoComplete="current-password"
+                textContentType="password"
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}
