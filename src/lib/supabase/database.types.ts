@@ -1727,6 +1727,7 @@ export type Database = {
           registration_fee: number
           start_date: string
           status: Database["public"]["Enums"]["tournament_status"]
+          tercer_lugar: boolean
           venue_id: string | null
         }
         Insert: {
@@ -1740,6 +1741,7 @@ export type Database = {
           registration_fee?: number
           start_date: string
           status?: Database["public"]["Enums"]["tournament_status"]
+          tercer_lugar?: boolean
           venue_id?: string | null
         }
         Update: {
@@ -1753,6 +1755,7 @@ export type Database = {
           registration_fee?: number
           start_date?: string
           status?: Database["public"]["Enums"]["tournament_status"]
+          tercer_lugar?: boolean
           venue_id?: string | null
         }
         Relationships: [
@@ -1994,6 +1997,33 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizer_members_admin: {
+        Row: {
+          email: string | null
+          full_name: string | null
+          member_role:
+            | Database["public"]["Enums"]["organizer_member_role"]
+            | null
+          organizer_id: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organizer_members_organizer_id_fkey"
+            columns: ["organizer_id"]
+            isOneToOne: false
+            referencedRelation: "organizers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organizer_members_organizer_id_fkey"
+            columns: ["organizer_id"]
+            isOneToOne: false
+            referencedRelation: "organizers_public"
             referencedColumns: ["id"]
           },
         ]
