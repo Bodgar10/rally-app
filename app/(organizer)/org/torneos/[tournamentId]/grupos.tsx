@@ -26,7 +26,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable,
+  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable, Modal,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
@@ -38,6 +38,7 @@ import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStandings';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { horaDeTorneo } from '@/lib/fechas';
+import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,13 @@ interface PartidoGrupo {
   id: string;
   parejaA: string;
   parejaB: string;
+  parejaAId: string | null;
+  parejaBId: string | null;
+  ganadorId: string | null;
+  /** Para ordenar por hora sin volver a parsear. Infinity si no la tiene. */
+  horaMin: number;
+  capturado: boolean;
+  sets: SetGuardado[];
   marcador: string | null;
   /** Null mientras no exista el scheduler de grupos. */
   hora: string | null;
@@ -101,6 +109,15 @@ export default function GruposScreen() {
   const [error, setError]   = useState<string | null>(null);
   const [sembrando, setSembrando] = useState<string | null>(null);
   const [avisoSiembra, setAvisoSiembra] = useState<string | null>(null);
+  /**
+   * El partido que se está capturando desde aquí.
+   *
+   * Capturar era lo PRIMERO que el organizador iba a intentar en esta pantalla
+   * y no se podía: había que salir, entrar a la del juez y buscarlo entre 165.
+   * Es el mismo componente que usa el juez, así que la validación, los
+   * mensajes y la corrección son exactamente los mismos.
+   */
+  const [capturando, setCapturando] = useState<PartidoGrupo | null>(null);
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -122,7 +139,7 @@ export default function GruposScreen() {
       supabase.from('groups').select('id, category_id, name').in('category_id', catIds),
       supabase.from('pairs').select('id, category_id, group_id').eq('tournament_id', tournamentId),
       supabase.from('matches')
-        .select('id, category_id, group_id, status, pair_a_id, pair_b_id, scheduled_at, court_label')
+        .select('id, category_id, group_id, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at, court_label')
         .eq('tournament_id', tournamentId).eq('stage', 'group'),
     ]);
 
@@ -181,17 +198,35 @@ export default function GruposScreen() {
     const partidosPorGrupo = new Map<string, PartidoGrupo[]>();
     for (const m of partidos ?? []) {
       if (!m.group_id) continue;
+      const suyos = setsPorMatch.get(m.id) ?? [];
+      const hhmm = m.scheduled_at ? horaDeTorneo(m.scheduled_at) : null;
       const p: PartidoGrupo = {
         id: m.id,
         parejaA: nombreDePareja(m.pair_a_id ? mapaParejas.get(m.pair_a_id) : undefined),
         parejaB: nombreDePareja(m.pair_b_id ? mapaParejas.get(m.pair_b_id) : undefined),
-        marcador: marcadorDe(setsPorMatch.get(m.id) ?? []),
+        parejaAId: m.pair_a_id,
+        parejaBId: m.pair_b_id,
+        ganadorId: m.winner_pair_id ?? null,
+        horaMin: hhmm ? Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)) : Number.POSITIVE_INFINITY,
+        capturado: m.status === 'finished',
+        sets: suyos.map((x) => ({
+          set_number: x.set_number, games_a: x.games_a, games_b: x.games_b,
+          is_super_tiebreak: x.is_super_tiebreak, tiebreak_a: x.tiebreak_a, tiebreak_b: x.tiebreak_b,
+        })),
+        marcador: marcadorDe(suyos),
         // Cableadas para el día que el scheduler de grupos las escriba.
         hora: m.scheduled_at ? horaDeTorneo(m.scheduled_at) : null,
         cancha: m.court_label ?? null,
       };
       const ya = partidosPorGrupo.get(m.group_id);
       if (ya) ya.push(p); else partidosPorGrupo.set(m.group_id, [p]);
+    }
+
+    // POR HORA. Salían 20:00, 22:00, 21:00 — el orden en que los devolvía la
+    // consulta, que no es ninguno. Un grupo se juega de corrido en una cancha
+    // y leerlo desordenado obliga a reconstruir la secuencia a mano.
+    for (const lista of partidosPorGrupo.values()) {
+      lista.sort((a, b) => a.horaMin - b.horaMin || a.id.localeCompare(b.id));
     }
 
     const parejasPorCat = new Map<string, number>();
@@ -331,17 +366,13 @@ export default function GruposScreen() {
               <>
                 {/* Resumen de la categoría */}
                 <View style={s.resumen}>
+                  {/* UNA línea. Eran cuatro explicando el formato, y el
+                      organizador que abre esta pantalla ya sabe cómo armó su
+                      torneo: viene a ver cómo va, no a que se lo cuenten. */}
                   <Text style={s.resumenLinea}>
                     {activa.parejas} parejas · {activa.grupos.length}{' '}
                     {activa.grupos.length === 1 ? 'grupo' : 'grupos'} ·{' '}
-                    {clasificados(activa)} clasifican · {activa.partidos} partidos
-                  </Text>
-                  <Text style={s.resumenDetalle}>
-                    Pasa {activa.pasanPorGrupo === 1 ? 'el primero' : `${activa.pasanPorGrupo}`} de
-                    cada grupo
-                    {activa.repescados > 0
-                      ? `, más ${activa.repescados} ${activa.repescados === 1 ? 'repescado' : 'repescados'} entre los mejores segundos de toda la categoría.`
-                      : '.'}
+                    {clasificados(activa)} clasifican
                   </Text>
                   {/* Una sola vez, no en cada partido. Y solo mientras sea
                       verdad: en cuanto haya horas, sobra. */}
@@ -419,17 +450,27 @@ export default function GruposScreen() {
 
                     <View style={s.partidos}>
                       {g.partidos.map((p) => (
-                        <View key={p.id} style={s.partido}>
-                          <Text style={s.partidoParejas} numberOfLines={2}>
-                            {p.parejaA}  vs  {p.parejaB}
-                          </Text>
-                          <View style={s.partidoMeta}>
-                            {/* Aparecen solas cuando el scheduler las escriba. */}
-                            {p.hora && <Text style={s.partidoHora}>{p.hora}</Text>}
-                            {p.cancha && <Text style={s.partidoCancha}>{p.cancha}</Text>}
-                            {p.marcador && <Text style={s.partidoMarcador}>{p.marcador}</Text>}
+                        <Pressable
+                          key={p.id}
+                          onPress={() => setCapturando(p)}
+                          style={({ pressed }) => [s.partido, pressed && { opacity: 0.7 }]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${p.capturado ? 'Ver o corregir' : 'Capturar'}: ${p.parejaA} contra ${p.parejaB}`}
+                        >
+                          <View style={s.partidoIzq}>
+                            <Text style={s.partidoParejas} numberOfLines={2}>
+                              {p.parejaA}  vs  {p.parejaB}
+                            </Text>
+                            <View style={s.partidoMeta}>
+                              {p.hora && <Text style={s.partidoHora}>{p.hora}</Text>}
+                              {p.cancha && <Text style={s.partidoCancha}>{p.cancha}</Text>}
+                              {p.marcador && <Text style={s.partidoMarcador}>{p.marcador}</Text>}
+                            </View>
                           </View>
-                        </View>
+                          <Text style={p.capturado ? s.accionHecha : s.accion}>
+                            {p.capturado ? 'Corregir' : 'Capturar'}
+                          </Text>
+                        </Pressable>
                       ))}
                     </View>
                   </View>
@@ -441,6 +482,45 @@ export default function GruposScreen() {
 
         {error && <Text style={s.error}>{error}</Text>}
       </ScrollView>
+
+      {/* MISMO flujo que el juez, no una copia. La validación del marcador, el
+          contraste del ganador y la corrección son los de ScoreCapture. */}
+      <Modal
+        visible={!!capturando}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setCapturando(null)}
+      >
+        {capturando && (
+          <SafeAreaView style={s.pantalla}>
+            <View style={s.modalCabecera}>
+              <Text style={s.modalTitulo}>
+                {capturando.capturado ? 'Corregir resultado' : 'Capturar resultado'}
+              </Text>
+              <Pressable
+                onPress={() => setCapturando(null)}
+                style={{ padding: space[2] }}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+              >
+                <Text style={s.modalCerrar}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: bottomInset }}>
+              <ScoreCapture
+                matchId={capturando.id}
+                pairAId={capturando.parejaAId ?? ''}
+                pairBId={capturando.parejaBId ?? ''}
+                pairAName={capturando.parejaA}
+                pairBName={capturando.parejaB}
+                setsIniciales={capturando.sets}
+                ganadorInicial={capturando.ganadorId}
+                onSuccess={() => { setCapturando(null); void cargar(); }}
+              />
+            </ScrollView>
+          </SafeAreaView>
+        )}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -503,14 +583,23 @@ const s = StyleSheet.create({
   grupoPasan:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
   grupoCompleto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.live },
 
-  partidos:        { gap: space[1] },
-  partido:         { backgroundColor: color.surface, borderRadius: radius.md, paddingHorizontal: space[3], paddingVertical: space[2], flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  partidoParejas:  { flex: 1, fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  partidos:        { gap: space[2] },
+  // Sube de `caption` a `body`: la tabla era ilegible a un brazo de distancia,
+  // que es como se mira un teléfono en la orilla de una cancha.
+  partido:         { backgroundColor: color.surface, borderRadius: radius.md, paddingHorizontal: space[3], paddingVertical: space[3], flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  partidoIzq:      { flex: 1, gap: space[1] },
+  partidoParejas:  { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
   partidoMeta:     { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  partidoHora:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
-  partidoCancha:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
-  partidoMarcador: { fontFamily: font.display, fontSize: fontSize.caption, color: color.text },
+  partidoHora:     { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne },
+  partidoCancha:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  partidoMarcador: { fontFamily: font.display, fontSize: fontSize.body, color: color.text },
+  accion:          { fontFamily: font.body, fontSize: fontSize.body, color: color.gold, fontWeight: '600' },
+  accionHecha:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
 
   vacio: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 21, paddingVertical: space[3] },
+  modalCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space[4], paddingVertical: space[3], borderBottomWidth: 1, borderBottomColor: color.lineSoft },
+  modalTitulo:   { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  modalCerrar:   { fontFamily: font.body, fontSize: 15, color: color.muted },
+
   error: { fontFamily: font.body, fontSize: fontSize.body, color: color.danger, lineHeight: 21, marginTop: space[2] },
 });

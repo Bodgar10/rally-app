@@ -107,9 +107,22 @@ export function parseHora(hhmm: string): number {
   return h * 60 + min;
 }
 
+/**
+ * Minutos desde medianoche -> 'HH:MM', envolviendo pasada la medianoche.
+ *
+ * `1470` son las 00:30 del día siguiente, no las «24:30». Un día con retrasos
+ * puede pasar de las 24 h y la pantalla llegó a enseñar "hasta las 24:30", que
+ * no es una hora que exista y le dice al organizador que el cálculo está roto
+ * aunque no lo esté.
+ *
+ * No se marca de qué día es: quien llama ya sabe que es el mismo día que
+ * empezó, y añadir un "+1" aquí obligaría a todos los sitios que solo quieren
+ * la hora a limpiarlo.
+ */
 export function formatHora(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
+  const enElDia = ((min % 1440) + 1440) % 1440;
+  const h = Math.floor(enElDia / 60);
+  const m = enElDia % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 

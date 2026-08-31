@@ -43,7 +43,8 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import HorasUltimoDia from '@/components/tournament/HorasUltimoDia';
 import { fetchParejasPublicas, type ParejaPublica } from '@/lib/parejas-publicas';
 import { frasePersonas } from '@/lib/frase-personas';
-import VistaCronologica from '@/components/organizer/VistaCronologica';
+import ParrillaDia from '@/components/organizer/ParrillaDia';
+import AvisosPlegables, { type GrupoAvisos } from '@/components/organizer/AvisosPlegables';
 import MoverPartido from '@/components/organizer/MoverPartido';
 import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
 import {
@@ -115,12 +116,17 @@ interface EmpalmeReal {
   jugador: string;
   hora: string;
   detalle: string;
+  /** Para saltar a la celda. El aviso decía la hora y tocaba buscarlo a mano. */
+  matchId: string;
+  dia: string;
 }
 
 interface Riesgo {
   texto: string;
   /** Quiénes son, por nombre. Vacío si no se pudieron resolver. */
   jugadores: string[];
+  matchId?: string;
+  dia?: string;
 }
 
 interface Estado {
@@ -254,6 +260,8 @@ export default function CalendarioScreen() {
   const [diaTab, setDiaTab] = useState<string | null>(null);
   /** El partido que se está moviendo. Null = nadie. */
   const [moviendo, setMoviendo] = useState<Fila | null>(null);
+  /** La celda a la que saltó un aviso. Se limpia al cambiar de día o filtro. */
+  const [resaltado, setResaltado] = useState<string | null>(null);
   const [fase, setFase]     = useState<Fase>({ t: 'cargando' });
   const [error, setError]   = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
@@ -428,6 +436,8 @@ export default function CalendarioScreen() {
         jugador: nombrePorId.get(jugadorId) ?? 'Un jugador',
         hora,
         detalle: choque.map((c) => `${c.etapa} de ${c.categoria}`).join(' y '),
+        matchId: choque[0].id,
+        dia: choque[0].dia,
       });
     }
     reales.sort((a, b) => a.hora.localeCompare(b.hora) || a.jugador.localeCompare(b.jugador));
@@ -455,8 +465,15 @@ export default function CalendarioScreen() {
     let finRealista: string | null = null;
     let previsualizacion = false;
 
-    if (filas.length > 0) {
-      fin = deMinutos(Math.max(...filas.map((f) => f.horaMin)) + minutos);
+    // SOLO las filas del ÚLTIMO DÍA. La cabecera habla del día de
+    // eliminatorias, y desde que esta pantalla cubre el fin de semana entero
+    // `filas` trae también viernes y sábado: el máximo caía en el último
+    // partido de grupos del sábado y la cabecera anunciaba que el domingo
+    // terminaba a las 23:00 cuando el plan acaba a las 19:00.
+    const delUltimoDia = filas.filter((f) => f.dia === ventana.dia);
+
+    if (delUltimoDia.length > 0) {
+      fin = deMinutos(Math.max(...delUltimoDia.map((f) => f.horaMin)) + minutos);
 
       // MISMA fórmula que el motor, importada de él: se estira la CADENA de
       // cada categoría, no el día. Duplicarla aquí garantizaría que las dos
@@ -465,7 +482,7 @@ export default function CalendarioScreen() {
       // Las rondas de una categoría se cuentan por etapas distintas en el
       // plan: si tiene octavos, cuartos, semis y final, son cuatro eslabones.
       const cadenas = new Map<string, { rondas: Set<string>; ultimo: number }>();
-      for (const f of filas) {
+      for (const f of delUltimoDia) {
         const ya = cadenas.get(f.categoriaId);
         if (ya) { ya.rondas.add(f.stage); ya.ultimo = Math.max(ya.ultimo, f.horaMin); }
         else cadenas.set(f.categoriaId, { rondas: new Set([f.stage]), ultimo: f.horaMin });
@@ -600,6 +617,37 @@ export default function CalendarioScreen() {
     ?? estado?.dias[0]
     ?? { dia: '', etiqueta: '', filas: [] as Fila[], franjas: [] as Franja[], categorias: [] };
 
+  /**
+   * Los avisos del DÍA que se está mirando, uno por tipo.
+   *
+   * Del día y no del torneo: un choque del viernes no ayuda a quien está
+   * cuadrando el domingo, y mezclarlos era parte de por qué la lista se hacía
+   * ilegible.
+   */
+  const avisosDelDia: GrupoAvisos[] = estado ? [
+    {
+      clave: 'reales',
+      tono: 'error',
+      titulo: (n) => n === 1
+        ? 'Un jugador tiene dos partidos a la vez'
+        : `${n} jugadores tienen dos partidos a la vez`,
+      lineas: estado.reales
+        .filter((e) => e.dia === diaActivo.dia)
+        .map((e) => ({ texto: `${e.hora} · ${e.jugador} — ${e.detalle}`, matchId: e.matchId })),
+    },
+    {
+      clave: 'riesgos',
+      tono: 'aviso',
+      // "Posibles empalmes" no le dice nada a nadie. Esto sí: qué pasa y por qué.
+      titulo: (n) => n === 1
+        ? 'Dos categorías con jugadores en común juegan a la vez'
+        : `${n} pares de categorías con jugadores en común juegan a la vez`,
+      lineas: estado.riesgos
+        .filter((r) => !r.dia || r.dia === diaActivo.dia)
+        .map((r) => ({ texto: r.texto, matchId: r.matchId })),
+    },
+  ] : [];
+
   function abrirMover(f: Fila) {
     // Las filas que vienen del plan y no de `matches` no tienen partido que
     // mover: su id es 'plan:...' y no existe en la base.
@@ -680,41 +728,6 @@ export default function CalendarioScreen() {
               </View>
             )}
 
-            {/* 2 · Empalmes. Los reales primero: son certezas, no riesgos. */}
-            {estado.reales.length > 0 && (
-              <View style={s.alerta}>
-                <Text style={s.alertaTitulo}>
-                  {estado.reales.length === 1
-                    ? 'Un jugador tiene dos partidos a la vez'
-                    : `${estado.reales.length} jugadores tienen dos partidos a la vez`}
-                </Text>
-                {estado.reales.map((e, i) => (
-                  <Text key={i} style={s.alertaLinea}>
-                    {e.jugador} — {e.detalle}, ambas {e.hora}.
-                  </Text>
-                ))}
-                <Text style={s.alertaPie}>
-                  Decide tú quién espera. El sistema no mueve nada por su cuenta.
-                </Text>
-              </View>
-            )}
-
-            {estado.riesgos.length > 0 && (
-              <View style={s.riesgo}>
-                <Text style={s.riesgoTitulo}>Posibles empalmes</Text>
-                {estado.riesgos.map((r, i) => (
-                  <View key={i} style={{ gap: 2 }}>
-                    <Text style={s.riesgoLinea}>{r.texto}</Text>
-                    {/* Los nombres completos: el aviso corta en tres para que se
-                        lea, pero para escribirles hacen falta todos. */}
-                    {r.jugadores.length > 2 && (
-                      <Text style={s.riesgoNombres}>{r.jugadores.join(' · ')}</Text>
-                    )}
-                  </View>
-                ))}
-              </View>
-            )}
-
             {/* 3 · El calendario, por pestañas.
                 Antes era una tira de tarjetas idénticas: ocho octavos de la
                 misma categoría ocupaban la pantalla entera sin decir nada que
@@ -743,6 +756,11 @@ export default function CalendarioScreen() {
                   />
                 )}
 
+                {/* La categoría FILTRA la parrilla; no cambia de vista.
+                    Antes abría el cuadro eliminatorio, que en los días de
+                    grupos no tiene nada que enseñar: el viernes con "2A Fuerza"
+                    decía "no hay partidos" mientras sus partidos estaban a la
+                    vista en «Todo el día». */}
                 <SelectorPestanas
                   pestanas={[
                     { id: TODO_EL_DIA, etiqueta: 'Todo el día', cuenta: diaActivo.filas.length },
@@ -754,18 +772,26 @@ export default function CalendarioScreen() {
                   onCambiar={setTab}
                 />
 
-                {tab === TODO_EL_DIA ? (
-                  <VistaCronologica
-                    franjas={diaActivo.franjas}
-                    canchas={estado.canchas}
-                    onPartido={(f) => abrirMover(f as Fila)}
-                  />
-                ) : (
-                  <VistaCuadro
-                    filas={diaActivo.filas.filter((f) => f.categoriaId === tab && f.stage !== 'group')}
-                    categoria={diaActivo.categorias.find((c) => c.id === tab)?.nombre ?? ''}
-                  />
-                )}
+                <ParrillaDia
+                  filas={tab === TODO_EL_DIA
+                    ? diaActivo.filas
+                    : diaActivo.filas.filter((f) => f.categoriaId === tab)}
+                  canchas={estado.canchas ?? 8}
+                  resaltado={resaltado}
+                  onCelda={(f) => abrirMover(f as Fila)}
+                />
+
+                {/* DESPUÉS de la parrilla: se entra a ver el calendario, no a
+                    que le griten a uno. Y una línea por tipo, no veinticinco. */}
+                <AvisosPlegables
+                  grupos={avisosDelDia}
+                  onSaltar={(id) => {
+                    const f = estado.filas.find((x) => x.id === id);
+                    if (f && f.dia !== diaActivo.dia) setDiaTab(f.dia);
+                    setTab(TODO_EL_DIA);
+                    setResaltado(id);
+                  }}
+                />
               </>
             )}
 
@@ -933,10 +959,17 @@ function empalmesDeLasFilas(
           .map((j) => nombrePorJugador.get(j))
           .filter((n): n is string => !!n)
           .sort((a, b) => a.localeCompare(b, 'es'));
+        // Corto y accionable: qué, quién, cuándo. El párrafo anterior decía lo
+        // mismo en tres renglones que nadie terminaba de leer.
+        const quienes = nombres.length
+          ? nombres.slice(0, 2).join(' y ') + (nombres.length > 2 ? ` +${nombres.length - 2}` : '')
+          : 'jugadores en común';
+        const ejemplo = filas.find((f) => f.hora === hora && f.categoriaId === ids[i]);
         out.push({
-          texto: `${nombre.get(ids[i])} y ${nombre.get(ids[k])} ${frasePersonas(nombres)} y su `
-            + `${cats.get(ids[i])} y ${cats.get(ids[k])} coinciden a las ${hora}.`,
+          texto: `${hora} · ${nombre.get(ids[i])} y ${nombre.get(ids[k])} — ${quienes}`,
           jugadores: nombres,
+          matchId: ejemplo?.id,
+          dia: ejemplo?.dia,
         });
       }
     }

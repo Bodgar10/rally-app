@@ -72,6 +72,27 @@ describe('horas', () => {
   });
 });
 
+describe('formatHora', () => {
+  it('envuelve pasada la medianoche: no existen las 24:30', () => {
+    // Un día con retrasos puede pasar de las 24 h. La pantalla enseñaba
+    // "hasta las 24:30", que le dice al organizador que el cálculo está roto
+    // aunque no lo esté.
+    expect(formatHora(24 * 60 + 30)).toBe('00:30');
+    expect(formatHora(25 * 60)).toBe('01:00');
+    expect(formatHora(48 * 60 + 15)).toBe('00:15');
+  });
+
+  it('dentro del día no cambia nada', () => {
+    expect(formatHora(0)).toBe('00:00');
+    expect(formatHora(8 * 60)).toBe('08:00');
+    expect(formatHora(23 * 60 + 59)).toBe('23:59');
+  });
+
+  it('aguanta negativos sin escupir un guion', () => {
+    expect(formatHora(-30)).toBe('23:30');
+  });
+});
+
 describe('cota inferior', () => {
   it('manda el encadenamiento, no la division simple', () => {
     // 17:00 con el 3.er lugar contando cancha en la oleada de las finales;

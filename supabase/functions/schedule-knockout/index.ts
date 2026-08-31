@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
 
     const { data: torneo } = await admin
       .from('tournaments')
-      .select('id, organizer_id, courts, match_minutes')
+      .select('id, organizer_id, courts, match_minutes, tercer_lugar')
       .eq('id', tournamentId)
       .maybeSingle();
     if (!torneo) return json({ error: 'tournament_not_found' }, 404);
@@ -218,6 +218,11 @@ Deno.serve(async (req) => {
         hasta: aHHMM(ventana.hasta),
         categorias,
         minutosPorPartido: torneo.match_minutes as number,
+        // El torneo decide si se juega el 3.er lugar (migración 052). Sin esta
+        // línea el motor caía a su default `true` y reservaba una cancha por
+        // categoría para un partido que nadie iba a jugar: ocho slots fantasma
+        // en la transición de semis a final, justo la hora más cargada.
+        tercerLugar: (torneo as { tercer_lugar?: boolean }).tercer_lugar !== false,
       });
     } catch (e) {
       // El motor valida su entrada (canchas, ventana invertida, duración fuera
