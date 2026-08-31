@@ -48,8 +48,12 @@ select
 from public.pairs p
 join public.users       u1 on u1.id = p.player1_id
 join public.users       u2 on u2.id = p.player2_id
-join auth.users         a1 on a1.id = p.player1_id
-join auth.users         a2 on a2.id = p.player2_id
+-- LEFT y no INNER: con un INNER, una pareja cuyo jugador no tuviera fila en
+-- `auth.users` desaparecería de la lista del organizador sin decir nada. Es
+-- preferible que salga marcada como «no ha entrado» —que es lo conservador— a
+-- que se esfume del recuento de inscritas.
+left join auth.users    a1 on a1.id = p.player1_id
+left join auth.users    a2 on a2.id = p.player2_id
 join public.tournaments t  on t.id  = p.tournament_id
 where public.is_org_owner(t.organizer_id);
 
