@@ -650,6 +650,21 @@ interface AvisoBloques {
   sinBloque: number;
 }
 
+/**
+ * Cómo quedaron los horarios tras el cierre.
+ *
+ * `close-registration` dispara los dos schedulers cuando ya no queda ninguna
+ * categoría abierta. Si alguno falla NO se deshace el cierre: los grupos y los
+ * partidos están bien, lo que falta es la hora. Así que esta pantalla lo dice y
+ * ofrece reintentar, en vez de dejar al organizador con un torneo cerrado que
+ * nadie sabe a qué hora se juega.
+ */
+type EstadoHorarios =
+  | { t: 'no_intentado' }              // quedan categorías abiertas
+  | { t: 'ok' }
+  | { t: 'fallo'; grupos: boolean; eliminatorias: boolean }
+  | { t: 'reintentando' };
+
 type Fase =
   | { t: 'cargando' }
   | { t: 'lista' }
@@ -666,6 +681,7 @@ type Fase =
       fallo: { nombre: string; motivo: string } | null;
       /** Solo las categorías con algo que contar. Vacío es el caso bueno. */
       bloques: AvisoBloques[];
+      horarios: EstadoHorarios;
     };
 
 export default function CerrarInscripcionesScreen() {
@@ -944,11 +960,70 @@ export default function CerrarInscripcionesScreen() {
   async function reportar(
     fallo: { nombre: string; motivo: string } | null,
     bloques: AvisoBloques[] = [],
+    horarios: EstadoHorarios = { t: 'no_intentado' },
   ) {
     const real = await leerEstadoReal();
     setFase(real
-      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallo, bloques }
-      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallo, bloques });
+      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallo, bloques, horarios }
+      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallo, bloques, horarios });
+  }
+
+  /** La respuesta de close-registration traducida al estado de la pantalla. */
+  function leerHorarios(h: unknown): EstadoHorarios {
+    const x = h as {
+      intentado?: boolean;
+      grupos?: { ok?: boolean } | null;
+      eliminatorias?: { ok?: boolean } | null;
+    } | null | undefined;
+
+    if (!x?.intentado) return { t: 'no_intentado' };
+    const grupos = x.grupos?.ok === true;
+    const eliminatorias = x.eliminatorias?.ok === true;
+    return grupos && eliminatorias ? { t: 'ok' } : { t: 'fallo', grupos, eliminatorias };
+  }
+
+  /**
+   * Vuelve a correr los dos schedulers.
+   *
+   * Ambos son idempotentes —reprograman sobre lo que ya hay, sin tocar los
+   * partidos jugados—, así que reintentar no puede empeorar nada. Por eso el
+   * botón no pide confirmación.
+   */
+  async function reintentarHorarios() {
+    if (fase.t !== 'resultado') return;
+    const previo = fase;
+    setFase({ ...previo, horarios: { t: 'reintentando' } });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setFase({ ...previo, horarios: { t: 'fallo', grupos: false, eliminatorias: false } }); return; }
+
+    const correr = async (fn: string) => {
+      try {
+        const res = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/${fn}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
+          },
+          body: JSON.stringify({ tournamentId }),
+        });
+        const cuerpo = await res.json().catch(() => null);
+        if (!res.ok) console.error(`[cerrar-inscripciones] ${fn}:`, cuerpo);
+        return res.ok;
+      } catch (e) {
+        console.error(`[cerrar-inscripciones] ${fn} no llegó:`, e);
+        return false;
+      }
+    };
+
+    const grupos = await correr('schedule-groups');
+    const eliminatorias = await correr('schedule-knockout');
+
+    setFase({
+      ...previo,
+      horarios: grupos && eliminatorias ? { t: 'ok' } : { t: 'fallo', grupos, eliminatorias },
+    });
   }
 
   async function cerrar() {
@@ -956,6 +1031,9 @@ export default function CerrarInscripcionesScreen() {
     if (!session) { setError('Tu sesión expiró. Vuelve a entrar.'); return; }
 
     const avisos: AvisoBloques[] = [];
+    // Lo devuelve la ÚLTIMA llamada, que es la que dispara los schedulers
+    // cuando ya no queda ninguna categoría abierta.
+    let horarios: EstadoHorarios = { t: 'no_intentado' };
 
     for (let i = 0; i < cerrables.length; i++) {
       const c = cerrables[i];
@@ -981,7 +1059,7 @@ export default function CerrarInscripcionesScreen() {
           console.error('[cerrar-inscripciones] close-registration respondió con error', {
             categoria: c.nombre, categoryId: c.id, status: res.status, cuerpo: json,
           });
-          await reportar({ nombre: c.nombre, motivo: traducir(json?.error) }, avisos);
+          await reportar({ nombre: c.nombre, motivo: traducir(json?.error) }, avisos, horarios);
           return;
         }
 
@@ -994,6 +1072,8 @@ export default function CerrarInscripcionesScreen() {
         if (mezclados > 0 || sinBloque > 0) {
           avisos.push({ categoria: c.nombre, mezclados, sinBloque });
         }
+
+        horarios = leerHorarios(json?.horarios);
       } catch (e) {
         // El error se CAPTURA y se registra. Antes este catch era desnudo y
         // fijaba "Sin conexión con el servidor", que es una conclusión, no un
@@ -1005,14 +1085,14 @@ export default function CerrarInscripcionesScreen() {
         await reportar({
           nombre: c.nombre,
           motivo: `La petición no llegó a completarse. Detalle: ${detalle}`,
-        }, avisos);
+        }, avisos, horarios);
         return;
       }
     }
 
     // También en el camino feliz se relee: ocho respuestas 200 son ocho
     // promesas, y el parte se da con hechos.
-    await reportar(null, avisos);
+    await reportar(null, avisos, horarios);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1106,6 +1186,53 @@ export default function CerrarInscripcionesScreen() {
                 Vuelve atrás para reintentarlas. Cerrar una categoría es
                 idempotente: las que ya están cerradas no se tocan.
               </Text>
+            </View>
+          )}
+
+          {/* ── Los horarios ──────────────────────────────────────────────
+              Cerrar YA programa el torneo entero. Si el jugador entra y ve su
+              grupo sin hora, el cierre quedó a medias aunque los partidos
+              estén bien creados: por eso esto se dice en grande y con salida. */}
+          {fase.horarios.t === 'ok' && (
+            <View style={s.resumenOk}>
+              <Text style={s.resumenTitulo}>Horarios generados</Text>
+              <Text style={s.resumenLinea}>
+                Cada partido tiene ya su hora y su cancha. Los jugadores lo ven
+                desde su pantalla del torneo.
+              </Text>
+            </View>
+          )}
+
+          {fase.horarios.t === 'reintentando' && (
+            <View style={s.resumenPendiente}>
+              <Text style={s.resumenTituloAviso}>Generando horarios…</Text>
+            </View>
+          )}
+
+          {fase.horarios.t === 'fallo' && (
+            <View style={s.resumenFallo}>
+              <Text style={s.resumenFalloTitulo}>Cerrado, pero sin horarios</Text>
+              <Text style={s.resumenLinea}>
+                Los grupos y los partidos quedaron bien creados. Lo que falló fue
+                ponerles hora y cancha:
+              </Text>
+              <Text style={s.resumenLinea}>
+                · Fase de grupos — {fase.horarios.grupos ? 'listo' : 'no se programó'}
+              </Text>
+              <Text style={s.resumenLinea}>
+                · Eliminatorias — {fase.horarios.eliminatorias ? 'listo' : 'no se programó'}
+              </Text>
+              <Text style={s.resumenNota}>
+                No hace falta deshacer nada. Lo más común es que falten canchas o
+                los horarios del torneo: revísalos y vuelve a intentarlo.
+              </Text>
+              <Pressable
+                onPress={reintentarHorarios}
+                style={({ pressed }) => [s.btnReintentar, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+              >
+                <Text style={s.btnReintentarTexto}>Reintentar horarios</Text>
+              </Pressable>
             </View>
           )}
 
@@ -1438,6 +1565,17 @@ const s = StyleSheet.create({
   btnInactivo:      { backgroundColor: color.surface2, borderColor: color.line },
   btnDoradoTexto:   { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold, letterSpacing: 0.3 },
   btnTextoInactivo: { color: color.muted },
+
+  // Perfilado, no dorado: la acción dorada de esta pantalla es cerrar. Esto es
+  // arreglar algo que salió mal, y no debe competir con ella.
+  btnReintentar: {
+    backgroundColor: 'transparent', borderWidth: 1, borderColor: color.danger,
+    borderRadius: radius.sm, minHeight: touchTarget,
+    alignItems: 'center', justifyContent: 'center', marginTop: space[2],
+  },
+  btnReintentarTexto: {
+    fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.danger, letterSpacing: 0.3,
+  },
 
   resumenOk:         { backgroundColor: color.surface, borderWidth: 1, borderColor: color.live, borderRadius: radius.md, padding: space[4], gap: space[1] },
   resumenPendiente: { backgroundColor: color.surface, borderWidth: 1, borderColor: color.alive, borderRadius: radius.lg, padding: space[4], gap: space[1] },

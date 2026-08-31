@@ -36,6 +36,50 @@ const ANON_KEY      = Deno.env.get("SUPABASE_ANON_KEY")!;
 //   ramas de error también salen legibles: un 400 sin CORS se vería igual de
 //   mudo que este 405.
 
+/**
+ * Corre los DOS schedulers si el torneo ya no tiene categorías abiertas.
+ *
+ * Se llaman por HTTP y no en proceso porque cada una tiene su propia
+ * autorización (owner del torneo) y su propio contrato; reimplementarlas aquí
+ * sería tener dos verdades sobre cómo se programa un torneo.
+ *
+ * NUNCA lanza: el peor resultado posible es un torneo cerrado sin horarios, y
+ * eso se arregla desde la pantalla. Deshacer el cierre sería mucho peor.
+ */
+interface Horarios {
+  intentado: boolean;
+  grupos: { ok: boolean; detalle: unknown } | null;
+  eliminatorias: { ok: boolean; detalle: unknown } | null;
+}
+
+async function programarTorneo(tournamentId: string, authHeader: string): Promise<Horarios> {
+  const base = Deno.env.get("SUPABASE_URL")!;
+  const llamar = async (fn: string) => {
+    try {
+      const res = await fetch(`${base}/functions/v1/${fn}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+          apikey: ANON_KEY,
+        },
+        body: JSON.stringify({ tournamentId }),
+      });
+      const cuerpo = await res.json().catch(() => null);
+      return { ok: res.ok, detalle: cuerpo };
+    } catch (e) {
+      return { ok: false, detalle: { error: "sin_respuesta", message: String(e) } };
+    }
+  };
+
+  // En serie: las dos escriben en `matches` del mismo torneo y una tanda de
+  // UPDATEs cruzada con otra no aporta velocidad, solo formas de pisarse.
+  const grupos = await llamar("schedule-groups");
+  const eliminatorias = await llamar("schedule-knockout");
+
+  return { intentado: true, grupos, eliminatorias };
+}
+
 serve(async (req) => {
   // ANTES del check de método: un OPTIONS no es una llamada mal hecha, es el
   // navegador preguntando si puede llamar.
@@ -178,9 +222,47 @@ serve(async (req) => {
     return json({ error: "rpc_failed", detail: rpcErr.message }, code);
   }
 
+  // ── 10) Los horarios, sin botón manual ────────────────────────────────────
+  //
+  // POR QUÉ AQUÍ Y NO EN LA PANTALLA
+  //   Cerrar inscripciones YA genera los grupos y los partidos. Que los
+  //   partidos existan sin hora es un estado a medias que no le sirve a nadie:
+  //   el jugador entra, ve su grupo y no sabe cuándo juega. Si el paso de
+  //   programar depende de que el organizador se acuerde de pulsar otro botón,
+  //   habrá torneos que lleguen al viernes sin calendario.
+  //
+  // POR QUÉ SOLO CUANDO YA NO QUEDA NINGUNA ABIERTA
+  //   Esta función cierra UNA categoría y la pantalla la llama en bucle. El
+  //   scheduler de eliminatorias necesita el torneo entero —se salta las
+  //   categorías sin formato calculado—, así que dispararlo tras cada
+  //   categoría produciría siete planes incompletos y uno bueno. Se espera al
+  //   final, que además es una sola llamada.
+  //
+  // SI FALLA, EL CIERRE NO SE DESHACE
+  //   Los grupos y los partidos ya están materializados y son correctos; lo
+  //   que falta es la hora. Deshacer el cierre por eso sería tirar el trabajo
+  //   bueno por el que falta. Se responde `ok: true` con el fallo dentro, y la
+  //   pantalla ofrece reintentar.
+  //
+  // La consulta va aquí y no dentro del helper para no tener que tipar el
+  // cliente admin como parámetro: `createClient` infiere un genérico que no
+  // sobrevive al paso por una firma.
+  const { data: abiertas, error: abiertasErr } = await admin
+    .from("categories")
+    .select("id")
+    .eq("tournament_id", cat.tournament_id)
+    .eq("status", "open");
+
+  // Si no se puede saber cuántas quedan, no se programa: mejor que la pantalla
+  // lo ofrezca a mano que disparar un calendario a medio torneo.
+  const horarios: Horarios = (abiertasErr || (abiertas ?? []).length > 0)
+    ? { intentado: false, grupos: null, eliminatorias: null }
+    : await programarTorneo(cat.tournament_id, authHeader);
+
   return json({
     ok: true,
     result,
+    horarios,
     // Cómo quedó el reparto respecto a los horarios que eligió la gente.
     bloques: {
       // Grupos con parejas de más de un bloque. El bloque que se les asigna es

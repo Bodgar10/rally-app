@@ -266,16 +266,28 @@ Deno.serve(async (req) => {
     let escritos = 0;
     const fallos: string[] = [];
 
-    // Uno a uno y no en lote: cada partido lleva hora Y cancha distintas, así
-    // que un upsert masivo exigiría mandar la fila entera y arriesgarse a pisar
-    // columnas que no son nuestras (resultado, estado, parejas).
-    for (const p of porEscribir) {
-      const { error } = await admin
-        .from('matches')
-        .update({ scheduled_at: aTimestamptz(p.inicio), court_label: `Cancha ${p.cancha}` })
-        .eq('id', p.matchId);
-      if (error) fallos.push(`${p.matchId}: ${error.message}`);
-      else escritos += 1;
+    // UPDATE fila a fila y no un upsert en lote: cada partido lleva hora Y
+    // cancha distintas, así que el lote exigiría mandar la fila entera y se
+    // arriesgaría a pisar columnas que no son nuestras (resultado, estado,
+    // parejas). El UPDATE toca exactamente dos columnas.
+    //
+    // Pero EN TANDAS, no en fila india: un torneo como Cimepa son 165 partidos,
+    // y 165 viajes seguidos a Postgres desde una Edge Function son segundos de
+    // reloj por nada. De 20 en 20 baja a nueve viajes.
+    const TANDA = 20;
+    for (let i = 0; i < porEscribir.length; i += TANDA) {
+      const tanda = porEscribir.slice(i, i + TANDA);
+      const res = await Promise.all(tanda.map((p) =>
+        admin
+          .from('matches')
+          .update({ scheduled_at: aTimestamptz(p.inicio), court_label: `Cancha ${p.cancha}` })
+          .eq('id', p.matchId)
+          .then((r) => ({ id: p.matchId, error: r.error }))
+      ));
+      for (const r of res) {
+        if (r.error) fallos.push(`${r.id}: ${r.error.message}`);
+        else escritos += 1;
+      }
     }
 
     // Los empalmes con NOMBRE de categoría, no con uuid: el consumidor es una
