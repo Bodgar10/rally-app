@@ -296,7 +296,7 @@ RALLY · Simular la captura de resultados de la fase de grupos
   // ── Torneo ────────────────────────────────────────────────────────────────
   const { data: torneo, error: te } = await admin
     .from('tournaments')
-    .select('id, name, status, organizer_id, start_date')
+    .select('id, name, status, organizer_id, start_date, tercer_lugar')
     .eq('id', args.tournamentId).single();
   if (te || !torneo) {
     console.error(`No se encontró el torneo ${args.tournamentId}: ${te?.message ?? 'sin filas'}`);
@@ -536,6 +536,7 @@ RALLY · Simular la captura de resultados de la fase de grupos
       const r = await jugarCuadro({
         admin, URL, token, cat, grupos, baseHoraria, horaCuadro: HORA_CUADRO, fallo,
         organizerId: torneo.organizer_id, actorId: sesion.user.id,
+        tercerLugarActivo: torneo.tercer_lugar !== false,
       });
       capturados += r.capturados;
       conSuper += r.conSuper;
@@ -581,6 +582,7 @@ RALLY · Simular la captura de resultados de la fase de grupos
  */
 async function jugarCuadro({
   admin, URL, token, cat, grupos, baseHoraria, horaCuadro, fallo, organizerId, actorId,
+  tercerLugarActivo,
 }) {
   let capturados = 0, conSuper = 0, campeon = null;
 
@@ -797,7 +799,16 @@ async function jugarCuadro({
   // devuelve null y hace bien. Exigirlo ahí sería exigir un partido de uno.
   const semisReales = semis.filter((m) => m.pair_a_id && m.pair_b_id).length === 2;
 
-  if (semis.length === 2 && !semisReales) {
+  // El torneo puede tenerlo apagado (migración 052). Entonces lo correcto es
+  // que NO exista, y comprobarlo es tan importante como lo contrario: un
+  // interruptor que no apaga nada es peor que no tenerlo.
+  if (!tercerLugarActivo) {
+    if (tercero) {
+      fallo(`${cat.display_name}: el torneo tiene el 3.er lugar APAGADO y aun así se creó`);
+    } else {
+      bien('3.er lugar apagado en el torneo: no se creó, como debe');
+    }
+  } else if (semis.length === 2 && !semisReales) {
     if (tercero) {
       fallo(`${cat.display_name}: se creó un tercer lugar con una semifinal que fue bye`);
     } else {
