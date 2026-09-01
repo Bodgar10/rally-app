@@ -61,6 +61,8 @@ interface FilaPartido {
   id: string; group_id: string | null; category_id: string;
   pair_a_id: string | null; pair_b_id: string | null;
   round_label: string | null; status: string;
+  /** Necesario para distinguir "ya tiene hora" de "nunca la tuvo". Ver el paso 7. */
+  scheduled_at: string | null;
 }
 
 /** 'R1' → 1. Es lo que escribe close-registration desde `generateRoundRobin`. */
@@ -171,7 +173,7 @@ Deno.serve(async (req) => {
           .select('id, category_id, group_id, player1_id, player2_id')
           .eq('tournament_id', tournamentId),
         admin.from('matches')
-          .select('id, group_id, category_id, pair_a_id, pair_b_id, round_label, status')
+          .select('id, group_id, category_id, pair_a_id, pair_b_id, round_label, status, scheduled_at')
           .eq('tournament_id', tournamentId)
           .eq('stage', 'group'),
         admin.from('pair_block_choices')
@@ -258,8 +260,24 @@ Deno.serve(async (req) => {
     // Un partido ya jugado conserva su hora: es un hecho, no un plan. Se cuenta
     // aparte para que el organizador sepa que ese trozo del calendario no se
     // movió aunque él pidiera reprogramar.
+    //
+    // PERO SOLO SI TIENE HORA QUE CONSERVAR. Antes bastaba con `status =
+    // 'finished'`, y eso dejaba fuera para siempre al partido que se capturó
+    // ANTES de generar el calendario: nunca tuvo `scheduled_at`, el scheduler
+    // lo saltaba por jugado, y en la pantalla de Grupos salía sin hora ni
+    // cancha mientras sus vecinos las tenían — con pinta de que se habían
+    // borrado al capturar.
+    //
+    // Verificado en el torneo de prueba: 162 de 165 partidos con hora, y los
+    // 3 sin ella eran exactamente los 3 capturados. Todos del mismo grupo.
+    //
+    // Se le escribe su franja igual: es la que le tocaba, y el orden de las
+    // dos acciones del organizador —capturar y programar— no debería cambiar
+    // lo que ve después.
     const jugados = new Set(
-      ((partidos ?? []) as FilaPartido[]).filter((m) => m.status === 'finished').map((m) => m.id),
+      ((partidos ?? []) as FilaPartido[])
+        .filter((m) => m.status === 'finished' && m.scheduled_at)
+        .map((m) => m.id),
     );
 
     const porEscribir = plan.partidos.filter((p) => !jugados.has(p.matchId));

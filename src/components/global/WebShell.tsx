@@ -27,6 +27,7 @@ import {
 import { usePathname, useRouter } from 'expo-router';
 
 import { useIsOrganizerOwner } from '@/hooks/useIsOrganizerOwner';
+import { useJudgeTournaments } from '@/hooks/useJudgeTournaments';
 import { color, font, radius, space, touchTarget, layout } from '@/lib/design-tokens';
 
 /**
@@ -54,6 +55,13 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 /**
+ * Solo para quien es juez de algún torneo dentro de la ventana de fechas.
+ * Va detrás de "Torneos" —el trabajo antes del expediente— y `segment: 'juez'`
+ * lo deja marcado también en /juez/<id>, que es donde se pasa el rato.
+ */
+const NAV_JUEZ: NavItem = { label: 'Juez', href: '/(protected)/juez', segment: 'juez' };
+
+/**
  * Marca activo el item cuyo segmento abre la ruta actual.
  * Con startsWith, el detalle de un torneo (/torneos/abc123) también
  * deja "Torneos" marcado, que es lo que se espera de una nav.
@@ -68,6 +76,12 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
   const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
   const isOwner = useIsOrganizerOwner();
+  const torneosDeJuez = useJudgeTournaments();
+
+  // En la duda no se pinta: ver el comentario gemelo del tab bar nativo.
+  const items = (torneosDeJuez?.length ?? 0) > 0
+    ? [NAV_ITEMS[0], NAV_ITEMS[1], NAV_JUEZ, ...NAV_ITEMS.slice(2)]
+    : NAV_ITEMS;
 
   // Mientras `isOwner` es undefined el item se muestra igual: el destino se
   // resuelve al tocarlo, y ocultarlo provocaría un parpadeo en el nav.
@@ -91,7 +105,7 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
           <>
             <Text style={styles.wordmark}>RALLY</Text>
             <View style={styles.navItems}>
-              {NAV_ITEMS.map(item => {
+              {items.map(item => {
                 const active = isActive(pathname, item.segment);
                 return (
                   <Pressable
@@ -157,7 +171,7 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
           {/* Pressable vacío: absorbe el toque para que tocar el panel no cierre el menú */}
           <Pressable style={styles.panel} onPress={() => {}}>
-            {NAV_ITEMS.map(item => {
+            {items.map(item => {
               const active = isActive(pathname, item.segment);
               return (
                 <Pressable

@@ -56,7 +56,7 @@ interface Tournament {
 /** Una franja horaria por día de torneo. */
 interface Ventana { dia: string; desde: string; hasta: string }
 
-interface Category { id: string; display_name: string }
+interface Category { id: string; display_name: string; status: string }
 
 type FinishState =
   | { status: 'idle' }
@@ -113,7 +113,9 @@ export default function OrgTournamentScreen() {
         .single(),
       supabase
         .from('categories')
-        .select('id,display_name')
+        // `status` no estaba, y sin él el panel no podía distinguir "quedan
+        // categorías abiertas" de "ya están todas cerradas". Ver `abiertas`.
+        .select('id,display_name,status')
         .eq('tournament_id', tournamentId)
         .order('division'),
       supabase
@@ -170,6 +172,46 @@ export default function OrgTournamentScreen() {
     setUpdating(false);
   }
 
+  /**
+   * Pone el torneo en curso cuando ya no queda ninguna categoría abierta.
+   *
+   * Es la transición que `close_registration_for_category` hace sola al cerrar
+   * la última (migración 035). Esto NO la reemplaza: la repesca cuando no llegó
+   * a ocurrir — el caso conocido es quitar la categoría vacía que bloqueaba el
+   * avance, porque borrar una categoría no pasa por esa función.
+   *
+   * El UPDATE lleva su propia condición de estado (`.eq('status',
+   * 'registration_open')`), igual que la migración, para que dos pestañas
+   * abiertas no se pisen ni esto pueda sacar de 'finished' a un torneo.
+   *
+   * La condición de negocio —que no queden abiertas— se comprueba contra la
+   * base y no contra `categories`, que puede tener segundos de antigüedad si
+   * alguien acaba de reabrir una categoría desde otro sitio.
+   */
+  async function handleAdvanceTournament() {
+    setUpdating(true);
+    try {
+      const { data: abiertasAhora, error: leerErr } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('tournament_id', tournamentId)
+        .eq('status', 'open');
+
+      if (leerErr) return;                       // se queda como está; `load` lo repinta
+      if ((abiertasAhora?.length ?? 0) > 0) return;
+
+      await supabase
+        .from('tournaments')
+        .update({ status: 'in_progress' })
+        .eq('id', tournamentId)
+        .eq('status', 'registration_open');
+
+      await load();
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   // Finalizar torneo → Edge Function. No hace UPDATE directo: el guard de la
   // migración 029 bloquea la transición cruda a 'finished'.
   const handleFinishConfirm = async () => {
@@ -211,6 +253,37 @@ export default function OrgTournamentScreen() {
   const esDraft   = tournament.status === 'draft';
   const esAbierto = tournament.status === 'registration_open';
   const enCurso   = tournament.status === 'in_progress';
+
+  /**
+   * Categorías que siguen aceptando inscripciones.
+   *
+   * EL PANEL SEGUÍA PIDIENDO "CERRAR INSCRIPCIONES" CON TODAS CERRADAS.
+   *   La tarjeta de siguiente paso colgaba de `esAbierto`, o sea del estado
+   *   del TORNEO, y desde la migración 035 ese estado ya no es sinónimo de
+   *   "queda algo por cerrar": el torneo solo avanza cuando se cierra la
+   *   última categoría, y si esa transición no ocurre se queda en
+   *   'registration_open' con las ocho categorías en 'in_progress'. El panel
+   *   entonces manda al organizador a una pantalla donde no hay nada que
+   *   hacer, una y otra vez.
+   *
+   *   Lo que se pregunta ahora es lo que de verdad decide el siguiente paso:
+   *   ¿queda alguna categoría abierta?
+   */
+  const abiertas = categories.filter((c) => c.status === 'open');
+
+  /**
+   * El torneo se quedó atrás de sus categorías.
+   *
+   * Pasa cuando la transición de la 035 no llega a dispararse. El caso que la
+   * propia migración avisa: una categoría vacía no se puede cerrar, bloquea el
+   * avance, y al QUITARLA desde la pantalla de cierre nadie vuelve a
+   * comprobar la condición — borrar no es cerrar, y el UPDATE del torneo vive
+   * dentro de `close_registration_for_category`.
+   *
+   * Importa porque `finish_tournament` (026) exige 'in_progress': un torneo
+   * atascado aquí no se puede terminar, y eso se descubre semanas después.
+   */
+  const desfasado = esAbierto && categories.length > 0 && abiertas.length === 0;
 
   const tieneSede       = !!tournament.venues;
   // Default true: es lo que hacían todos los torneos antes de la migración 052.
@@ -437,7 +510,7 @@ export default function OrgTournamentScreen() {
              principal del torneo en este estado y no destruye nada. Esta
              tarjeta solo NAVEGA; el cierre real se elige y se confirma
              categoría por categoría en la pantalla de destino. */}
-        {esAbierto && (
+        {esAbierto && abiertas.length > 0 && (
           <>
             <Text style={s.seccion}>SIGUIENTE PASO</Text>
             <Pressable
@@ -448,9 +521,41 @@ export default function OrgTournamentScreen() {
             >
               <Text style={s.btnSiguientePasoTexto}>Cerrar inscripciones</Text>
               <Text style={s.btnSiguientePasoSub}>
-                Eliges qué categorías cerrar y ves la vista previa de grupos y
-                cuadro de cada una antes de confirmar.
+                {abiertas.length === categories.length
+                  ? 'Eliges qué categorías cerrar y ves la vista previa de grupos y cuadro de cada una antes de confirmar.'
+                  : `Quedan ${abiertas.length} de ${categories.length} sin cerrar: ${resumenCategorias(abiertas)}.`}
               </Text>
+            </Pressable>
+          </>
+        )}
+
+        {/* El torneo se quedó en 'registration_open' con todas las categorías
+            cerradas. Se dice lo que pasa y se ofrece el arreglo, en vez de
+            seguir pidiendo un cierre que ya está hecho. */}
+        {desfasado && (
+          <>
+            <Text style={s.seccion}>SIGUIENTE PASO</Text>
+            <Pressable
+              onPress={handleAdvanceTournament}
+              disabled={updating}
+              style={({ pressed }) => [s.btnSiguientePaso, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Marcar el torneo en curso"
+              accessibilityState={{ disabled: updating }}
+            >
+              {updating ? (
+                <ActivityIndicator color={color.gold} />
+              ) : (
+                <>
+                  <Text style={s.btnSiguientePasoTexto}>Marcar el torneo en curso</Text>
+                  <Text style={s.btnSiguientePasoSub}>
+                    Las {categories.length} categorías ya están cerradas y con sus
+                    grupos generados, pero el torneo sigue marcado como
+                    “inscripciones abiertas”. Hasta arreglarlo no se puede
+                    terminar el torneo al acabar.
+                  </Text>
+                </>
+              )}
             </Pressable>
           </>
         )}

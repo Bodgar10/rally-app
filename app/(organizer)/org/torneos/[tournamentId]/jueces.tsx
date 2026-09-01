@@ -43,6 +43,7 @@ import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/Busca
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { bottomInset, webContentColumn } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
+import { invalidateJudgeTournamentsCache } from '@/hooks/useJudgeTournaments';
 
 const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL ?? 'https://rallypadel.mx';
 
@@ -128,6 +129,12 @@ export default function JuecesTorneoScreen() {
   const [verPrevios, setVerPrevios] = useState(false);
 
   const cargar = useCallback(async () => {
+    // La pestaña "Juez" del menú lee una caché de módulo. Sin esto, quien
+    // acaba de ser asignado —o el owner que se acaba de asignar a sí mismo—
+    // no vería la pestaña hasta cerrar sesión. Pasan por aquí las altas y las
+    // bajas, que son todas las mutaciones de esta pantalla.
+    invalidateJudgeTournamentsCache();
+
     const [{ data: t }, { data, error: dbError }] = await Promise.all([
       supabase.from('tournaments').select('name, organizer_id').eq('id', tournamentId).single(),
       // Va por organizer_judges_admin (migración 041): el embed a `users`

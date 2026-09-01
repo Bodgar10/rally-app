@@ -96,6 +96,9 @@ interface Categoria {
   cuadroSembrado: boolean;
 }
 
+/** Id reservado de la pestaña "Todos". No colisiona: los demás son uuid. */
+const TODOS = '__todos__';
+
 // ── Pantalla ────────────────────────────────────────────────────────────────
 
 export default function GruposScreen() {
@@ -104,6 +107,19 @@ export default function GruposScreen() {
 
   const [cats, setCats]     = useState<Categoria[]>([]);
   const [tab, setTab]       = useState<string>('');
+  /**
+   * Grupo visible dentro de la categoría, o TODOS.
+   *
+   * 5ª Varonil tiene 10 grupos: diez tablas y treinta partidos en una sola
+   * columna, unas quince pantallas de scroll. El organizador no llega a esta
+   * pantalla a leerla entera — llega con una pareja delante preguntando por su
+   * grupo. Con pestañas eso son dos toques: categoría y grupo.
+   *
+   * Arranca en el PRIMER GRUPO y no en "Todos" a propósito: el caso de uso
+   * normal es mirar un grupo, y el que quiera la vista completa la tiene a un
+   * toque. Al revés, el caso normal costaría un scroll largo siempre.
+   */
+  const [grupoTab, setGrupoTab] = useState<string>('');
   const [cargando, setCargando] = useState(true);
   const [nombre, setNombre] = useState('');
   const [error, setError]   = useState<string | null>(null);
@@ -332,6 +348,28 @@ export default function GruposScreen() {
 
   const activa = useMemo(() => cats.find((c) => c.id === tab) ?? null, [cats, tab]);
 
+  /**
+   * El grupo elegido, saneado contra la categoría activa.
+   *
+   * Se calcula en vez de guardarse "corregido" en un efecto: cambiar de
+   * categoría deja `grupoTab` apuntando a un grupo de la anterior, y un efecto
+   * que lo arreglara pintaría un fotograma con la lista vacía. Aquí el
+   * fallback es el primer grupo, sin fotograma intermedio.
+   */
+  const grupoActivo = useMemo(() => {
+    if (!activa) return '';
+    if (grupoTab === TODOS) return TODOS;
+    return activa.grupos.some((g) => g.id === grupoTab)
+      ? grupoTab
+      : activa.grupos[0]?.id ?? '';
+  }, [activa, grupoTab]);
+
+  const gruposVisibles = useMemo(() => {
+    if (!activa) return [];
+    if (grupoActivo === TODOS) return activa.grupos;
+    return activa.grupos.filter((g) => g.id === grupoActivo);
+  }, [activa, grupoActivo]);
+
   if (cargando) {
     return (
       <SafeAreaView style={s.pantalla}>
@@ -359,7 +397,7 @@ export default function GruposScreen() {
                 id: c.id, etiqueta: c.nombre, cuenta: c.grupos.length,
               }))}
               activa={tab}
-              onCambiar={setTab}
+              onCambiar={(id) => { setTab(id); setGrupoTab(''); }}
             />
 
             {activa && (
@@ -431,7 +469,26 @@ export default function GruposScreen() {
                   </Pressable>
                 </View>
 
-                {activa.grupos.map((g) => (
+                {/* Pestañas de grupo. Solo con más de uno: con un único grupo
+                    la pestaña no elige nada y es ruido. La cuenta es el
+                    progreso —2 de 3 capturados—, que es lo que se viene a
+                    mirar. */}
+                {activa.grupos.length > 1 && (
+                  <SelectorPestanas
+                    pestanas={[
+                      ...activa.grupos.map((g) => ({
+                        id: g.id,
+                        etiqueta: `Grupo ${g.nombre}`,
+                        cuenta: g.finalizados,
+                      })),
+                      { id: TODOS, etiqueta: 'Todos', cuenta: activa.grupos.length },
+                    ]}
+                    activa={grupoActivo}
+                    onCambiar={setGrupoTab}
+                  />
+                )}
+
+                {gruposVisibles.map((g) => (
                   <View key={g.id} style={s.grupo}>
                     <View style={s.grupoCabecera}>
                       <Text style={s.grupoNombre}>Grupo {g.nombre}</Text>

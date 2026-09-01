@@ -1,21 +1,48 @@
 /**
  * src/components/judge/ScoreCapture.tsx
  *
- * RALLY · Captura de marcador completo por el juez.
+ * RALLY · Captura de marcador por el juez.
  *
- * REGLAS:
- * - Al confirmar, invoca la Edge Function `match-result` (Opus).
- * - NO escribe en matches/match_sets directamente.
- * - Maneja estados de carga, error de marcador inválido y éxito.
- * - Ultra simple: nombre pares + inputs de games por set.
- * - Solo primitivos React Native. Colores solo de design-tokens.
+ * EL GANADOR SE DERIVA, NO SE PREGUNTA
+ *   Antes lo primero que pedía la pantalla era elegir al ganador, y debajo el
+ *   marcador. Con 6-2 3-6 7-5 el sistema ya sabe quién ganó: preguntarlo es
+ *   pedir un dato que se puede deducir, y además se podía contestar mal — el
+ *   servidor comparaba las dos cosas y devolvía `winner_mismatch`, o sea que
+ *   el juez recibía un error por contradecir un marcador que él mismo acababa
+ *   de teclear.
+ *
+ *   Ahora el ganador aparece SOLO, debajo de los sets, como consecuencia. Se
+ *   sigue mandando `winner_pair_id` porque el contrato de `match-result` lo
+ *   exige y lo contrasta; simplemente ya no puede no coincidir, porque sale
+ *   del mismo `validateScore` que corre el servidor.
+ *
+ *   Se usa el MOTOR, no una regla escrita aquí: `validateScore` de
+ *   `@/lib/engine/score` es la misma función, con la misma configuración, que
+ *   el servidor ejecuta para decidir. Reimplementarla en el cliente sería
+ *   inventar una segunda verdad que se despegaría a la primera excepción
+ *   (super muerte, 7-6, un set de más).
+ *
+ * LO QUE SE FUE
+ *   El selector de ganador (dos botones grandes con un trofeo dentro), el
+ *   texto que explicaba que el servidor lo comprobaba, y la sección "Marcador"
+ *   con una tarjeta por set de 12px de padding. Ocupaban una pantalla entera
+ *   para pedir cuatro números.
+ *
+ * LO QUE HAY AHORA
+ *   Una fila por set: número, dos casillas, y a la derecha el aviso de que ese
+ *   set está mal si lo está. Debajo, la línea de resultado. Y el error, que
+ *   era el texto más chico de la pantalla y ahora es un bloque que se lee.
+ *
+ * EL CONTRATO DE LA SUPER MUERTE no cambia — ver `payloadDeSets`.
  */
 
-import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
+import { validateScore } from '@/lib/engine/score';
+import type { SetScore as SetDelMotor } from '@/lib/engine/types';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -58,7 +85,11 @@ export interface ScoreCaptureProps {
    * así que reabrir un partido y volver a enviarlo es una corrección legítima.
    */
   setsIniciales?: SetGuardado[];
-  /** Ganador ya guardado, para precargar el selector al corregir. */
+  /**
+   * Ganador ya guardado. Se conserva en la interfaz por compatibilidad con
+   * quien monta el componente, pero YA NO SE USA para precargar nada: el
+   * ganador sale del marcador. Si se cargan unos sets, sale el mismo.
+   */
   ganadorInicial?: string | null;
   /** Callback cuando el resultado fue aceptado exitosamente. */
   onSuccess: () => void;
@@ -70,13 +101,83 @@ function aFormulario(guardados: SetGuardado[]): SetScore[] {
     .sort((a, b) => a.set_number - b.set_number)
     .map((g) => ({
       // En un super muerte los games son el marcador 1-0 y no se muestran:
-      // el formulario pide PUNTOS. Ver el contrato en handleSubmit.
+      // el formulario pide PUNTOS. Ver el contrato en payloadDeSets.
       gamesA: g.is_super_tiebreak ? '' : String(g.games_a),
       gamesB: g.is_super_tiebreak ? '' : String(g.games_b),
       isSuperTiebreak: g.is_super_tiebreak,
       tiebreakA: g.tiebreak_a != null ? String(g.tiebreak_a) : '',
       tiebreakB: g.tiebreak_b != null ? String(g.tiebreak_b) : '',
     }));
+}
+
+/**
+ * Estado del formulario -> payload de `match-result` (snake, números).
+ *
+ * FORMATO DE LA SUPER MUERTE — el contrato con el engine:
+ *   Los PUNTOS van en tiebreak_a/tiebreak_b. `games_a/games_b` llevan el
+ *   marcador 1-0 del lado que ganó, nunca los puntos.
+ *
+ *   `computeStandings` con superTiebreakGames:'one' (el default) ignora
+ *   games_a/b en un super muerte y deriva 1-0 de los tiebreaks, y
+ *   `superSetWinner` lee `tiebreakA ?? gamesA`. Mandar los puntos en games
+ *   inflaría la diferencia de games que desempata la tabla.
+ *
+ *   Los tests del engine (score.test.ts, 'contrato de super muerte') fijan
+ *   este formato.
+ */
+function payloadDeSets(sets: SetScore[]) {
+  return sets.map((s, i) => {
+    if (s.isSuperTiebreak) {
+      const tA = parseInt(s.tiebreakA, 10);
+      const tB = parseInt(s.tiebreakB, 10);
+      const validos = !isNaN(tA) && !isNaN(tB);
+      return {
+        set_number: i + 1,
+        games_a: validos && tA > tB ? 1 : 0,
+        games_b: validos && tB > tA ? 1 : 0,
+        is_super_tiebreak: true,
+        tiebreak_a: isNaN(tA) ? null : tA,
+        tiebreak_b: isNaN(tB) ? null : tB,
+      };
+    }
+    return {
+      set_number: i + 1,
+      games_a: parseInt(s.gamesA, 10),
+      games_b: parseInt(s.gamesB, 10),
+      is_super_tiebreak: false,
+      tiebreak_a: null,
+      tiebreak_b: null,
+    };
+  });
+}
+
+/** ¿Están los dos números de este set? Vacío ≠ inválido: es "todavía no". */
+function completo(s: SetScore): boolean {
+  const a = s.isSuperTiebreak ? s.tiebreakA : s.gamesA;
+  const b = s.isSuperTiebreak ? s.tiebreakB : s.gamesB;
+  return a.trim() !== '' && b.trim() !== '';
+}
+
+/** Estado del formulario -> entrada del motor, solo con los sets completos. */
+function aMotor(sets: SetScore[]): SetDelMotor[] {
+  return sets.filter(completo).map((s) => {
+    if (s.isSuperTiebreak) {
+      const tA = parseInt(s.tiebreakA, 10);
+      const tB = parseInt(s.tiebreakB, 10);
+      return {
+        gamesA: tA > tB ? 1 : 0,
+        gamesB: tB > tA ? 1 : 0,
+        isSuperTiebreak: true,
+        tiebreakA: tA,
+        tiebreakB: tB,
+      };
+    }
+    return {
+      gamesA: parseInt(s.gamesA, 10),
+      gamesB: parseInt(s.gamesB, 10),
+      isSuperTiebreak: false,
+    };
+  });
 }
 
 // ───────────────────────────────────────────
@@ -90,16 +191,60 @@ export default function ScoreCapture({
   pairAName,
   pairBName,
   setsIniciales,
-  ganadorInicial,
   onSuccess,
 }: ScoreCaptureProps) {
   const corrigiendo = !!setsIniciales && setsIniciales.length > 0;
   const [sets, setSets] = useState<SetScore[]>(() =>
     corrigiendo ? aFormulario(setsIniciales!) : [emptySet(), emptySet()],
   );
-  const [winnerPairId, setWinnerPairId] = useState<string | null>(ganadorInicial ?? null);
   const [submitting, setSubmitting] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [errorServidor, setErrorServidor] = useState<string | null>(null);
+
+  /**
+   * EL VEREDICTO, recalculado en cada tecla.
+   *
+   * `sets.filter(completo)` y no `sets`: mientras el juez teclea el primer
+   * número, el set está a medias y el motor lo llamaría inválido. Un formulario
+   * que grita antes de que termines de escribir no se lee, se ignora.
+   */
+  const veredicto = useMemo(() => {
+    const completos = aMotor(sets);
+    if (completos.length === 0) return null;
+    return validateScore(completos);
+  }, [sets]);
+
+  const ganadorId = veredicto?.winnerSide
+    ? (veredicto.winnerSide === 'A' ? pairAId : pairBId)
+    : null;
+  const ganadorNombre = veredicto?.winnerSide
+    ? (veredicto.winnerSide === 'A' ? pairAName : pairBName)
+    : null;
+
+  const listo = !!ganadorId && !submitting;
+
+  /**
+   * El error de un SET concreto, para ponerlo en su fila.
+   *
+   * Los mensajes del motor empiezan por "Set N…", así que se reparten por
+   * número. Lo que no case con un set (partido incompleto, sets de más) queda
+   * para el pie, que es donde se lee el estado global.
+   */
+  const errorPorSet = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const e of veredicto?.errors ?? []) {
+      const n = /^Set (\d+)/.exec(e) ?? /^Super muerte del set (\d+)/.exec(e);
+      if (n) m.set(Number(n[1]) - 1, e);
+    }
+    return m;
+  }, [veredicto]);
+
+  /** Lo que no es de un set concreto. Vacío si el marcador está bien. */
+  const errorGeneral = useMemo(() => {
+    const sueltos = (veredicto?.errors ?? []).filter(
+      (e) => !/^Set \d+/.test(e) && !/^Super muerte del set \d+/.test(e),
+    );
+    return sueltos.length ? sueltos.join(' · ') : null;
+  }, [veredicto]);
 
   // ───────────────────────────────────────────
   // Manipulación de sets
@@ -111,7 +256,7 @@ export default function ScoreCapture({
       next[idx] = { ...next[idx], [field]: value };
       return next;
     });
-    setValidationError(null);
+    setErrorServidor(null);
   }
 
   function addSet() {
@@ -127,72 +272,17 @@ export default function ScoreCapture({
   // ───────────────────────────────────────────
 
   async function handleSubmit() {
-    setValidationError(null);
+    // El botón está apagado sin ganador, así que esto es la red por si el
+    // marcador cambia entre el toque y el envío.
+    if (!ganadorId) return;
 
-    if (!winnerPairId) {
-      setValidationError('Selecciona al ganador del partido.');
-      return;
-    }
-
-    // Construir payload de sets.
-    //
-    // FORMATO DE LA SUPER MUERTE — el contrato con el engine:
-    //   Los PUNTOS van en tiebreak_a/tiebreak_b. `games_a/games_b` llevan el
-    //   marcador 1-0 del lado que ganó, nunca los puntos.
-    //
-    //   `computeStandings` con superTiebreakGames:'one' (el default) ignora
-    //   games_a/b en un super muerte y deriva 1-0 de los tiebreaks, y
-    //   `superSetWinner` lee `tiebreakA ?? gamesA`. Mandar los puntos en games
-    //   inflaría la diferencia de games que desempata la tabla.
-    //
-    //   Antes esta rama dejaba games_a/games_b en NaN (la UI de super muerte
-    //   no pide games) y la validación de abajo cortaba el envío: el tercer
-    //   set decisivo era IMPOSIBLE de capturar. Los tests del engine
-    //   (score.test.ts, 'contrato de super muerte') fijan este formato.
-    const setsPayload = sets.map((s, i) => {
-      if (s.isSuperTiebreak) {
-        const tA = parseInt(s.tiebreakA, 10);
-        const tB = parseInt(s.tiebreakB, 10);
-        const validos = !isNaN(tA) && !isNaN(tB);
-        return {
-          set_number: i + 1,
-          games_a: validos && tA > tB ? 1 : 0,
-          games_b: validos && tB > tA ? 1 : 0,
-          is_super_tiebreak: true,
-          tiebreak_a: isNaN(tA) ? null : tA,
-          tiebreak_b: isNaN(tB) ? null : tB,
-        };
-      }
-      return {
-        set_number: i + 1,
-        games_a: parseInt(s.gamesA, 10),
-        games_b: parseInt(s.gamesB, 10),
-        is_super_tiebreak: false,
-        tiebreak_a: null,
-        tiebreak_b: null,
-      };
-    });
-
-    // Validación básica de números: al super muerte se le piden PUNTOS, no games.
-    for (const [i, s] of setsPayload.entries()) {
-      if (s.is_super_tiebreak) {
-        if (s.tiebreak_a === null || s.tiebreak_b === null) {
-          setValidationError(`Set ${i + 1}: ingresa los puntos de la super muerte.`);
-          return;
-        }
-      } else if (isNaN(s.games_a) || isNaN(s.games_b)) {
-        setValidationError(`Set ${i + 1}: ingresa los games correctamente.`);
-        return;
-      }
-    }
-
+    setErrorServidor(null);
     setSubmitting(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sin sesión activa.');
 
-      // Llamar a la Edge Function de Opus
       const response = await fetch(
         `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/match-result`,
         {
@@ -203,8 +293,8 @@ export default function ScoreCapture({
           },
           body: JSON.stringify({
             match_id: matchId,
-            winner_pair_id: winnerPairId,
-            sets: setsPayload,
+            winner_pair_id: ganadorId,
+            sets: payloadDeSets(sets),
           }),
         }
       );
@@ -214,15 +304,14 @@ export default function ScoreCapture({
       if (!response.ok) {
         // La clave de la Edge Function se traduce y el `detail` del engine se
         // conserva: es lo que le dice al juez QUÉ set está mal.
-        setValidationError(mensajeDeCaptura(json));
+        setErrorServidor(mensajeDeCaptura(json));
         return;
       }
 
-      // Éxito
       onSuccess();
     } catch (e) {
       console.error('[ScoreCapture] submit error:', e);
-      setValidationError('Error de conexión. Intenta de nuevo.');
+      setErrorServidor('Error de conexión. Intenta de nuevo.');
     } finally {
       setSubmitting(false);
     }
@@ -233,247 +322,143 @@ export default function ScoreCapture({
   // ───────────────────────────────────────────
 
   return (
-    <View style={{ gap: 16 }}>
-      {/* Selector de ganador */}
-      <View>
-        <Text
-          style={{
-            fontFamily: font.display,
-            fontSize: 10,
-            fontWeight: '500',
-            color: color.champagne,
-            textTransform: 'uppercase',
-            letterSpacing: 1.2,
-            marginBottom: 8,
-          }}
-        >
-          Ganador
-        </Text>
-        {/* El servidor contrasta esta elección contra el ganador que deriva del
-            marcador y rechaza el envío si no coinciden. Antes se ignoraba. */}
-        <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, marginBottom: 8 }}>
-          Se comprueba contra el marcador: si no coinciden, no se guarda.
-        </Text>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {[
-            { id: pairAId, name: pairAName },
-            { id: pairBId, name: pairBName },
-          ].map((p) => {
-            const selected = winnerPairId === p.id;
-            return (
-              <Pressable
-                key={p.id}
-                onPress={() => { setWinnerPairId(p.id); setValidationError(null); }}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  borderRadius: radius.lg,
-                  borderWidth: 1.5,
-                  borderColor: selected ? color.gold : color.lineSoft,
-                  backgroundColor: selected ? 'rgba(212,175,55,0.12)' : color.surface,
-                  alignItems: 'center',
-                }}
-                accessibilityRole="radio"
-                accessibilityLabel={`Ganador: ${p.name}`}
-                accessibilityState={{ checked: selected }}
-              >
-                <Text
-                  style={{
-                    fontFamily: font.body,
-                    fontSize: 12,
-                    fontWeight: selected ? '600' : '400',
-                    color: selected ? color.goldBright : color.text,
-                    textAlign: 'center',
-                  }}
-                  numberOfLines={2}
-                >
-                  {p.name}
-                  {selected ? '\n🏆' : ''}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+    <View style={{ gap: 14 }}>
+      {/* Cabecera: quién juega. Los nombres van ARRIBA y una sola vez, en el
+          mismo orden que las columnas de abajo. Antes se repetían debajo de
+          cada casilla de cada set, recortados al primer jugador. */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+        <View style={{ width: 26 }} />
+        <Text style={estilos.nombreColumna} numberOfLines={2}>{pairAName}</Text>
+        <View style={{ width: 14 }} />
+        <Text style={estilos.nombreColumna} numberOfLines={2}>{pairBName}</Text>
+        <View style={{ width: 26 }} />
       </View>
 
-      {/* Marcador por sets */}
-      <View>
-        <Text
-          style={{
-            fontFamily: font.display,
-            fontSize: 10,
-            fontWeight: '500',
-            color: color.champagne,
-            textTransform: 'uppercase',
-            letterSpacing: 1.2,
-            marginBottom: 8,
-          }}
-        >
-          Marcador
-        </Text>
+      {/* Una fila por set */}
+      <View style={{ gap: 8 }}>
+        {sets.map((s, idx) => {
+          const malo = errorPorSet.get(idx);
+          return (
+            <View key={idx} style={{ gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={estilos.numeroSet}>{idx + 1}</Text>
 
-        <View style={{ gap: 10 }}>
-          {sets.map((s, idx) => (
-            <View
-              key={idx}
-              style={{
-                backgroundColor: color.surface,
-                borderRadius: radius.lg,
-                padding: 12,
-                borderWidth: 1,
-                borderColor: color.lineSoft,
-                gap: 8,
-              }}
-            >
-              {/* Header del set */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontFamily: font.display, fontSize: 12, color: color.muted, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                  Set {idx + 1}
-                </Text>
-                {idx === 2 && (
+                <ScoreInput
+                  value={s.isSuperTiebreak ? s.tiebreakA : s.gamesA}
+                  onChangeText={(v) => updateSet(idx, s.isSuperTiebreak ? 'tiebreakA' : 'gamesA', v)}
+                  malo={!!malo}
+                  maxLength={s.isSuperTiebreak ? 3 : 2}
+                  accessibilityLabel={`Set ${idx + 1}, ${s.isSuperTiebreak ? 'puntos' : 'games'} de ${pairAName}`}
+                />
+                <Text style={estilos.guion}>–</Text>
+                <ScoreInput
+                  value={s.isSuperTiebreak ? s.tiebreakB : s.gamesB}
+                  onChangeText={(v) => updateSet(idx, s.isSuperTiebreak ? 'tiebreakB' : 'gamesB', v)}
+                  malo={!!malo}
+                  maxLength={s.isSuperTiebreak ? 3 : 2}
+                  accessibilityLabel={`Set ${idx + 1}, ${s.isSuperTiebreak ? 'puntos' : 'games'} de ${pairBName}`}
+                />
+
+                {/* La super muerte solo cabe en el tercer set y solo se ofrece
+                    ahí: en el primero no es una opción, es un error. */}
+                {idx === 2 ? (
                   <Pressable
                     onPress={() => updateSet(idx, 'isSuperTiebreak', !s.isSuperTiebreak)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: s.isSuperTiebreak ? 'rgba(212,175,55,0.14)' : color.surface2,
-                      borderRadius: radius.pill,
-                      paddingHorizontal: 8,
-                      paddingVertical: 3,
-                    }}
+                    style={[estilos.chipSuper, s.isSuperTiebreak && estilos.chipSuperOn]}
                     accessibilityRole="checkbox"
-                    accessibilityLabel="Super muerte"
+                    accessibilityLabel="El tercer set fue super muerte"
                     accessibilityState={{ checked: s.isSuperTiebreak }}
                   >
-                    <Text style={{ fontFamily: font.body, fontSize: 10, color: s.isSuperTiebreak ? color.gold : color.muted }}>
-                      {s.isSuperTiebreak ? '✓ ' : ''}Super muerte
+                    <Text style={[estilos.chipSuperTexto, s.isSuperTiebreak && estilos.chipSuperTextoOn]}>
+                      {s.isSuperTiebreak ? '✓ SM' : 'SM'}
                     </Text>
                   </Pressable>
+                ) : (
+                  <View style={{ width: 34 }} />
                 )}
               </View>
 
-              {/* Inputs games */}
-              {!s.isSuperTiebreak ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <ScoreInput
-                    value={s.gamesA}
-                    onChangeText={(v) => updateSet(idx, 'gamesA', v)}
-                    label={pairAName.split('/')[0]?.trim() ?? 'A'}
-                    maxLength={2}
-                  />
-                  <Text style={{ color: color.muted, fontFamily: font.display, fontSize: 18 }}>–</Text>
-                  <ScoreInput
-                    value={s.gamesB}
-                    onChangeText={(v) => updateSet(idx, 'gamesB', v)}
-                    label={pairBName.split('/')[0]?.trim() ?? 'B'}
-                    maxLength={2}
-                  />
-                </View>
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <ScoreInput
-                    value={s.tiebreakA}
-                    onChangeText={(v) => updateSet(idx, 'tiebreakA', v)}
-                    label={pairAName.split('/')[0]?.trim() ?? 'A'}
-                    maxLength={3}
-                  />
-                  <Text style={{ color: color.muted, fontFamily: font.display, fontSize: 18 }}>–</Text>
-                  <ScoreInput
-                    value={s.tiebreakB}
-                    onChangeText={(v) => updateSet(idx, 'tiebreakB', v)}
-                    label={pairBName.split('/')[0]?.trim() ?? 'B'}
-                    maxLength={3}
-                  />
-                </View>
-              )}
+              {malo && <Text style={estilos.errorSet}>{malo}</Text>}
             </View>
-          ))}
-        </View>
-
-        {/* Agregar / quitar set */}
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-          {sets.length < 3 && (
-            <Pressable
-              onPress={addSet}
-              style={{
-                flex: 1,
-                padding: 10,
-                borderRadius: radius.sm,
-                borderWidth: 1,
-                borderColor: color.line,
-                alignItems: 'center',
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Agregar tercer set"
-            >
-              <Text style={{ fontFamily: font.body, fontSize: 12, color: color.gold, fontWeight: '600' }}>
-                + Tercer set
-              </Text>
-            </Pressable>
-          )}
-          {sets.length > 2 && (
-            <Pressable
-              onPress={removeLastSet}
-              style={{
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                borderRadius: radius.sm,
-                borderWidth: 1,
-                borderColor: color.lineSoft,
-                alignItems: 'center',
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Quitar tercer set"
-            >
-              <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>✕ Quitar</Text>
-            </Pressable>
-          )}
-        </View>
+          );
+        })}
       </View>
 
-      {/* Error de validación */}
-      {validationError && (
-        <View
-          style={{
-            backgroundColor: 'rgba(224,114,111,0.10)',
-            borderRadius: radius.sm,
-            padding: 12,
-            borderWidth: 1,
-            borderColor: 'rgba(224,114,111,0.25)',
-          }}
-        >
-          <Text style={{ fontFamily: font.body, fontSize: 12, color: color.danger }}>
-            {validationError}
+      {/* Agregar / quitar tercer set */}
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {sets.length < 3 && (
+          <Pressable
+            onPress={addSet}
+            style={estilos.botonSecundario}
+            accessibilityRole="button"
+            accessibilityLabel="Agregar tercer set"
+          >
+            <Text style={estilos.botonSecundarioTexto}>+ Tercer set</Text>
+          </Pressable>
+        )}
+        {sets.length > 2 && (
+          <Pressable
+            onPress={removeLastSet}
+            style={estilos.botonSecundario}
+            accessibilityRole="button"
+            accessibilityLabel="Quitar tercer set"
+          >
+            <Text style={estilos.botonSecundarioTextoApagado}>✕ Quitar tercer set</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* ── EL GANADOR, COMO CONSECUENCIA ──────────────────────────
+          Ocupa el sitio donde antes estaba la pregunta. Mientras no haya un
+          marcador que decida, dice qué falta — nunca se queda mudo, porque un
+          hueco en blanco donde debería salir un nombre parece un fallo. */}
+      <View
+        style={[
+          estilos.veredicto,
+          ganadorNombre ? estilos.veredictoOk : errorGeneral ? estilos.veredictoMal : null,
+        ]}
+        accessibilityLiveRegion="polite"
+      >
+        {ganadorNombre ? (
+          <>
+            <Text style={estilos.veredictoEtiqueta}>GANA</Text>
+            <Text style={estilos.veredictoNombre} numberOfLines={2}>{ganadorNombre}</Text>
+            <Text style={estilos.veredictoDetalle}>
+              {veredicto!.setsA}–{veredicto!.setsB} en sets
+            </Text>
+          </>
+        ) : (
+          <Text style={estilos.veredictoPendiente}>
+            {errorGeneral ?? 'Captura el marcador y aquí sale quién ganó.'}
           </Text>
+        )}
+      </View>
+
+      {/* Error del servidor. Grande, en su bloque: era la letra más chica de la
+          pantalla y es lo único que el juez necesita leer cuando algo falla. */}
+      {errorServidor && (
+        <View style={estilos.errorCaja}>
+          <Text style={estilos.errorTexto}>{errorServidor}</Text>
         </View>
       )}
 
-      {/* Botón confirmar */}
+      {/* Confirmar */}
       <Pressable
         onPress={handleSubmit}
-        disabled={submitting}
-        style={({ pressed }) => ({
-          backgroundColor: submitting || pressed ? color.goldDeep : color.gold,
-          borderRadius: radius.sm,
-          paddingVertical: 14,
-          alignItems: 'center',
-          opacity: submitting ? 0.7 : 1,
-        })}
+        disabled={!listo}
+        style={({ pressed }) => [
+          estilos.botonPrincipal,
+          !listo && estilos.botonPrincipalOff,
+          pressed && listo && { opacity: 0.85 },
+        ]}
         accessibilityRole="button"
         accessibilityLabel={corrigiendo ? 'Guardar corrección' : 'Confirmar resultado'}
-        accessibilityState={{ disabled: submitting }}
+        accessibilityState={{ disabled: !listo }}
       >
         {submitting ? (
           <ActivityIndicator color={color.onGold} />
         ) : (
-          <Text
-            style={{
-              fontFamily: font.body,
-              fontSize: 15,
-              fontWeight: '600',
-              color: color.onGold,
-            }}
-          >
+          <Text style={[estilos.botonPrincipalTexto, !listo && estilos.botonPrincipalTextoOff]}>
             {corrigiendo ? 'Guardar corrección' : 'Confirmar resultado'}
           </Text>
         )}
@@ -483,56 +468,137 @@ export default function ScoreCapture({
 }
 
 // ───────────────────────────────────────────
-// Sub-componente: input de score numérico
+// Sub-componente: casilla de números
 // ───────────────────────────────────────────
 
 function ScoreInput({
   value,
   onChangeText,
-  label,
-  maxLength = 2,
+  malo,
+  maxLength,
+  accessibilityLabel,
 }: {
   value: string;
   onChangeText: (v: string) => void;
-  label: string;
-  maxLength?: number;
+  malo: boolean;
+  maxLength: number;
+  accessibilityLabel: string;
 }) {
   return (
-    <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType="number-pad"
-        maxLength={maxLength}
-        style={{
-          backgroundColor: color.surface2,
-          borderRadius: radius.md,
-          borderWidth: 1,
-          borderColor: color.lineSoft,
-          color: color.text,
-          fontFamily: font.display,
-          fontSize: 28,
-          fontWeight: '600',
-          textAlign: 'center',
-          width: '100%',
-          paddingVertical: 12,
-          minHeight: 56,
-        }}
-        placeholderTextColor={color.muted}
-        placeholder="0"
-        accessibilityLabel={`Games de ${label}`}
-      />
-      <Text
-        style={{
-          fontFamily: font.body,
-          fontSize: 10,
-          color: color.muted,
-          textAlign: 'center',
-        }}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-    </View>
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      keyboardType="number-pad"
+      maxLength={maxLength}
+      style={[estilos.casilla, malo && estilos.casillaMala]}
+      placeholderTextColor={color.muted}
+      placeholder="–"
+      accessibilityLabel={accessibilityLabel}
+    />
   );
 }
+
+// ───────────────────────────────────────────
+// Estilos
+// ───────────────────────────────────────────
+
+const estilos = {
+  nombreColumna: {
+    flex: 1,
+    fontFamily: font.body as string,
+    fontSize: 11,
+    color: color.champagne,
+    textAlign: 'center' as const,
+  },
+
+  numeroSet: {
+    width: 26,
+    fontFamily: font.display as string,
+    fontSize: 12,
+    color: color.muted,
+    textAlign: 'center' as const,
+  },
+
+  casilla: {
+    flex: 1,
+    backgroundColor: color.surface2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.lineSoft,
+    color: color.text,
+    fontFamily: font.display as string,
+    fontSize: 24,
+    fontWeight: '600' as const,
+    textAlign: 'center' as const,
+    paddingVertical: 10,
+    minHeight: 52,
+  },
+  casillaMala: { borderColor: color.danger },
+
+  guion: { width: 14, textAlign: 'center' as const, color: color.muted, fontFamily: font.display as string, fontSize: 16 },
+
+  chipSuper: {
+    width: 34, minHeight: 34, alignItems: 'center' as const, justifyContent: 'center' as const,
+    borderRadius: radius.pill, backgroundColor: color.surface2,
+  },
+  chipSuperOn: { backgroundColor: 'rgba(212,175,55,0.16)' },
+  chipSuperTexto: { fontFamily: font.body as string, fontSize: 10, color: color.muted },
+  chipSuperTextoOn: { color: color.gold, fontWeight: '600' as const },
+
+  errorSet: {
+    marginLeft: 36,
+    fontFamily: font.body as string,
+    fontSize: 11,
+    color: color.danger,
+  },
+
+  botonSecundario: {
+    paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.lineSoft,
+  },
+  botonSecundarioTexto: { fontFamily: font.body as string, fontSize: 12, color: color.gold, fontWeight: '600' as const },
+  botonSecundarioTextoApagado: { fontFamily: font.body as string, fontSize: 12, color: color.muted },
+
+  veredicto: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: color.lineSoft,
+    backgroundColor: color.surface,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center' as const,
+    gap: 2,
+  },
+  veredictoOk: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
+  veredictoMal: { borderColor: 'rgba(224,114,111,0.35)' },
+
+  veredictoEtiqueta: {
+    fontFamily: font.display as string, fontSize: 9, color: color.champagne,
+    letterSpacing: 1.4, textTransform: 'uppercase' as const,
+  },
+  veredictoNombre: {
+    fontFamily: font.display as string, fontSize: 16, fontWeight: '600' as const,
+    color: color.goldBright, textAlign: 'center' as const,
+  },
+  veredictoDetalle: { fontFamily: font.body as string, fontSize: 11, color: color.muted },
+  veredictoPendiente: { fontFamily: font.body as string, fontSize: 12, color: color.muted, textAlign: 'center' as const },
+
+  errorCaja: {
+    backgroundColor: 'rgba(224,114,111,0.10)',
+    borderRadius: radius.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(224,114,111,0.35)',
+  },
+  errorTexto: { fontFamily: font.body as string, fontSize: 14, lineHeight: 20, color: color.danger },
+
+  botonPrincipal: {
+    backgroundColor: color.gold,
+    borderRadius: radius.sm,
+    paddingVertical: 15,
+    alignItems: 'center' as const,
+  },
+  botonPrincipalOff: { backgroundColor: color.surface2 },
+  botonPrincipalTexto: { fontFamily: font.body as string, fontSize: 15, fontWeight: '600' as const, color: color.onGold },
+  botonPrincipalTextoOff: { color: color.muted },
+};

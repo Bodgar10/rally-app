@@ -933,7 +933,23 @@ export default function CerrarInscripcionesScreen() {
     setCategorias((prev) => prev.map((c) => (c.id === id ? { ...c, alternativa: idx } : c)));
   }
 
-  /** Quitar una categoría vacía sin salir de aquí. Ver cabecera. */
+  /**
+   * Quitar una categoría vacía sin salir de aquí. Ver cabecera.
+   *
+   * ⚠ BORRAR NO ES CERRAR, Y ESA ES LA TRAMPA.
+   *   El torneo pasa a 'in_progress' dentro de
+   *   `close_registration_for_category` (migración 035), al cerrar la ÚLTIMA
+   *   categoría abierta. Si la última que queda abierta es una VACÍA —que no
+   *   se puede cerrar— y se quita desde aquí, ese código no se ejecuta nunca:
+   *   el DELETE no pasa por la RPC. Resultado, el torneo se queda en
+   *   'registration_open' con todas sus categorías cerradas y ya no sale de
+   *   ahí solo. Y `finish_tournament` (026) exige 'in_progress', así que el
+   *   torneo tampoco se puede terminar; eso se descubre semanas después.
+   *
+   *   Por eso, después de borrar, se vuelve a hacer la misma comprobación que
+   *   haría la RPC. Con la misma condición de estado en el UPDATE, para no
+   *   pisar a nadie.
+   */
   async function quitarVacia(c: Categoria) {
     setError(null);
     const { error: dbError } = await supabase.from('categories').delete().eq('id', c.id);
@@ -941,6 +957,21 @@ export default function CerrarInscripcionesScreen() {
       setError(`No se pudo quitar ${c.nombre}. Intenta de nuevo.`);
       return;
     }
+
+    const { data: siguenAbiertas, error: leerErr } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('tournament_id', tournamentId)
+      .eq('status', 'open');
+
+    if (!leerErr && (siguenAbiertas?.length ?? 0) === 0) {
+      await supabase
+        .from('tournaments')
+        .update({ status: 'in_progress' })
+        .eq('id', tournamentId)
+        .eq('status', 'registration_open');
+    }
+
     await cargar();
   }
 

@@ -1,74 +1,58 @@
 /**
  * app/(judge)/_layout.web.tsx
  *
- * RALLY · Guard del grupo (judge) — variante WEB
+ * RALLY · Guard del grupo (judge).
  * El gemelo nativo vive en `_layout.tsx`.
  * Metro resuelve este archivo antes que `_layout.tsx` SOLO al compilar para web.
- *
- * REGLAS DE ACCESO (modelo "Airbnb") — idénticas al nativo:
- * - El juez NO tiene users.role = 'judge'.
- * - Es un player con una membresía member_role = 'judge' en organizer_members.
- * - Este guard verifica esa membresía. Si no la tiene → redirect a dashboard.
  *
  * Única diferencia con el nativo: el <Slot /> queda envuelto en CenteredContainer.
  * Aquí NO va WebShell: la vista de juez es una herramienta de captura,
  * no debe mostrar el nav del jugador.
+ *
+ * QUÉ SE COMPRUEBA — que tenga ALGÚN torneo donde capturar.
+ *
+ * ESTE GUARD ESTABA MAL Y ERA EL MOTIVO DE QUE EL JUEZ NO ENTRARA.
+ *   Pedía una membresía `organizer_members.member_role = 'judge'` que el juez
+ *   no tiene por qué tener. La pantalla de asignación lo dice en su cabecera
+ *   —"el juez no tiene que ser de tu organización"— y `can_capture_tournament`
+ *   (migración 054) opina lo mismo: admin, O owner del organizador, O fila en
+ *   `tournament_judges`. Ninguna de esas tres ramas es la membresía 'judge'.
+ *
+ *   Verificado contra la base del torneo de prueba: los dos jueces asignados
+ *   estaban en `tournament_judges` y NINGUNO en `organizer_members`, así que
+ *   este guard los rebotaba al dashboard — incluido el owner, cuya membresía
+ *   es 'owner' y no 'judge'. Con el menú arreglado y esto sin arreglar, la
+ *   pestaña habría llevado a una redirección instantánea de vuelta.
+ *
+ *   `useJudgeTournaments` es ahora la fuente única: la misma que decide si la
+ *   pestaña aparece. Si el menú te la enseña, entras; no puede haber
+ *   desacuerdo entre las dos porque son la misma consulta.
+ *
+ *   Aquí NO se filtra por torneo concreto: eso lo hace el servidor en cada
+ *   captura (`can_capture_tournament`), que es donde tiene que estar. Esto es
+ *   una puerta de pantalla, no la autorización.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Slot, router } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import CenteredContainer from '@/components/global/CenteredContainer';
+import { useJudgeTournaments } from '@/hooks/useJudgeTournaments';
 import { color } from '@/lib/design-tokens';
-import { supabase } from '@/lib/supabase/client';
-
-type AuthState = 'loading' | 'authorized' | 'unauthorized';
 
 export default function JudgeLayoutWeb() {
-  const [authState, setAuthState] = useState<AuthState>('loading');
+  const torneos = useJudgeTournaments();
 
+  // El redirect va en un efecto, no en el render: llamar a `router.replace`
+  // mientras se renderiza deja a expo-router navegando dentro de su propio
+  // ciclo de pintado.
   useEffect(() => {
-    async function checkJudgeAccess() {
-      try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          setAuthState('unauthorized');
-          return;
-        }
-
-        // Verificar membresía judge en organizer_members
-        const { data, error } = await supabase
-          .from('organizer_members')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('member_role', 'judge')
-          .limit(1);
-
-        if (error) {
-          console.error('[JudgeLayoutWeb] error al verificar membresía:', error);
-          setAuthState('unauthorized');
-          return;
-        }
-
-        if (data && data.length > 0) {
-          setAuthState('authorized');
-        } else {
-          setAuthState('unauthorized');
-        }
-      } catch (e) {
-        console.error('[JudgeLayoutWeb] excepción:', e);
-        setAuthState('unauthorized');
-      }
+    if (torneos !== undefined && torneos.length === 0) {
+      router.replace('/(protected)/dashboard');
     }
+  }, [torneos]);
 
-    checkJudgeAccess();
-  }, []);
-
-  if (authState === 'loading') {
+  if (torneos === undefined || torneos.length === 0) {
     return (
       <View
         style={{
@@ -81,12 +65,6 @@ export default function JudgeLayoutWeb() {
         <ActivityIndicator color={color.gold} />
       </View>
     );
-  }
-
-  if (authState === 'unauthorized') {
-    // Redirect fuera del render para evitar loops
-    router.replace('/(protected)/dashboard');
-    return null;
   }
 
   return (

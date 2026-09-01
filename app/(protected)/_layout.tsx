@@ -9,6 +9,7 @@ import { View, ActivityIndicator } from 'react-native';
 import { Tabs } from 'expo-router';
 
 import { useSessionGuard } from '@/hooks/useSessionGuard';
+import { useJudgeTournaments } from '@/hooks/useJudgeTournaments';
 import { color } from '@/lib/design-tokens';
 
 // Importar íconos de Tabler (outline) — Doc D §7
@@ -26,6 +27,17 @@ function TabIcon({ label, active }: { label: string; active: boolean }) {
 
 export default function ProtectedLayout() {
   const session = useSessionGuard();
+  const torneosDeJuez = useJudgeTournaments();
+
+  // La pestaña "Juez" solo existe para quien lo es. `href: null` la saca del
+  // tab bar sin desregistrar la ruta, así que un enlace directo a /juez sigue
+  // funcionando.
+  //
+  // En la duda (`undefined`, todavía resolviendo) NO se pinta: enseñarla y
+  // quitarla es peor que tardar medio segundo en aparecer, y al revés que
+  // "Organizar" —que existe para todos y solo cambia de destino— esta le
+  // prometería a un jugador una pantalla que no es suya.
+  const esJuez = (torneosDeJuez?.length ?? 0) > 0;
 
   // Cargando mientras se verifica la sesión
   if (session === undefined) {
@@ -81,7 +93,17 @@ export default function ProtectedLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="🏆" active={focused} />,
         }}
       />
-      {/* Tab 3 — Mi Ranking */}
+      {/* Tab 3 — Juez. Antes de Ranking a propósito: durante un torneo es lo
+          único que esta persona viene a hacer, y va donde cae el pulgar. */}
+      <Tabs.Screen
+        name="juez"
+        options={{
+          title: 'Juez',
+          href: esJuez ? undefined : null,
+          tabBarIcon: ({ focused }) => <TabIcon label="📋" active={focused} />,
+        }}
+      />
+      {/* Tab 4 — Mi Ranking */}
       <Tabs.Screen
         name="ranking"
         options={{
@@ -89,7 +111,7 @@ export default function ProtectedLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="📊" active={focused} />,
         }}
       />
-      {/* Tab 4 — Pro (suscripción del jugador) */}
+      {/* Tab 5 — Pro (suscripción del jugador) */}
       <Tabs.Screen
         name="planes"
         options={{
@@ -97,7 +119,7 @@ export default function ProtectedLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="⚡" active={focused} />,
         }}
       />
-      {/* Tab 5 — Perfil */}
+      {/* Tab 6 — Perfil */}
       <Tabs.Screen
         name="perfil"
         options={{
