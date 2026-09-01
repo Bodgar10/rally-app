@@ -457,6 +457,15 @@ export default function OrgTournamentScreen() {
             value={tercerLugar ? 'Con 3.er lugar' : 'Sin 3.er lugar'}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}
           />
+          {/* La otra palanca del tamaño del último día, y la que faltaba: los
+              clasificados solo se podían tocar ANTES de cerrar inscripciones,
+              justo antes de que se vea el problema que resuelven. */}
+          <TarjetaAjuste
+            icon="users"
+            title="Cuántos clasifican"
+            value="Por grupo y de repesca"
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/clasificados`)}
+          />
           {/* Va pegada a Canchas y Horarios porque es su consecuencia: aquí se
               ve si lo capturado alcanza para la gente que se está inscribiendo. */}
           <TarjetaAjuste

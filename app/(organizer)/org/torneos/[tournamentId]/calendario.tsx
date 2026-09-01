@@ -716,6 +716,21 @@ export default function CalendarioScreen() {
         <Text style={s.eyebrow}>{nombre.toUpperCase()}</Text>
         <Text style={s.title}>Calendario</Text>
 
+        {/* La salida cuando el día no cabe o cierra tarde. Es el sitio donde
+            el organizador SE ENTERA del problema, así que es donde tiene que
+            estar la palanca que lo arregla: menos clasificados, menos partidos
+            el domingo. Antes se enteraba aquí y no podía hacer nada. */}
+        {estado && (
+          <Pressable
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/clasificados`)}
+            style={({ pressed }) => [s.enlace, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Ajustar cuántas parejas clasifican"
+          >
+            <Text style={s.enlaceTexto}>¿Termina tarde? Ajustar cuántos clasifican →</Text>
+          </Pressable>
+        )}
+
         {fase.t === 'noCabe' ? (
           <View style={s.noCabe}>
             <Text style={s.noCabeTitulo}>No cabe en el último día</Text>

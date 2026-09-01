@@ -2129,6 +2129,15 @@ export type Database = {
         Args: { p_actor: string; p_category_id: string; p_next: Json }
         Returns: Json
       }
+      ajustar_clasificados: {
+        Args: {
+          p_advance: number
+          p_borrar_cuadro?: boolean
+          p_category_id: string
+          p_extra: number
+        }
+        Returns: Json
+      }
       apply_tournament_ranking_points: {
         Args: { p_actor: string; p_ledger: Json; p_tournament_id: string }
         Returns: Json
