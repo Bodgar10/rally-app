@@ -19,6 +19,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { generarBloques } from '@/lib/engine/schedule/bloques';
@@ -73,6 +74,7 @@ const normalizada = (v: string) => normalizarHora(v) ?? v.trim();
 export default function HorariosScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]       = useState('');
   const [ventanas, setVentanas]   = useState<Ventana[]>([]);
@@ -203,7 +205,7 @@ export default function HorariosScreen() {
       setError('Los horarios se guardaron, pero no la duración del partido.');
       return;
     }
-    router.back();
+    volver();
   }
 
   function editar(dia: string, parche: Partial<Ventana>) {

@@ -22,6 +22,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
@@ -31,6 +32,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 export default function EliminarTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]         = useState('');
   const [categorias, setCategorias] = useState(0);
@@ -182,7 +184,7 @@ export default function EliminarTorneoScreen() {
         )}
 
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => volver()}
           style={({ pressed }) => [s.btnCancelar, pressed && { opacity: 0.85 }]}
           accessibilityRole="button"
         >

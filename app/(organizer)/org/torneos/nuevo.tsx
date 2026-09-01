@@ -11,6 +11,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { Button, Card, SectionLabel }           from '@/components/ui';
@@ -23,6 +24,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 
 export default function NuevoTorneoScreen() {
   const router = useRouter();
+  const volver = useVolver();
 
   const [name, setName]             = useState('');
   const [rango, setRango]           = useState<RangoSeleccion>({ inicio: null, fin: null });
@@ -162,7 +164,7 @@ export default function NuevoTorneoScreen() {
             loading={saving}
             onPress={handleSave}
           />
-          <Button label="Cancelar" variant="secondary" onPress={() => router.back()} />
+          <Button label="Cancelar" variant="secondary" onPress={() => volver()} />
         </View>
 
         <Text style={s.hint}>

@@ -38,6 +38,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import Icon from '@/components/ui/Icon';
@@ -694,6 +695,7 @@ type Fase =
 export default function CerrarInscripcionesScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [capacidad, setCapacidad] = useState<PlanTorneo | null>(null);
   /**
@@ -1350,7 +1352,7 @@ export default function CerrarInscripcionesScreen() {
           )}
 
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => volver()}
             style={({ pressed }) => [s.btnDorado, pressed && { opacity: 0.85 }]}
             accessibilityRole="button"
           >

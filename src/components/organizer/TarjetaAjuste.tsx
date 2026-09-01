@@ -34,8 +34,19 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
-/** Ancho mínimo antes de saltar de línea. Tres caben en la columna ancha. */
-export const ANCHO_MINIMO_TARJETA = 270;
+/**
+ * Ancho mínimo antes de saltar de línea. TRES es el tope, a propósito.
+ *
+ * Con 270 entraban CUATRO en la columna ancha (1200 menos el padding deja
+ * ~1164, y 4×270 + 3 huecos = 1104), y a cuatro cada tarjeta cae a 285px: el
+ * título de 17px y el valor a dos líneas empiezan a apretarse, que es justo lo
+ * que la tarjeta venía a evitar. Con 300 no caben cuatro (1224 > 1164) y sí
+ * tres (916), así que la rejilla topa en tres sin necesidad de un breakpoint.
+ *
+ * Sigue sin capar el móvil: 300 < los 354 de un iPhone de 390, así que abajo se
+ * ve una por fila y a lo ancho.
+ */
+export const ANCHO_MINIMO_TARJETA = 300;
 
 interface Props {
   icon:       IconName;

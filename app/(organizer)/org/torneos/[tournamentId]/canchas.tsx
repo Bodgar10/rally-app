@@ -16,6 +16,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
@@ -28,6 +29,7 @@ const MAX = 30;   // mismo rango que el CHECK de la migración 044
 export default function CanchasScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]     = useState('');
   const [canchas, setCanchas]   = useState<number | null>(null);
@@ -72,7 +74,7 @@ export default function CanchasScreen() {
       setError('No se pudo guardar. Intenta de nuevo.');
       return;
     }
-    router.back();
+    volver();
   }
 
   if (cargando) {

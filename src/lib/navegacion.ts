@@ -40,6 +40,19 @@ const EXCEPCIONES: Record<string, string> = {
 /** Pantallas públicas: se leen sin sesión, así que su suelo es la portada. */
 const PUBLICAS = new Set(['privacidad', 'terminos', 'reembolso', 'ayuda', 'como-cancelar']);
 
+/**
+ * Pantallas de sesión: su suelo es el login, NO el dashboard.
+ *
+ * A quien está recuperando su contraseña no se le puede mandar al dashboard
+ * cuando no hay historial: no tiene sesión, así que el guard lo rebotaría a
+ * `/login` de todas formas — pero pasando por una pantalla que parpadea. El
+ * "← Volver" de `recuperar` dice que vuelve al login; que vaya al login.
+ */
+const DE_SESION = new Set(['login', 'registro', 'recuperar', 'nueva-contrasena', 'callback']);
+
+/** Suelo de quien todavía no ha entrado. */
+export const DESTINO_SIN_SESION = '/(auth)/login';
+
 /** Suelo de la app para quien tiene sesión. */
 export const DESTINO_POR_DEFECTO = '/(protected)/dashboard';
 
@@ -60,7 +73,9 @@ export function rutaPadre(pathname: string): string {
 
   // Un solo segmento: no hay padre dentro de la app.
   if (segmentos.length === 1) {
-    return PUBLICAS.has(segmentos[0]) ? '/' : DESTINO_POR_DEFECTO;
+    if (PUBLICAS.has(segmentos[0])) return '/';
+    if (DE_SESION.has(segmentos[0])) return DESTINO_SIN_SESION;
+    return DESTINO_POR_DEFECTO;
   }
 
   if (EXCEPCIONES[`/${segmentos[0]}`]) return EXCEPCIONES[`/${segmentos[0]}`];

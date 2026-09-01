@@ -16,6 +16,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import VenuePicker, { type Venue } from '@/components/organizer/VenuePicker';
@@ -26,6 +27,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 export default function SedeTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]     = useState('');
   const [venues, setVenues]     = useState<Venue[]>([]);
@@ -79,7 +81,7 @@ export default function SedeTorneoScreen() {
       setError('No se pudo guardar la sede. Intenta de nuevo.');
       return;
     }
-    router.back();
+    volver();
   }
 
   if (cargando) {

@@ -29,6 +29,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/database.types';
@@ -100,6 +101,7 @@ type Confirmacion = {
 export default function CategoriasScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombreTorneo, setNombreTorneo] = useState('');
   const [existentes, setExistentes] = useState<CategoriaExistente[]>([]);
@@ -229,7 +231,7 @@ export default function CategoriasScreen() {
         if (e) throw e;
       }
 
-      router.back();
+      volver();
     } catch (e: unknown) {
       // El trigger de la migración 033 es la última línea de defensa: si la UI
       // dejó pasar un borrado con pagos, aquí llega su código.

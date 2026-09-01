@@ -445,8 +445,16 @@ export default function LiveStandings({
               </Text>
             </View>
 
-            {/* Línea de corte visual después de la última pareja que clasifica */}
-            {isCutoff && idx < rows.length - 1 && (
+            {/* Línea de corte visual después de la última pareja que clasifica.
+
+                `datos.length` y NO `rows.length`: `rows` es solo el estado de
+                la consulta propia, y con filas inyectadas —que es como la usa
+                TODA la pantalla de Grupos del organizador— se queda vacío. La
+                condición era entonces `idx < -1`, falsa siempre, así que la
+                línea no se dibujaba nunca justo donde más se necesita. El bucle
+                de arriba ya itera `datos`; esto solo faltaba por mirar lo mismo
+                que se está pintando. */}
+            {isCutoff && idx < datos.length - 1 && (
               <View
                 style={{
                   height: 1.5,
@@ -460,7 +468,9 @@ export default function LiveStandings({
         );
       })}
 
-      {rows.length === 0 && (
+      {/* Mismo `datos` que las filas, por lo mismo: con filas inyectadas
+          `rows` está vacío y este aviso salía DEBAJO de una tabla llena. */}
+      {datos.length === 0 && (
         <View style={{ padding: 20, alignItems: 'center' }}>
           <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 12 }}>
             Sin partidos jugados aún.

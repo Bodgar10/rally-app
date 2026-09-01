@@ -18,6 +18,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
@@ -27,6 +28,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 export default function CuotaTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]     = useState('');
   const [cuota, setCuota]       = useState('');
@@ -83,7 +85,7 @@ export default function CuotaTorneoScreen() {
       setError('No se pudo guardar la cuota. Intenta de nuevo.');
       return;
     }
-    router.back();
+    volver();
   }
 
   if (cargando) {

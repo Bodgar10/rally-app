@@ -24,6 +24,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView, Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
@@ -35,6 +36,7 @@ import { fallo } from '@/lib/errores-red';
 export default function FormatoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]       = useState('');
   // Arranca apagado: si la carga falla, la pantalla no promete un partido
@@ -111,7 +113,7 @@ export default function FormatoScreen() {
         .update({ tercer_lugar: tercero } as never)
         .eq('id', tournamentId);
       if (e) throw e;
-      router.back();
+      volver();
     } catch (e) {
       setError(fallo('formato/guardar', e, 'No se pudo guardar. Intenta de nuevo.', { tournamentId }));
     } finally {

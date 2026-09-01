@@ -5,7 +5,7 @@
 // tres casos no volvía a ningún sitio, porque `router.back()` no hace nada sin
 // historial.
 
-import { rutaPadre, DESTINO_POR_DEFECTO } from '@/lib/navegacion';
+import { rutaPadre, DESTINO_POR_DEFECTO, DESTINO_SIN_SESION } from '@/lib/navegacion';
 
 describe('rutaPadre — el caso normal es quitar el último segmento', () => {
   it.each([
@@ -42,6 +42,15 @@ describe('rutaPadre — las dos pantallas que no tenían salida', () => {
   it('el onboarding de Connect vuelve al panel del organizador', () => {
     expect(rutaPadre('/org/onboarding-connect')).toBe('/org');
   });
+});
+
+describe('rutaPadre — las pantallas de sesión caen al login, no al dashboard', () => {
+  // Quien recupera su contraseña NO tiene sesión: mandarlo al dashboard lo
+  // haría rebotar al login pasando por una pantalla que parpadea.
+  it.each(['/recuperar', '/registro', '/nueva-contrasena', '/login'])(
+    '%s → login',
+    (ruta) => { expect(rutaPadre(ruta)).toBe(DESTINO_SIN_SESION); },
+  );
 });
 
 describe('rutaPadre — cuando no hay padre dentro de la app', () => {

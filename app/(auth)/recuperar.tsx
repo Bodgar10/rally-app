@@ -29,6 +29,7 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
@@ -37,6 +38,7 @@ import { fallo } from '@/lib/errores-red';
 
 export default function RecuperarScreen() {
   const router = useRouter();
+  const volver = useVolver();
   // El correo llega del enlace del correo de alta. useState con valor inicial
   // (no useEffect): el parámetro está disponible en el primer render y así el
   // campo nunca parpadea vacío.
@@ -214,7 +216,7 @@ export default function RecuperarScreen() {
             }
           </Pressable>
 
-          <Pressable onPress={() => router.back()} style={styles.linkWrapper}>
+          <Pressable onPress={() => volver()} style={styles.linkWrapper}>
             <Text style={styles.linkText}>← Volver</Text>
           </Pressable>
         </View>

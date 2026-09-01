@@ -41,6 +41,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
@@ -129,6 +130,7 @@ const MENSAJE_GENERICO = 'No se pudo registrar la pareja. Intenta de nuevo.';
 export default function AgregarParejaScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [paso, setPaso]             = useState<Paso>('categoria');
   const [nombreTorneo, setNombre]   = useState('');
@@ -344,7 +346,7 @@ export default function AgregarParejaScreen() {
             <Pressable style={s.btnPerfilado} onPress={reiniciar} accessibilityRole="button">
               <Text style={s.btnPerfiladoTexto}>Agregar otra</Text>
             </Pressable>
-            <Pressable style={s.btnDorado} onPress={() => router.back()} accessibilityRole="button">
+            <Pressable style={s.btnDorado} onPress={() => volver()} accessibilityRole="button">
               <Text style={s.btnDoradoTexto}>Volver al panel</Text>
             </Pressable>
           </View>

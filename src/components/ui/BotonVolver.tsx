@@ -24,11 +24,10 @@
  */
 
 import { Pressable, Text, StyleSheet } from 'react-native';
-import { usePathname, useRouter } from 'expo-router';
 
 import { color, font, fontSize, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn } from '@/lib/web-layout';
-import { rutaPadre } from '@/lib/navegacion';
+import { useVolver } from '@/hooks/useVolver';
 
 interface Props {
   /** Sin la flecha. "Mis torneos" → "← Mis torneos". */
@@ -46,31 +45,14 @@ interface Props {
 }
 
 export default function BotonVolver({ texto, onPress, destino, enScroller = false }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  /**
-   * Atrás si se puede; si no, al padre.
-   *
-   * `router.back()` a secas era un no-op siempre que no hubiera historial:
-   * entrando por `replace` (la puerta del juez), por URL directa o tras un F5
-   * en web. El botón se veía igual y no pasaba nada al tocarlo.
-   *
-   * `replace` y no `push` para el fallback: si no había historial, apilar una
-   * entrada nueva dejaría un "atrás" del navegador que devuelve justo a la
-   * pantalla de la que el usuario acaba de salir.
-   */
-  function volver() {
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-    router.replace(destino ?? rutaPadre(pathname));
-  }
+  // La regla —atrás si se puede, si no al padre— vive en `useVolver`, que es
+  // la misma que usan los "Cancelar" y las vueltas de después de guardar. Aquí
+  // estaba escrita a mano y era la única copia; ahora no hay copias.
+  const volver = useVolver();
 
   return (
     <Pressable
-      onPress={onPress ?? volver}
+      onPress={onPress ?? (() => volver(destino))}
       style={({ pressed }) => [
         s.base,
         enScroller ? s.dentro : s.fuera,

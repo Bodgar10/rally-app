@@ -16,6 +16,7 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useVolver } from '@/hooks/useVolver';
 
 import { supabase }        from '@/lib/supabase/client';
 import CalendarioRango     from '@/components/ui/CalendarioRango';
@@ -28,6 +29,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 export default function FechasTorneoScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
   const router = useRouter();
+  const volver = useVolver();
 
   const [nombre, setNombre]   = useState('');
   const [rango, setRango]     = useState<RangoSeleccion>({ inicio: null, fin: null });
@@ -78,7 +80,7 @@ export default function FechasTorneoScreen() {
       setError('No se pudieron guardar las fechas. Intenta de nuevo.');
       return;
     }
-    router.back();
+    volver();
   }
 
   if (cargando) {
