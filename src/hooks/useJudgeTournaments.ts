@@ -25,23 +25,9 @@
  *   juez, y obligarle a asignarse a sí mismo sería ceremonia sin nadie a quien
  *   proteger. Aquí se resuelve con la misma consulta que ya usa el panel.
  *
- * LA VENTANA DE TIEMPO
- *   Un juez de RALLY acumula torneos. Sin filtro, el menú de quien lleva dos
- *   temporadas sería una lista de archivo con el torneo de este fin de semana
- *   perdido dentro.
- *
- *     · Pasados: se ocultan 5 días después de `end_date`. La captura tardía y
- *       las correcciones caben de sobra en esa ventana; el lunes siguiente el
- *       torneo ya no es trabajo.
- *     · Futuros: se ocultan si faltan más de 30 días para `start_date`. Es el
- *       umbral que elegí porque un mes es el horizonte en el que un torneo deja
- *       de ser un plan y empieza a ser una fecha: antes de eso el juez no tiene
- *       nada que hacer ahí, y verlo en el menú solo compite con el que sí está
- *       jugándose. Se cambia en UMBRAL_FUTURO_DIAS, en un sitio, no en tres.
- *
- *   Las fechas se comparan por DÍA en la zona del club (`hoy()` de lib/fechas),
- *   no con Date.now() crudo: un torneo que termina hoy no puede desaparecer del
- *   menú a mitad de la tarde porque el reloj pasó de las 00:00 UTC.
+ * LA VENTANA DE TIEMPO — 5 días después del fin, 30 antes del inicio.
+ *   Las reglas y el porqué de cada umbral viven en `@/lib/juez/ventana`, que
+ *   es código puro y tiene tests. Aquí solo se aplican.
  *
  * CACHÉ, igual que useIsOrganizerOwner
  *   Esto se consulta desde el nav, que está montado en TODAS las pantallas del
@@ -52,13 +38,14 @@
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/lib/supabase/client';
-import { hoy, parseFechaISO } from '@/lib/fechas';
+import {
+  dentroDeLaVentana,
+  ordenarPorCercania,
+  UMBRAL_FUTURO_DIAS,
+  UMBRAL_PASADO_DIAS,
+} from '@/lib/juez/ventana';
 
-/** Días DESPUÉS del fin del torneo que sigue apareciendo en el menú. */
-export const UMBRAL_PASADO_DIAS = 5;
-
-/** Días ANTES del inicio a partir de los cuales ya aparece en el menú. */
-export const UMBRAL_FUTURO_DIAS = 30;
+export { UMBRAL_FUTURO_DIAS, UMBRAL_PASADO_DIAS };
 
 export interface TorneoDeJuez {
   id: string;
@@ -81,40 +68,6 @@ interface FilaTorneo {
   start_date: string | null;
   end_date: string | null;
   organizers: { name: string } | null;
-}
-
-/**
- * ¿Cae dentro de la ventana? Un torneo sin fechas se deja pasar: es un dato
- * incompleto del organizador, no una razón para esconderle el torneo al juez.
- */
-export function dentroDeLaVentana(
-  inicio: string | null,
-  fin: string | null,
-  hoyDia: Date = hoy(),
-): boolean {
-  const dia = 24 * 60 * 60 * 1000;
-
-  const finD = parseFechaISO(fin);
-  if (finD) {
-    const diasDesdeElFin = Math.floor((hoyDia.getTime() - finD.getTime()) / dia);
-    if (diasDesdeElFin > UMBRAL_PASADO_DIAS) return false;
-  }
-
-  const inicioD = parseFechaISO(inicio);
-  if (inicioD) {
-    const diasHastaElInicio = Math.floor((inicioD.getTime() - hoyDia.getTime()) / dia);
-    if (diasHastaElInicio > UMBRAL_FUTURO_DIAS) return false;
-  }
-
-  return true;
-}
-
-/** Más cercano primero. Sin fecha, al final: no se puede afirmar cuándo es. */
-export function ordenarPorCercania(a: TorneoDeJuez, b: TorneoDeJuez): number {
-  const ia = parseFechaISO(a.inicio)?.getTime() ?? Number.POSITIVE_INFINITY;
-  const ib = parseFechaISO(b.inicio)?.getTime() ?? Number.POSITIVE_INFINITY;
-  if (ia !== ib) return ia - ib;
-  return a.nombre.localeCompare(b.nombre, 'es');
 }
 
 // ── Caché de módulo ─────────────────────────────────────────────────────────
