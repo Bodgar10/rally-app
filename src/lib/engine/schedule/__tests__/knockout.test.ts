@@ -1,5 +1,6 @@
 import {
   programarEliminatorias,
+  grafoDeHermandad,
   cotaInferior,
   partidosPorRonda,
   etapaDeRonda,
@@ -554,5 +555,23 @@ describe('retraso encadenado', () => {
     const r = programarEliminatorias(CIMEPA);
     const esperado = finRealistaEncadenado(cadenasDePartidos(r.partidos), 60);
     expect(r.finRealista).toBe(formatHora(esperado!));
+  });
+});
+
+describe('grafoDeHermandad — un id vacío no es una persona', () => {
+  it('dos categorías con una pareja a medio inscribir NO son hermanas', () => {
+    const g = grafoDeHermandad([
+      { id: 'A', clasificados: 4, jugadores: ['a1', ''] },
+      { id: 'B', clasificados: 4, jugadores: ['b1', ''] },
+    ]);
+    expect(g.get('A')?.has('B') ?? false).toBe(false);
+  });
+
+  it('un jugador de verdad compartido sí las hermana', () => {
+    const g = grafoDeHermandad([
+      { id: 'A', clasificados: 4, jugadores: ['comun', ''] },
+      { id: 'B', clasificados: 4, jugadores: ['comun', ''] },
+    ]);
+    expect(g.get('A')?.has('B')).toBe(true);
   });
 });

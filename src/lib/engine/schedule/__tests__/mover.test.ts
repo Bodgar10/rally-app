@@ -257,3 +257,39 @@ describe('validarMovimiento · los junta todos', () => {
     expect(mover(partidos, H(10), 'Cancha 1').ok).toBe(true);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// BLINDAJE CONTRA NULLS
+//
+// Un partido sin hora no está en ningún sitio: no ocupa cancha, no ocupa a
+// nadie y no gasta descanso. El filtro era implícito y `null === null` es
+// `true`: dos partidos sin día se daban por simultáneos.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('validarMovimiento — un partido sin hora no ocupa nada', () => {
+  const base: PartidoEnCalendario = {
+    id: 'destino', categoryId: 'c1', stage: 'group', roundLabel: 'R1',
+    dia: '2026-09-05', inicioMin: 900, cancha: 'Cancha 1',
+    jugadores: ['j1', 'j2', 'j3', 'j4'], status: 'scheduled', sourceMatchIds: null,
+  };
+  const sinHora: PartidoEnCalendario = {
+    ...base, id: 'fantasma', cancha: 'Cancha 1', dia: null, inicioMin: null,
+  };
+
+  it('no bloquea la cancha', () => {
+    const r = validarMovimiento({
+      movimiento: { matchId: 'destino', dia: '2026-09-05', inicioMin: 900, cancha: 'Cancha 1' },
+      partidos: [base, sinHora],
+    });
+    expect(r.conflictos.some((c) => c.motivo === 'cancha_ocupada')).toBe(false);
+  });
+
+  it('no ocupa a sus jugadores ni les come el descanso', () => {
+    const r = validarMovimiento({
+      movimiento: { matchId: 'destino', dia: '2026-09-05', inicioMin: 900, cancha: 'Cancha 9' },
+      partidos: [base, sinHora],
+    });
+    expect(r.conflictos.some((c) => c.motivo === 'jugador_ocupado')).toBe(false);
+    expect(r.conflictos.some((c) => c.motivo === 'descanso_insuficiente')).toBe(false);
+  });
+});

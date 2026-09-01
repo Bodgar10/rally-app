@@ -336,3 +336,49 @@ export function fechaHoraDeTorneo(iso: string | null | undefined): string {
     hour12: false,
   }).format(d);
 }
+
+/**
+ * El INSTANTE del partido, en milisegundos epoch. `null` si no tiene hora o si
+ * el texto no es una fecha.
+ *
+ * ESTA ES LA ÚNICA FORMA CORRECTA DE PREGUNTAR "¿SON A LA MISMA HORA?".
+ *
+ *   El detector de empalmes comparaba `horaDeTorneo(iso)` — la hora del reloj,
+ *   sin el día. En el torneo bb8e137e eso juntó los cuartos del DOMINGO a las
+ *   15:00 con los grupos del SÁBADO a las 15:00 y los declaró simultáneos:
+ *   inventó un empalme que no existe y, al ocupar el hueco con el falso, tapó
+ *   los dos reales del sábado. En un torneo de tres días una hora suelta no
+ *   identifica nada.
+ *
+ *   No hace falta la zona para comparar: un instante es el mismo instante en
+ *   cualquier huso. La zona hace falta para ESCRIBIRLO (ver diaYHoraDeTorneo),
+ *   no para compararlo. Lo que nunca vale es comparar el texto de la hora.
+ *
+ * Devuelve `null` en vez de NaN a propósito: un NaN se cuela en las
+ * comparaciones sin quejarse, y un partido sin hora tiene que quedar FUERA de
+ * la comparación, no perder todos los duelos.
+ */
+export function instanteDeTorneo(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/** Como DIAS_CORTOS pero en minúscula, para meterlos dentro de una frase. */
+const DIAS_CORTOS_MINUSCULA = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'] as const;
+
+/**
+ * 'sáb 5, 15:00' en la zona del club. Cadena vacía si no hay hora.
+ *
+ * El aviso de empalmes decía solo '15:00'. Con viernes, sábado y domingo por
+ * delante eso no dice cuándo: obliga a abrir el calendario para averiguar de
+ * qué día se está hablando, que es justo lo que el aviso tenía que ahorrar.
+ */
+export function diaYHoraDeTorneo(iso: string | null | undefined): string {
+  const dia = diaDeTorneo(iso);
+  const hora = horaDeTorneo(iso);
+  if (!dia || !hora) return '';
+  const d = parseFechaISO(dia);
+  if (!d) return hora;
+  return `${DIAS_CORTOS_MINUSCULA[indiceLunes(d)]} ${d.getDate()}, ${hora}`;
+}

@@ -904,6 +904,7 @@ function grafoDeHermandad(categorias) {
   const porJugador = /* @__PURE__ */ new Map();
   for (const c of categorias) {
     for (const j of c.jugadores ?? []) {
+      if (!j) continue;
       const ya = porJugador.get(j);
       if (ya) ya.push(c.id);
       else porJugador.set(j, [c.id]);
@@ -1678,7 +1679,9 @@ function validarMovimiento(entrada) {
   const inicio = mov.inicioMin;
   const fin = inicio + dur;
   const conflictos = [];
-  const delDia = entrada.partidos.filter((p) => p.id !== partido.id && p.dia === mov.dia && p.inicioMin !== null);
+  const delDia = entrada.partidos.filter(
+    (p) => p.id !== partido.id && p.dia !== null && p.inicioMin !== null && p.dia === mov.dia
+  );
   for (const otro of delDia) {
     if (otro.cancha !== mov.cancha) continue;
     if (!seSolapan(inicio, fin, otro.inicioMin, otro.inicioMin + dur)) continue;
@@ -1689,9 +1692,9 @@ function validarMovimiento(entrada) {
     });
     break;
   }
-  const mios = new Set(partido.jugadores);
+  const mios = new Set((partido.jugadores ?? []).filter((j) => !!j));
   for (const otro of delDia) {
-    const compartidos = otro.jugadores.filter((j) => mios.has(j));
+    const compartidos = (otro.jugadores ?? []).filter((j) => !!j && mios.has(j));
     if (compartidos.length === 0) continue;
     const oIni = otro.inicioMin;
     const oFin = oIni + dur;

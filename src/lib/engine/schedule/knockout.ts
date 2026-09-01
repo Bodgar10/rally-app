@@ -232,6 +232,10 @@ export function grafoDeHermandad(categorias: CategoriaCuadro[]): Map<string, Set
   const porJugador = new Map<string, string[]>();
   for (const c of categorias) {
     for (const j of c.jugadores ?? []) {
+      // Un id vacío NO es una persona. Sin este filtro, dos categorías con una
+      // pareja a medio inscribir "comparten jugador": el motor las separa en
+      // el tiempo, alarga el domingo y avisa de un empalme que no existe.
+      if (!j) continue;
       const ya = porJugador.get(j);
       if (ya) ya.push(c.id);
       else porJugador.set(j, [c.id]);

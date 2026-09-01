@@ -61,6 +61,10 @@ import {
   type CategoriaCuadro,
 } from '@/lib/engine/schedule/knockout';
 import { parseFechaISO, indiceLunes, horaDeTorneo, diaDeTorneo } from '@/lib/fechas';
+import {
+  empalmesReales, partidosSinHora,
+  type EmpalmeReal, type FaltaHora, type PartidoParaEmpalmes,
+} from '@/lib/calendario-empalmes';
 import { fallo, registrarFallo } from '@/lib/errores-red';
 
 // ── Presentación ────────────────────────────────────────────────────────────
@@ -113,15 +117,6 @@ interface Fila extends FilaCalendario {
   dia: string;
 }
 
-
-interface EmpalmeReal {
-  jugador: string;
-  hora: string;
-  detalle: string;
-  /** Para saltar a la celda. El aviso decía la hora y tocaba buscarlo a mano. */
-  matchId: string;
-  dia: string;
-}
 
 interface Riesgo {
   texto: string;
@@ -180,6 +175,14 @@ interface Estado {
   categorias: { id: string; nombre: string; partidos: number }[];
   reales: EmpalmeReal[];
   riesgos: Riesgo[];
+  /**
+   * Partidos de la categoría a los que les falta `scheduled_at`.
+   *
+   * Se quedan FUERA del detector de empalmes a propósito —sin hora no hay
+   * choque que detectar— pero no pueden desaparecer sin más: la pantalla
+   * enseñaría un calendario que parece completo y no lo está. Es otro aviso.
+   */
+  sinHora: FaltaHora[];
   sinPlan: boolean;
 }
 
@@ -398,7 +401,9 @@ export default function CalendarioScreen() {
     const jugadoresPorCat = new Map<string, string[]>();
     for (const pr of todasParejas ?? []) {
       const ya = jugadoresPorCat.get(pr.category_id);
-      const dos = [pr.player1_id, pr.player2_id];
+      // Sin nulls: una pareja a medio inscribir traía un `null` y DOS
+      // categorías con un null se declaraban hermanas por "compartir jugador".
+      const dos = [pr.player1_id, pr.player2_id].filter((j): j is string => !!j);
       if (ya) ya.push(...dos);
       else jugadoresPorCat.set(pr.category_id, dos);
     }
@@ -417,34 +422,52 @@ export default function CalendarioScreen() {
       if (pp.player2_id) nombrePorJugador.set(pp.player2_id, pp.player2_name);
     }
 
-    // ── Empalmes REALES: un jugador con dos partidos a la misma hora ────────
-    const porJugadorHora = new Map<string, Fila[]>();
-    for (const f of filas) {
-      for (const j of f.jugadores) {
-        const k = `${j}#${f.hora}`;
-        const ya = porJugadorHora.get(k);
-        if (ya) ya.push(f); else porJugadorHora.set(k, [f]);
-      }
-    }
+    // ── Empalmes REALES: un jugador con dos partidos EN EL MISMO INSTANTE ───
+    //
+    // La detección vive en `@/lib/calendario-empalmes` y no aquí. Estaba aquí
+    // dentro, agrupando por `jugador + hora del reloj` SIN EL DÍA, y por eso
+    // juntaba los cuartos del domingo con los grupos del sábado y tapaba los
+    // empalmes de verdad. Desde una pantalla eso no se podía probar; ahora sí.
     const nombrePorId = new Map<string, string>();
     for (const p of parejas.values()) {
-      nombrePorId.set(p.player1_id, p.player1_name);
-      nombrePorId.set(p.player2_id, p.player2_name);
+      if (p.player1_id) nombrePorId.set(p.player1_id, p.player1_name);
+      if (p.player2_id) nombrePorId.set(p.player2_id, p.player2_name);
     }
 
-    const reales: EmpalmeReal[] = [];
-    for (const [k, choque] of porJugadorHora) {
-      if (choque.length < 2) continue;
-      const [jugadorId, hora] = k.split('#');
-      reales.push({
-        jugador: nombrePorId.get(jugadorId) ?? 'Un jugador',
-        hora,
-        detalle: choque.map((c) => `${c.etapa} de ${c.categoria}`).join(' y '),
-        matchId: choque[0].id,
-        dia: choque[0].dia,
-      });
-    }
-    reales.sort((a, b) => a.hora.localeCompare(b.hora) || a.jugador.localeCompare(b.jugador));
+    // Los partidos sin hora NO están en `filas` (la consulta los excluye), así
+    // que se leen aparte: hacen falta para el aviso de dato faltante.
+    const { data: huerfanos } = await supabase
+      .from('matches')
+      .select('id, category_id, stage, groups(name)')
+      .eq('tournament_id', tournamentId)
+      .is('scheduled_at', null);
+
+    const paraEmpalmes: PartidoParaEmpalmes[] = [
+      ...filas.map((f) => ({
+        id: f.id,
+        categoriaId: f.categoriaId,
+        categoria: f.categoria,
+        etapa: f.etapa,
+        iso: f.iso,
+        // Los CUATRO: `f.jugadores` ya trae pareja A y pareja B (ver idsDe).
+        jugadores: f.jugadores,
+      })),
+      ...(huerfanos ?? []).map((m: any) => ({
+        id: m.id,
+        categoriaId: m.category_id,
+        categoria: nombreCat.get(m.category_id) ?? '—',
+        // Un grupo sin hora se nombra por su letra: "grupo A" es lo que el
+        // organizador busca en la pantalla de Grupos para arreglarlo.
+        etapa: m.stage === 'group' && m.groups?.name
+          ? `grupo ${m.groups.name}`
+          : (ETAPA[m.stage] ?? m.stage),
+        iso: null,
+        jugadores: [],
+      })),
+    ];
+
+    const reales = empalmesReales(paraEmpalmes, nombrePorId);
+    const sinHora = partidosSinHora(paraEmpalmes);
 
     // ── Riesgos: sobre los partidos QUE ESTÁN, no sobre un plan recalculado ─
     // Antes esto volvía a correr el motor. Estaba mal: el motor con
@@ -537,6 +560,7 @@ export default function CalendarioScreen() {
       categorias: categoriasConPartidos(filas),
       reales,
       riesgos,
+      sinHora,
       sinPlan: filas.length === 0,
     });
     setFase({ t: 'lista' });
@@ -637,7 +661,9 @@ export default function CalendarioScreen() {
         : `${n} jugadores tienen dos partidos a la vez`,
       lineas: estado.reales
         .filter((e) => e.dia === diaActivo.dia)
-        .map((e) => ({ texto: `${e.hora} · ${e.jugador} — ${e.detalle}`, matchId: e.matchId })),
+        // Con el DÍA delante: 'sáb 5, 15:00'. Un '15:00' suelto en un torneo de
+        // tres días obliga a abrir el calendario para saber de qué día habla.
+        .map((e) => ({ texto: `${e.cuando} · ${e.jugador} — ${e.detalle}`, matchId: e.matchId })),
     },
     {
       clave: 'riesgos',
@@ -649,6 +675,19 @@ export default function CalendarioScreen() {
       lineas: estado.riesgos
         .filter((r) => !r.dia || r.dia === diaActivo.dia)
         .map((r) => ({ texto: r.texto, matchId: r.matchId })),
+    },
+    {
+      // APARTE del de empalmes, y a propósito. Aquí no hay ningún choque: hay
+      // partidos que el detector no pudo mirar porque les falta la hora. Si no
+      // se dijera, la pantalla enseñaría un calendario que parece completo.
+      //
+      // Sin filtrar por día: un partido sin hora no está en ningún día.
+      clave: 'sinHora',
+      tono: 'aviso',
+      titulo: (n) => n === 1
+        ? 'Hay partidos sin hora asignada'
+        : `${n} grupos de partidos sin hora asignada`,
+      lineas: estado.sinHora.map((f) => ({ texto: f.texto })),
     },
   ] : [];
 

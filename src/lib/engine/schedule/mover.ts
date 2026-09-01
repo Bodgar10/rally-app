@@ -145,7 +145,16 @@ export function validarMovimiento(entrada: EntradaMovimiento): ResultadoMovimien
   const conflictos: Conflicto[] = [];
 
   // Todo lo demás del mismo día. El propio partido no se compara consigo mismo.
-  const delDia = entrada.partidos.filter((p) => p.id !== partido.id && p.dia === mov.dia && p.inicioMin !== null);
+  //
+  // LOS QUE NO TIENEN HORA SE EXCLUYEN EXPLÍCITAMENTE, los dos campos, y no
+  // porque la comparación vaya a fallar sola: `null === null` es `true`, así
+  // que dos partidos sin día se habrían dado por simultáneos, y un `inicioMin`
+  // nulo entra en la aritmética como 0 y coloca el partido a medianoche. Un
+  // partido sin hora no ocupa cancha, no ocupa a nadie y no gasta descanso:
+  // todavía no está en ningún sitio.
+  const delDia = entrada.partidos.filter(
+    (p) => p.id !== partido.id && p.dia !== null && p.inicioMin !== null && p.dia === mov.dia,
+  );
 
   // ── 1. La cancha ─────────────────────────────────────────────────────────
   for (const otro of delDia) {
@@ -162,10 +171,12 @@ export function validarMovimiento(entrada: EntradaMovimiento): ResultadoMovimien
   // ── 2. Los cuatro jugadores ──────────────────────────────────────────────
   // Se recorre por jugador y no por partido para poder decir el nombre, que es
   // lo único que le sirve a quien tiene que resolverlo.
-  const mios = new Set(partido.jugadores);
+  // Sin ids vacíos: una pareja a medio inscribir trae un hueco, y un hueco
+  // compartido convertiría en "el mismo jugador" a dos partidos sin relación.
+  const mios = new Set((partido.jugadores ?? []).filter((j) => !!j));
 
   for (const otro of delDia) {
-    const compartidos = otro.jugadores.filter((j) => mios.has(j));
+    const compartidos = (otro.jugadores ?? []).filter((j) => !!j && mios.has(j));
     if (compartidos.length === 0) continue;
 
     const oIni = otro.inicioMin!;
