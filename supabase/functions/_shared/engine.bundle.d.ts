@@ -2,7 +2,19 @@ type Division = 'sexta' | 'quinta' | 'cuarta' | 'tercera' | 'segunda' | 'primera
 type FormatType = 'round_robin' | 'groups_then_knockout' | 'knockout_only';
 type KnockoutStart = 'final' | 'semi' | 'quarter' | 'r16' | 'r32';
 type Stage = 'group' | 'round_of_32' | 'round_of_16' | 'quarter' | 'semi' | 'final' | 'third_place';
-type ClinchStatus = 'clinched' | 'eliminated' | 'alive';
+/**
+ * Estado de clasificación anticipada de una pareja.
+ *
+ * `repechage_pending` NO existía y por eso el motor eliminaba de más: con
+ * plazas de repesca abiertas y grupos enteros sin jugar, una pareja que ya no
+ * puede ganar SU grupo sigue viva en la carrera de mejores segundos de la
+ * categoría. Decirle "eliminada" era mentirle.
+ *
+ * GEMELO: el enum `public.clinch_status` de la base. Si añades un valor aquí,
+ * añádelo allí con una migración ANTES de desplegar match-result, o la RPC
+ * revienta al castear.
+ */
+type ClinchStatus = 'clinched' | 'eliminated' | 'alive' | 'repechage_pending';
 /** Resultado de un partido tal como lo consume el engine (no es la fila de BD). */
 interface MatchResultInput {
     matchId: string;
@@ -33,6 +45,15 @@ interface StandingRow {
     gamesLost: number;
     points: number;
     position: number;
+    /**
+     * True cuando esta pareja empata con otra(s) en TODOS los criterios de
+     * desempate y el reglamento no las separa.
+     *
+     * El orden que devuelve `computeStandings` en ese caso sale del orden de
+     * entrada: es estable pero NO deportivo. El flag existe para que la interfaz
+     * pueda decirlo en vez de publicar un orden inventado como si fuera firme.
+     */
+    empateSinResolver: boolean;
 }
 /** Rating Glicko-2 de un jugador (escala de rating, no la interna). */
 interface GlickoRating {
@@ -122,18 +143,95 @@ interface StandingsConfig {
     superTiebreakGames: 'one' | 'score';
 }
 /**
+ * LA CADENA DE DESEMPATE, EN UN SOLO SITIO.
+ *
+ * Estaba escrita a mano dentro del `sort` y no se podía ni nombrar ni reusar:
+ * la interfaz no tenía cómo decir POR QUÉ el primero es el primero, y nadie
+ * podía saber si dos parejas estaban de verdad empatadas en todo o si el orden
+ * lo había puesto el `sort`.
+ *
+ * Orden (Doc B §2): primero la mini-tabla SOLO entre las empatadas —lo que
+ * pasó cuando se enfrentaron—, y solo si eso no separa, las diferencias del
+ * grupo entero.
+ */
+type CriterioDesempate = 'minitabla_puntos' | 'minitabla_sets' | 'minitabla_games' | 'minitabla_games_favor' | 'sets' | 'games' | 'games_favor' | 'sin_resolver';
+/**
+ * Un empate resuelto (o no) dentro de una tabla, para poder explicarlo.
+ * `criterio` es el que separó a la PRIMERA del resto: es la respuesta a
+ * "¿por qué el #1 es el #1?".
+ */
+interface DesempateAplicado {
+    /** Puntos en los que empataban. */
+    puntos: number;
+    /** Parejas implicadas, en el orden final. Siempre 2 o más. */
+    pairIds: string[];
+    criterio: CriterioDesempate;
+}
+/** Tabla de un grupo + los empates que hubo que resolver para ordenarla. */
+interface StandingsDetalle {
+    filas: StandingRow[];
+    /** Un elemento por cada corrida de parejas empatadas a puntos (2 o más). */
+    desempates: DesempateAplicado[];
+}
+/**
+ * Igual que `computeStandings` pero devolviendo también CÓMO se desempató.
+ *
+ * Existe porque la tabla sola no se explica: el organizador ve un orden entre
+ * tres parejas con los mismos puntos y no tiene forma de saber si lo decidió
+ * la mini-tabla, los games, o nada. Con esto la pantalla puede decirlo.
+ */
+declare function computeStandingsDetalle(pairIds: string[], matches: MatchResultInput[], config?: StandingsConfig): StandingsDetalle;
+/**
  * Calcula la tabla de posiciones ordenada de un grupo.
  * `pairIds` = parejas del grupo; `matches` = partidos del grupo (jugados o no).
+ *
+ * El ORDEN es el mismo de siempre. Lo único nuevo es `empateSinResolver` en
+ * cada fila: aditivo, para no romper a nadie que ya consumía esta tabla.
  */
 declare function computeStandings(pairIds: string[], matches: MatchResultInput[], config?: StandingsConfig): StandingRow[];
 
 interface ClinchResult {
+    groupId: string;
     pairId: string;
     status: ClinchStatus;
     /** Partidos restantes de los que depende su clasificación (para el mensaje "alive"). */
     dependsOnMatchIds: string[];
 }
-declare function computeClinch(pairIds: string[], matches: MatchResultInput[], advanceCount: number, config?: StandingsConfig): ClinchResult[];
+/** Un grupo de la categoría, con sus parejas y sus partidos (jugados o no). */
+interface ClinchGroup {
+    groupId: string;
+    pairIds: string[];
+    matches: MatchResultInput[];
+}
+interface ClinchInput {
+    /** TODOS los grupos de la categoría. Con uno solo no hay carrera de repesca. */
+    groups: ClinchGroup[];
+    /** categories.advance_per_group. Obligatorio. */
+    advancePerGroup: number;
+    /** categories.best_extra_qualifiers. Obligatorio, aunque sea 0. */
+    bestExtraQualifiers: number;
+    config?: StandingsConfig;
+}
+/**
+ * Estado de clasificación de TODAS las parejas de una categoría.
+ *
+ * Cuatro estados y una regla: nadie es 'eliminated' mientras le quede una vía
+ * matemática, sea ganar su grupo o colarse por repesca.
+ *
+ *   clinched          — pasa en todos los escenarios posibles.
+ *   alive             — todavía puede terminar dentro del corte de SU grupo.
+ *   repechage_pending — ya no puede ser directa, pero la carrera de mejores
+ *                       segundos de la categoría sigue abierta para ella.
+ *   eliminated        — ninguna de las dos cosas. Y solo entonces.
+ *
+ * LA COTA DE REPESCA ES CONSERVADORA A PROPÓSITO. Enumerar los escenarios de
+ * la categoría entera es 2^(partidos que faltan) — con 10 grupos son 2^30. En
+ * su lugar se cuenta cuántos grupos AJENOS tienen ya garantizado un segundo
+ * que supera en puntos a esta pareja en su mejor caso. Si esos grupos no
+ * llenan las plazas de repesca, la carrera sigue abierta. Puede sobrar
+ * 'repechage_pending' de más; nunca puede faltar. El error caro es el otro.
+ */
+declare function computeClinch(input: ClinchInput): ClinchResult[];
 
 /** Fila de group_standings necesaria para seleccionar y ordenar clasificados. */
 type QualifierStanding = {
@@ -949,4 +1047,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type CriterioDesempate, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };

@@ -199,6 +199,14 @@ function clasificarSet(a, b, cfg = DEFAULT_SCORE_CONFIG) {
 }
 var FORMATO_NORMAL = "un set normal (6-4, 7-5, 7-6)";
 var FORMATO_SUPER = "una s\xFAper muerte a 10 (10-8, 12-10)";
+var ORDINAL = ["", "primer", "segundo", "tercer", "cuarto", "quinto"];
+function faltaEsteSet(capturados, esDesempate, cfg) {
+  const siguiente = capturados + 1;
+  if (siguiente > cfg.bestOf || !ORDINAL[siguiente]) {
+    return "Partido incompleto: ning\xFAn lado alcanz\xF3 los sets necesarios para ganar.";
+  }
+  return esDesempate ? `Falta el ${ORDINAL[siguiente]} set para desempatar.` : `Falta el ${ORDINAL[siguiente]} set.`;
+}
 function numerosDelSet(set) {
   if (set.isSuperTiebreak) {
     return { a: set.tiebreakA ?? set.gamesA, b: set.tiebreakB ?? set.gamesB };
@@ -238,7 +246,8 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
     if (setsA >= setsToWin || setsB >= setsToWin) decided = true;
   }
   if (!decided) {
-    errors.push("Partido incompleto: ning\xFAn lado alcanz\xF3 los sets necesarios para ganar.");
+    const esDesempate = setsA === setsToWin - 1 && setsB === setsToWin - 1;
+    errors.push(faltaEsteSet(sets.length, esDesempate, config));
   }
   const valid = errors.length === 0;
   const winnerSide = valid ? setsA > setsB ? "A" : "B" : null;
@@ -322,39 +331,71 @@ function computeStats(pairIds, matches, cfg) {
   return stats;
 }
 var diff = (s, k) => k === "sets" ? s.setsWon - s.setsLost : s.gamesWon - s.gamesLost;
-function resolveTie(run, matches, full, cfg) {
-  if (run.length === 1) return run;
-  const mini = computeStats(run, matches, cfg);
-  return [...run].sort((a, b) => {
-    const ma = mini.get(a);
-    const mb = mini.get(b);
-    if (mb.points !== ma.points) return mb.points - ma.points;
-    if (diff(mb, "sets") !== diff(ma, "sets")) return diff(mb, "sets") - diff(ma, "sets");
-    if (diff(mb, "games") !== diff(ma, "games")) return diff(mb, "games") - diff(ma, "games");
-    if (mb.gamesWon !== ma.gamesWon) return mb.gamesWon - ma.gamesWon;
-    const ga = full.get(a);
-    const gb = full.get(b);
-    if (diff(gb, "sets") !== diff(ga, "sets")) return diff(gb, "sets") - diff(ga, "sets");
-    if (diff(gb, "games") !== diff(ga, "games")) return diff(gb, "games") - diff(ga, "games");
-    if (gb.gamesWon !== ga.gamesWon) return gb.gamesWon - ga.gamesWon;
-    return 0;
-  });
+var CADENA_DESEMPATE = [
+  { id: "minitabla_puntos", valor: (m) => m.points },
+  { id: "minitabla_sets", valor: (m) => diff(m, "sets") },
+  { id: "minitabla_games", valor: (m) => diff(m, "games") },
+  { id: "minitabla_games_favor", valor: (m) => m.gamesWon },
+  { id: "sets", valor: (_m, f) => diff(f, "sets") },
+  { id: "games", valor: (_m, f) => diff(f, "games") },
+  { id: "games_favor", valor: (_m, f) => f.gamesWon }
+];
+function compararConCriterio(a, b, mini, full) {
+  const ma = mini.get(a);
+  const mb = mini.get(b);
+  const fa = full.get(a);
+  const fb = full.get(b);
+  for (const c of CADENA_DESEMPATE) {
+    const va = c.valor(ma, fa);
+    const vb = c.valor(mb, fb);
+    if (va !== vb) return { orden: vb - va, criterio: c.id };
+  }
+  return { orden: 0, criterio: "sin_resolver" };
 }
-function computeStandings(pairIds, matches, config = DEFAULT_STANDINGS_CONFIG) {
+function resolveTie(run, matches, full, cfg) {
+  if (run.length === 1) {
+    return { orden: run, sinResolver: /* @__PURE__ */ new Set(), criterio: "sin_resolver" };
+  }
+  const mini = computeStats(run, matches, cfg);
+  const orden = [...run].sort(
+    (a, b) => compararConCriterio(a, b, mini, full).orden
+  );
+  const sinResolver = /* @__PURE__ */ new Set();
+  for (let i = 0; i < orden.length - 1; i++) {
+    if (compararConCriterio(orden[i], orden[i + 1], mini, full).orden === 0) {
+      sinResolver.add(orden[i]);
+      sinResolver.add(orden[i + 1]);
+    }
+  }
+  return {
+    orden,
+    sinResolver,
+    criterio: compararConCriterio(orden[0], orden[1], mini, full).criterio
+  };
+}
+function computeStandingsDetalle(pairIds, matches, config = DEFAULT_STANDINGS_CONFIG) {
   const full = computeStats(pairIds, matches, config);
   const byPoints = [...pairIds].sort(
     (a, b) => full.get(b).points - full.get(a).points
   );
   const ordered = [];
+  const sinResolver = /* @__PURE__ */ new Set();
+  const desempates = [];
   let i = 0;
   while (i < byPoints.length) {
     let j = i;
     const p = full.get(byPoints[i]).points;
     while (j < byPoints.length && full.get(byPoints[j]).points === p) j++;
-    ordered.push(...resolveTie(byPoints.slice(i, j), matches, full, config));
+    const run = byPoints.slice(i, j);
+    const r = resolveTie(run, matches, full, config);
+    ordered.push(...r.orden);
+    r.sinResolver.forEach((id) => sinResolver.add(id));
+    if (run.length > 1) {
+      desempates.push({ puntos: p, pairIds: r.orden, criterio: r.criterio });
+    }
     i = j;
   }
-  return ordered.map((pairId, idx) => {
+  const filas = ordered.map((pairId, idx) => {
     const s = full.get(pairId);
     return {
       pairId,
@@ -366,16 +407,39 @@ function computeStandings(pairIds, matches, config = DEFAULT_STANDINGS_CONFIG) {
       gamesWon: s.gamesWon,
       gamesLost: s.gamesLost,
       points: s.points,
-      position: idx + 1
+      position: idx + 1,
+      empateSinResolver: sinResolver.has(pairId)
     };
   });
+  return { filas, desempates };
+}
+function computeStandings(pairIds, matches, config = DEFAULT_STANDINGS_CONFIG) {
+  return computeStandingsDetalle(pairIds, matches, config).filas;
 }
 
 // src/lib/engine/clinch/index.ts
 var MAX_BRUTE_FORCE_MATCHES = 16;
-function qualifiersForScenario(pairIds, matches, advanceCount, cfg) {
-  const table = computeStandings(pairIds, matches, cfg);
-  return new Set(table.slice(0, advanceCount).map((r) => r.pairId));
+function exigirEntero(valor, campo, minimo) {
+  if (typeof valor !== "number" || !Number.isInteger(valor) || valor < minimo) {
+    throw new Error(
+      `computeClinch: ${campo} es obligatorio y debe ser un entero >= ${minimo}; lleg\xF3 ${JSON.stringify(valor)}. NO hay valor por defecto: sin este dato no se puede decidir qui\xE9n est\xE1 eliminado.`
+    );
+  }
+  return valor;
+}
+function posicionesPosibles(pairIds, matches, cfg) {
+  const tabla = computeStandings(pairIds, matches, cfg);
+  const out = /* @__PURE__ */ new Map();
+  let i = 0;
+  while (i < tabla.length) {
+    let j = i;
+    while (j < tabla.length - 1 && tabla[j].empateSinResolver && tabla[j + 1].empateSinResolver) j++;
+    const minPos = tabla[i].position;
+    const maxPos = tabla[j].position;
+    for (let k = i; k <= j; k++) out.set(tabla[k].pairId, { minPos, maxPos });
+    i = j + 1;
+  }
+  return out;
 }
 function applyScenario(base, remaining, mask) {
   const decided = remaining.map((m, i) => {
@@ -394,43 +458,63 @@ function applyScenario(base, remaining, mask) {
   const playedBase = base.filter((m) => m.played && m.winnerPairId != null);
   return [...playedBase, ...decided];
 }
-function computeClinch(pairIds, matches, advanceCount, config = DEFAULT_STANDINGS_CONFIG) {
-  const remaining = matches.filter((m) => !m.played || m.winnerPairId == null);
+function analizarGrupo(g2, advancePerGroup, cfg) {
+  const remaining = g2.matches.filter((m) => !m.played || m.winnerPairId == null);
   const k = remaining.length;
-  if (k === 0) {
-    const quals = qualifiersForScenario(pairIds, matches, advanceCount, config);
-    return pairIds.map((pairId) => ({
-      pairId,
-      status: quals.has(pairId) ? "clinched" : "eliminated",
-      dependsOnMatchIds: []
-    }));
+  const puestoRepesca = advancePerGroup + 1;
+  const actual = computeStandings(g2.pairIds, g2.matches, cfg);
+  const puntosAhora = new Map(actual.map((r) => [r.pairId, r.points]));
+  const pendientesDe = new Map(g2.pairIds.map((id) => [id, 0]));
+  for (const m of remaining) {
+    pendientesDe.set(m.pairAId, (pendientesDe.get(m.pairAId) ?? 0) + 1);
+    pendientesDe.set(m.pairBId, (pendientesDe.get(m.pairBId) ?? 0) + 1);
   }
-  if (k > MAX_BRUTE_FORCE_MATCHES) {
-    return conservativeByPointBound(pairIds, matches, remaining, advanceCount, config);
-  }
-  const scenarios = 1 << k;
-  const qualifiedPerScenario = pairIds.map(() => []);
-  const idx = new Map(pairIds.map((id, i) => [id, i]));
-  for (let mask = 0; mask < scenarios; mask++) {
-    const scenarioMatches = applyScenario(matches, remaining, mask);
-    const quals = qualifiersForScenario(pairIds, scenarioMatches, advanceCount, config);
-    pairIds.forEach((id) => qualifiedPerScenario[idx.get(id)].push(quals.has(id)));
-  }
-  return pairIds.map((pairId) => {
-    const arr = qualifiedPerScenario[idx.get(pairId)];
-    const allYes = arr.every(Boolean);
-    const noneYes = arr.every((x) => !x);
-    let status = "alive";
-    if (allYes) status = "clinched";
-    else if (noneYes) status = "eliminated";
-    let dependsOnMatchIds = [];
-    if (status === "alive") {
-      dependsOnMatchIds = remaining.filter((_, bit) => scenarioFlipsQualification(arr, bit, k)).map((m) => m.matchId);
-    }
-    return { pairId, status, dependsOnMatchIds };
+  const cotas = (id) => ({
+    maxPuntos: (puntosAhora.get(id) ?? 0) + cfg.pointsWin * (pendientesDe.get(id) ?? 0),
+    minPuntos: (puntosAhora.get(id) ?? 0) + cfg.pointsPlayedLoss * (pendientesDe.get(id) ?? 0)
   });
+  const out = /* @__PURE__ */ new Map();
+  if (k > MAX_BRUTE_FORCE_MATCHES) {
+    for (const id of g2.pairIds) {
+      const c = cotas(id);
+      const segurosPorEncima = g2.pairIds.filter((o) => o !== id && cotas(o).minPuntos > c.maxPuntos).length;
+      const puedenPorEncima = g2.pairIds.filter((o) => o !== id && cotas(o).maxPuntos >= c.minPuntos).length;
+      out.set(id, {
+        directaSegura: puedenPorEncima < advancePerGroup,
+        directaPosible: segurosPorEncima < advancePerGroup,
+        repescablePosible: segurosPorEncima < puestoRepesca,
+        ...c,
+        dependsOnMatchIds: remaining.map((m) => m.matchId)
+      });
+    }
+    return out;
+  }
+  const escenarios = 1 << k;
+  const seguraEn = new Map(g2.pairIds.map((id) => [id, []]));
+  const posibleEn = new Map(g2.pairIds.map((id) => [id, []]));
+  const repescableEn = new Map(g2.pairIds.map((id) => [id, []]));
+  for (let mask = 0; mask < escenarios; mask++) {
+    const pos = posicionesPosibles(g2.pairIds, applyScenario(g2.matches, remaining, mask), cfg);
+    for (const id of g2.pairIds) {
+      const p = pos.get(id);
+      seguraEn.get(id).push(p.maxPos <= advancePerGroup);
+      posibleEn.get(id).push(p.minPos <= advancePerGroup);
+      repescableEn.get(id).push(p.minPos <= puestoRepesca && p.maxPos >= puestoRepesca);
+    }
+  }
+  for (const id of g2.pairIds) {
+    const seguras = seguraEn.get(id);
+    out.set(id, {
+      directaSegura: seguras.every(Boolean),
+      directaPosible: posibleEn.get(id).some(Boolean),
+      repescablePosible: repescableEn.get(id).some(Boolean),
+      ...cotas(id),
+      dependsOnMatchIds: remaining.filter((_, bit) => cambiaConElPartido(posibleEn.get(id), bit, k)).map((m) => m.matchId)
+    });
+  }
+  return out;
 }
-function scenarioFlipsQualification(arr, bit, k) {
+function cambiaConElPartido(arr, bit, k) {
   const total = 1 << k;
   for (let mask = 0; mask < total; mask++) {
     if (mask >> bit & 1) continue;
@@ -439,26 +523,49 @@ function scenarioFlipsQualification(arr, bit, k) {
   }
   return false;
 }
-function conservativeByPointBound(pairIds, matches, remaining, advanceCount, config) {
-  const current = computeStandings(pairIds, matches, config);
-  const pointsNow = new Map(current.map((r) => [r.pairId, r.points]));
-  const remainingCount = new Map(pairIds.map((id) => [id, 0]));
-  for (const m of remaining) {
-    remainingCount.set(m.pairAId, (remainingCount.get(m.pairAId) ?? 0) + 1);
-    remainingCount.set(m.pairBId, (remainingCount.get(m.pairBId) ?? 0) + 1);
+function computeClinch(input) {
+  const advancePerGroup = exigirEntero(input?.advancePerGroup, "advancePerGroup", 1);
+  const bestExtraQualifiers = exigirEntero(input?.bestExtraQualifiers, "bestExtraQualifiers", 0);
+  const cfg = input.config ?? DEFAULT_STANDINGS_CONFIG;
+  const groups = input.groups ?? [];
+  if (groups.length === 0) return [];
+  const puestoRepesca = advancePerGroup + 1;
+  const porGrupo = new Map(groups.map((g2) => [g2.groupId, analizarGrupo(g2, advancePerGroup, cfg)]));
+  const sueloDelSegundo = /* @__PURE__ */ new Map();
+  for (const g2 of groups) {
+    const est = porGrupo.get(g2.groupId);
+    const mins = g2.pairIds.map((id) => est.get(id).minPuntos).sort((a, b) => b - a);
+    sueloDelSegundo.set(
+      g2.groupId,
+      mins.length >= puestoRepesca ? mins[puestoRepesca - 1] : Number.NEGATIVE_INFINITY
+    );
   }
-  const best = (id) => (pointsNow.get(id) ?? 0) + config.pointsWin * (remainingCount.get(id) ?? 0);
-  const worst = (id) => (pointsNow.get(id) ?? 0) + config.pointsPlayedLoss * (remainingCount.get(id) ?? 0);
-  return pairIds.map((pairId) => {
-    const myWorst = worst(pairId);
-    const myBest = best(pairId);
-    const guaranteedAbove = pairIds.filter((o) => o !== pairId && worst(o) > myBest).length;
-    const canBeAbove = pairIds.filter((o) => o !== pairId && best(o) >= myWorst).length;
-    let status = "alive";
-    if (canBeAbove < advanceCount) status = "clinched";
-    else if (guaranteedAbove >= advanceCount) status = "eliminated";
-    return { pairId, status, dependsOnMatchIds: status === "alive" ? remaining.map((m) => m.matchId) : [] };
-  });
+  const out = [];
+  for (const g2 of groups) {
+    const est = porGrupo.get(g2.groupId);
+    for (const pairId of g2.pairIds) {
+      const e = est.get(pairId);
+      let status;
+      if (e.directaSegura) {
+        status = "clinched";
+      } else if (e.directaPosible) {
+        status = "alive";
+      } else {
+        const rivalesSeguros = groups.filter(
+          (o) => o.groupId !== g2.groupId && (sueloDelSegundo.get(o.groupId) ?? -Infinity) > e.maxPuntos
+        ).length;
+        const repescaAbierta = bestExtraQualifiers > 0 && e.repescablePosible && rivalesSeguros < bestExtraQualifiers;
+        status = repescaAbierta ? "repechage_pending" : "eliminated";
+      }
+      out.push({
+        groupId: g2.groupId,
+        pairId,
+        status,
+        dependsOnMatchIds: status === "alive" || status === "repechage_pending" ? e.dependsOnMatchIds : []
+      });
+    }
+  }
+  return out;
 }
 
 // src/lib/engine/seeding/select-qualifiers.ts
@@ -1788,4 +1895,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };
+export { PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };

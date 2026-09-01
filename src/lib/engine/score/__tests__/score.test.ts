@@ -48,10 +48,28 @@ describe('validateScore — marcadores inválidos', () => {
     expect(r.valid).toBe(false);
   });
 
-  it('rechaza partido incompleto (1-0 en sets)', () => {
+  it('rechaza partido incompleto (1-0 en sets) y NOMBRA el set que falta', () => {
     const r = validateScore([set(6, 4)]);
     expect(r.valid).toBe(false);
-    expect(r.errors.join(' ')).toMatch(/incompleto/i);
+    // "ningún lado alcanzó los sets necesarios" era cierto y no servía: el juez
+    // necesita saber qué teclear, no en qué estado quedó la validación.
+    expect(r.errors.join(' ')).toBe('Falta el segundo set.');
+  });
+
+  it('con 1-1 en sets pide el TERCERO y dice que es el desempate', () => {
+    const r = validateScore([set(6, 4), set(3, 6)]);
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toBe('Falta el tercer set para desempatar.');
+  });
+
+  it('no llama desempate al segundo set: 1-0 no es 1-1', () => {
+    expect(validateScore([set(6, 4)]).errors.join(' ')).not.toMatch(/desempatar/);
+  });
+
+  it('con sets de más no inventa un cuarto set que no existe', () => {
+    // 6-0, 6-0, 6-0: sobra el tercero y ninguno de los errores puede pedir más.
+    const r = validateScore([set(6, 0), set(6, 0), set(6, 0)]);
+    expect(r.errors.join(' ')).not.toMatch(/Falta el/);
   });
 
   it('rechaza set extra tras estar decidido', () => {

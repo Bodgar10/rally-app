@@ -27,7 +27,7 @@ import { color, radius, font } from '@/lib/design-tokens';
 // Tipos
 // ───────────────────────────────────────────
 
-export type ClinchStatus = 'clinched' | 'alive' | 'eliminated';
+export type ClinchStatus = 'clinched' | 'alive' | 'repechage_pending' | 'eliminated';
 
 export interface ClinchBadgeProps {
   status: ClinchStatus;
@@ -74,6 +74,17 @@ const CONFIG: Record<
     label: 'En juego',
     labelCompact: 'En juego',
     subtext: 'Depende de resultados pendientes.',
+    textColor: color.alive,
+    bgColor: 'rgba(230,180,80,0.10)',
+    borderColor: 'rgba(230,180,80,0.25)',
+  },
+  // Ya no puede ser primera de su grupo, pero la carrera de mejores segundos
+  // de la categoría sigue abierta. No es eliminación y no se pinta de rojo.
+  repechage_pending: {
+    icon: '⏳',
+    label: 'Pendiente de repesca',
+    labelCompact: 'Repesca',
+    subtext: 'Ya no puedes ser primero de tu grupo, pero sigues en la pelea por los mejores segundos.',
     textColor: color.alive,
     bgColor: 'rgba(230,180,80,0.10)',
     borderColor: 'rgba(230,180,80,0.25)',

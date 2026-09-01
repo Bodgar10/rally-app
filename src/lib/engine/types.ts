@@ -28,7 +28,23 @@ export type Stage =
   | 'final'
   | 'third_place';
 
-export type ClinchStatus = 'clinched' | 'eliminated' | 'alive';
+/**
+ * Estado de clasificación anticipada de una pareja.
+ *
+ * `repechage_pending` NO existía y por eso el motor eliminaba de más: con
+ * plazas de repesca abiertas y grupos enteros sin jugar, una pareja que ya no
+ * puede ganar SU grupo sigue viva en la carrera de mejores segundos de la
+ * categoría. Decirle "eliminada" era mentirle.
+ *
+ * GEMELO: el enum `public.clinch_status` de la base. Si añades un valor aquí,
+ * añádelo allí con una migración ANTES de desplegar match-result, o la RPC
+ * revienta al castear.
+ */
+export type ClinchStatus =
+  | 'clinched'
+  | 'eliminated'
+  | 'alive'
+  | 'repechage_pending';
 
 /** Resultado de un partido tal como lo consume el engine (no es la fila de BD). */
 export interface MatchResultInput {
@@ -62,6 +78,15 @@ export interface StandingRow {
   gamesLost: number;
   points: number;
   position: number;
+  /**
+   * True cuando esta pareja empata con otra(s) en TODOS los criterios de
+   * desempate y el reglamento no las separa.
+   *
+   * El orden que devuelve `computeStandings` en ese caso sale del orden de
+   * entrada: es estable pero NO deportivo. El flag existe para que la interfaz
+   * pueda decirlo en vez de publicar un orden inventado como si fuera firme.
+   */
+  empateSinResolver: boolean;
 }
 
 /** Rating Glicko-2 de un jugador (escala de rating, no la interna). */

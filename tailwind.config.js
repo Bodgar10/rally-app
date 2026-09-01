@@ -19,6 +19,8 @@ module.exports = {
         gold:         '#D4AF37',
         'gold-bright':'#F1D98C',
         'gold-deep':  '#9C7A28',
+        // Oro al 40% para acciones deshabilitadas. GEMELO: color.goldMuted.
+        'gold-muted': 'rgba(212,175,55,0.40)',
         // line / line-soft se aplican directo con opacity en className o con arbitrary
         // —— Tokens semánticos (Doc D §2.2) ——————————————————————
         live:         '#42D6A4',

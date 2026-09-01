@@ -9,7 +9,7 @@ export { generateRoundRobin } from './fixtures';
 
 // Captura de resultado -> tabla + clasificación
 export { validateScore, clasificarSet } from './score';
-export { computeStandings } from './standings';
+export { computeStandings, computeStandingsDetalle } from './standings';
 export { computeClinch } from './clinch';
 
 // Eliminatorias
@@ -75,8 +75,8 @@ export type { RankingRules, PlayerTournamentResult, RoundReached } from './ranki
 export type { FormatPlan } from './format';
 export type { Fixture } from './fixtures';
 export type { ValidatedScore, ScoreConfig, FormatoDeSet } from './score';
-export type { StandingsConfig } from './standings';
-export type { ClinchResult } from './clinch';
+export type { StandingsConfig, StandingsDetalle, DesempateAplicado, CriterioDesempate } from './standings';
+export type { ClinchResult, ClinchGroup, ClinchInput } from './clinch';
 export type { SeedInput, BracketMatch, SeedingResult } from './seeding';
 export type { RoundMatch, NextMatch, AdvanceResult } from './bracket';
 export type {

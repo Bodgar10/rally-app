@@ -2263,7 +2263,7 @@ export type Database = {
       bug_severity: "low" | "medium" | "high" | "critical"
       category_gender: "male" | "female" | "mixed"
       category_status: "open" | "closed" | "seeded" | "in_progress" | "finished"
-      clinch_status: "clinched" | "eliminated" | "alive"
+      clinch_status: "clinched" | "eliminated" | "alive" | "repechage_pending"
       connect_status: "pending" | "onboarding" | "active" | "restricted"
       court_speed: "slow" | "medium" | "fast"
       division:
@@ -2444,7 +2444,7 @@ export const Constants = {
       bug_severity: ["low", "medium", "high", "critical"],
       category_gender: ["male", "female", "mixed"],
       category_status: ["open", "closed", "seeded", "in_progress", "finished"],
-      clinch_status: ["clinched", "eliminated", "alive"],
+      clinch_status: ["clinched", "eliminated", "alive", "repechage_pending"],
       connect_status: ["pending", "onboarding", "active", "restricted"],
       court_speed: ["slow", "medium", "fast"],
       division: ["sexta", "quinta", "cuarta", "tercera", "segunda", "primera"],

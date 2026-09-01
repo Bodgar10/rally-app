@@ -235,44 +235,67 @@ Deno.serve(async (req) => {
     }
 
     // ───────────────────────── GRUPOS ────────────────────────
-    // 3) La categoría manda cuántos clasifican. Sin ese dato no se calcula el
-    //    clinch: es un error, NO un default. Un fallback a 2 escribiría
-    //    'eliminated'/'qualified' equivocados en un torneo con advance=1.
+    // 3) La categoría manda cuántos clasifican, POR GRUPO Y POR REPESCA. Sin
+    //    esos dos datos no se calcula el clinch: es un error, NO un default.
+    //
+    //    `best_extra_qualifiers` es tan obligatorio como `advance_per_group`.
+    //    Un `?? 0` aquí es exactamente el bug que dejó "eliminadas" a dos
+    //    parejas del grupo B de 6ª Varonil con tres plazas de repesca abiertas
+    //    y tres grupos sin jugar. El motor también revienta si no le llega,
+    //    pero se comprueba aquí para devolver un error que se entienda.
     const { data: cat, error: ce } = await admin
-      .from('categories').select('advance_per_group').eq('id', match.category_id).maybeSingle();
+      .from('categories')
+      .select('advance_per_group, best_extra_qualifiers')
+      .eq('id', match.category_id).maybeSingle();
     if (ce) return json({ error: 'category_read_failed', detail: ce.message }, 500);
     if (!cat || cat.advance_per_group == null) {
       return json({ error: 'category_incomplete', detail: 'advance_per_group no definido' }, 500);
     }
+    if (cat.best_extra_qualifiers == null) {
+      return json({ error: 'category_incomplete', detail: 'best_extra_qualifiers no definido' }, 500);
+    }
     const advancePerGroup = cat.advance_per_group;
+    const bestExtraQualifiers = cat.best_extra_qualifiers;
 
     // 4) Recalcular y persistir, reintentando si el grupo cambió bajo nuestros pies.
     let ultimoFallo = '';
     for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
-      // Todos los matches del grupo (con sets) + parejas del grupo.
-      // Los errores NO se tragan: si esta lectura falla y seguimos, computeStandings
-      // recibe una lista vacía y la RPC sobreescribe la tabla del grupo con ceros.
-      const { data: groupMatches, error: gme } = await admin
+      // Los matches de TODA LA CATEGORÍA (con sets) + las parejas de cada grupo.
+      //
+      // SE LEE LA CATEGORÍA ENTERA, NO EL GRUPO. El clinch ya no se puede
+      // responder mirando un grupo aislado: con repesca, quedarse fuera del
+      // corte de tu grupo no te elimina mientras la carrera de mejores segundos
+      // siga abierta, y eso depende de lo que pase en los OTROS grupos.
+      //
+      // Los errores NO se tragan: si esta lectura falla y seguimos,
+      // computeStandings recibe una lista vacía y la RPC sobreescribe la tabla
+      // del grupo con ceros.
+      const { data: catMatches, error: gme } = await admin
         .from('matches')
-        .select('id, status, winner_pair_id, pair_a_id, pair_b_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
-        .eq('group_id', match.group_id);
+        .select('id, group_id, status, winner_pair_id, pair_a_id, pair_b_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
+        .eq('category_id', match.category_id)
+        .eq('stage', 'group');
       if (gme) return json({ error: 'group_matches_read_failed', detail: gme.message }, 500);
-      if (!groupMatches || groupMatches.length === 0) {
+      const groupMatches = (catMatches ?? []).filter((m: any) => m.group_id === match.group_id);
+      if (groupMatches.length === 0) {
         return json({ error: 'group_matches_empty', detail: 'el grupo no tiene partidos' }, 500);
       }
 
-      const { data: groupPairs, error: gpe } = await admin
-        .from('group_standings').select('pair_id').eq('group_id', match.group_id);
+      const { data: catPairs, error: gpe } = await admin
+        .from('group_standings')
+        .select('pair_id, group_id, groups!inner(category_id)')
+        .eq('groups.category_id', match.category_id);
       if (gpe) return json({ error: 'group_pairs_read_failed', detail: gpe.message }, 500);
-      if (!groupPairs || groupPairs.length === 0) {
+      const groupPairs = (catPairs ?? []).filter((p: any) => p.group_id === match.group_id);
+      if (groupPairs.length === 0) {
         return json({ error: 'group_pairs_empty', detail: 'el grupo no tiene tabla que actualizar' }, 500);
       }
 
+      // La huella sigue siendo la del GRUPO: es lo que bloquea la RPC.
       const estado = huellaDelGrupo(groupMatches);
 
       // Construir MatchResultInput[] del engine, inyectando el resultado recién capturado.
-      const pairIds = groupPairs.map((p: any) => p.pair_id);
-      const matchInputs = groupMatches.map((m: any) => {
+      const aEntradaDelEngine = (m: any) => {
         const isCurrent = m.id === match_id;
         const rawSets = isCurrent ? sets : (m.match_sets ?? []);
         return {
@@ -283,13 +306,37 @@ Deno.serve(async (req) => {
           played: isCurrent ? true : m.status === 'finished',
           sets: rawSets.map(toSetScore),
         };
+      };
+
+      const pairIds = groupPairs.map((p: any) => p.pair_id);
+      const matchInputs = groupMatches.map(aEntradaDelEngine);
+
+      // Un ClinchGroup por cada grupo de la categoría.
+      const gruposDeLaCategoria = [...new Set((catPairs ?? []).map((p: any) => p.group_id))]
+        .map((gid) => ({
+          groupId: gid,
+          pairIds: (catPairs ?? []).filter((p: any) => p.group_id === gid).map((p: any) => p.pair_id),
+          matches: (catMatches ?? []).filter((m: any) => m.group_id === gid).map(aEntradaDelEngine),
+        }));
+
+      // ENGINE: standings del grupo + clinch de la categoría entera.
+      const standings = computeStandings(pairIds, matchInputs);
+      const clinch = computeClinch({
+        groups: gruposDeLaCategoria,
+        advancePerGroup,
+        bestExtraQualifiers,
       });
 
-      // ENGINE: standings + clinch.
-      const standings = computeStandings(pairIds, matchInputs);
-      const clinch = computeClinch(pairIds, matchInputs, advancePerGroup);
-
       // Mapear StandingRow(camel) + clinch -> filas snake_case que persiste la RPC.
+      //
+      // Sin `?? 'alive'`: si el clinch no trae una pareja de este grupo, algo
+      // está mal en la lectura y hay que enterarse, no rellenar el hueco.
+      const clinchDe = (pairId: string, groupId: string) => {
+        const c = clinch.find((x: any) => x.pairId === pairId && x.groupId === groupId);
+        if (!c) throw new Error(`clinch_missing: ${pairId} en ${groupId}`);
+        return c.status;
+      };
+
       const standingsRows = standings.map((row: any) => ({
         pair_id: row.pairId,
         played: row.played,
@@ -301,7 +348,7 @@ Deno.serve(async (req) => {
         games_lost: row.gamesLost,
         points: row.points,
         position: row.position,
-        clinch_status: clinch.find((c: any) => c.pairId === row.pairId)?.status ?? 'alive',
+        clinch_status: clinchDe(row.pairId, match.group_id),
       }));
 
       // 5) Persistir TODO transaccional (RPC con service role). p_sets va en snake_case (request).
@@ -316,6 +363,31 @@ Deno.serve(async (req) => {
       });
 
       if (!re) {
+        // 6) Refrescar el clinch de los OTROS grupos de la categoría.
+        //
+        //    Un resultado en el grupo B mueve la carrera de repesca de toda la
+        //    categoría, pero la RPC solo puede escribir la tabla de SU grupo
+        //    (es lo que bloquea). Sin esto, un segundo del grupo A se quedaría
+        //    en 'repechage_pending' hasta que alguien capturara algo en A.
+        //
+        //    Va FUERA de la transacción y a propósito no es fatal: el estado de
+        //    clinch es informativo —la siembra del cuadro NO lo mira, usa
+        //    position— así que un fallo aquí no puede tumbar una captura ya
+        //    guardada. Se corrige solo en la siguiente.
+        await Promise.all(
+          gruposDeLaCategoria
+            .filter((g: any) => g.groupId !== match.group_id)
+            .flatMap((g: any) =>
+              g.pairIds.map(async (pid: string) => {
+                const { error } = await admin
+                  .from('group_standings')
+                  .update({ clinch_status: clinchDe(pid, g.groupId) })
+                  .eq('group_id', g.groupId).eq('pair_id', pid);
+                if (error) console.warn('[match-result] clinch ajeno no refrescado:', g.groupId, pid, error.message);
+              }),
+            ),
+        ).catch((e) => console.warn('[match-result] refresco de clinch ajeno falló:', String(e)));
+
         return json({ ok: true, winner_pair_id: derivado, intentos: intento, result });
       }
 

@@ -79,6 +79,32 @@ const FORMATO_NORMAL = 'un set normal (6-4, 7-5, 7-6)';
 const FORMATO_SUPER  = 'una súper muerte a 10 (10-8, 12-10)';
 
 /**
+ * El set que falta, NOMBRADO.
+ *
+ * El mensaje decía "Partido incompleto: ningún lado alcanzó los sets
+ * necesarios para ganar". Es cierto y no sirve: describe el estado de la
+ * validación, no lo que el juez tiene que hacer. El juez tiene el teléfono en
+ * la mano al lado de la cancha y lo que necesita saber es qué le falta teclear.
+ *
+ * Y el caso que más se da es justo el que peor se explicaba: 1-1 en sets. Ahí
+ * no "falta un set" a secas — falta EL DESEMPATE, que además es el único que
+ * puede ser súper muerte. Decirlo por su nombre ahorra la pregunta.
+ */
+const ORDINAL = ['', 'primer', 'segundo', 'tercer', 'cuarto', 'quinto'];
+
+function faltaEsteSet(capturados: number, esDesempate: boolean, cfg: ScoreConfig): string {
+  const siguiente = capturados + 1;
+  // Sin nombre que darle (serie más larga que la tabla, o ya hay sets de más,
+  // que es otro error y se reporta aparte): se dice lo genérico y ya.
+  if (siguiente > cfg.bestOf || !ORDINAL[siguiente]) {
+    return 'Partido incompleto: ningún lado alcanzó los sets necesarios para ganar.';
+  }
+  return esDesempate
+    ? `Falta el ${ORDINAL[siguiente]} set para desempatar.`
+    : `Falta el ${ORDINAL[siguiente]} set.`;
+}
+
+/**
  * Los dos números de un set, tal como hay que leerlos.
  *
  * CON `isSuperTiebreak` MARCADO, mandan los tiebreaks. Es el contrato de lo
@@ -153,7 +179,8 @@ export function validateScore(
   }
 
   if (!decided) {
-    errors.push('Partido incompleto: ningún lado alcanzó los sets necesarios para ganar.');
+    const esDesempate = setsA === setsToWin - 1 && setsB === setsToWin - 1;
+    errors.push(faltaEsteSet(sets.length, esDesempate, config));
   }
 
   const valid = errors.length === 0;

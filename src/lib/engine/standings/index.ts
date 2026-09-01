@@ -152,44 +152,138 @@ const diff = (s: Stats, k: 'sets' | 'games'): number =>
   k === 'sets' ? s.setsWon - s.setsLost : s.gamesWon - s.gamesLost;
 
 /**
+ * LA CADENA DE DESEMPATE, EN UN SOLO SITIO.
+ *
+ * Estaba escrita a mano dentro del `sort` y no se podía ni nombrar ni reusar:
+ * la interfaz no tenía cómo decir POR QUÉ el primero es el primero, y nadie
+ * podía saber si dos parejas estaban de verdad empatadas en todo o si el orden
+ * lo había puesto el `sort`.
+ *
+ * Orden (Doc B §2): primero la mini-tabla SOLO entre las empatadas —lo que
+ * pasó cuando se enfrentaron—, y solo si eso no separa, las diferencias del
+ * grupo entero.
+ */
+export type CriterioDesempate =
+  | 'minitabla_puntos'
+  | 'minitabla_sets'
+  | 'minitabla_games'
+  | 'minitabla_games_favor'
+  | 'sets'
+  | 'games'
+  | 'games_favor'
+  | 'sin_resolver';
+
+/** Un criterio = un id y el número que compara (mayor gana). */
+interface Criterio {
+  id: Exclude<CriterioDesempate, 'sin_resolver'>;
+  /** `mini` = stats solo entre las empatadas; `full` = stats del grupo entero. */
+  valor: (mini: Stats, full: Stats) => number;
+}
+
+const CADENA_DESEMPATE: readonly Criterio[] = [
+  { id: 'minitabla_puntos',      valor: (m) => m.points },
+  { id: 'minitabla_sets',        valor: (m) => diff(m, 'sets') },
+  { id: 'minitabla_games',       valor: (m) => diff(m, 'games') },
+  { id: 'minitabla_games_favor', valor: (m) => m.gamesWon },
+  { id: 'sets',                  valor: (_m, f) => diff(f, 'sets') },
+  { id: 'games',                 valor: (_m, f) => diff(f, 'games') },
+  { id: 'games_favor',           valor: (_m, f) => f.gamesWon },
+];
+
+/**
+ * Primer criterio de la cadena que separa a `a` de `b`, o 'sin_resolver'.
+ * Devuelve también el signo para poder ordenar con la MISMA función que
+ * explica: si se escribieran dos veces, un día dirían cosas distintas.
+ */
+function compararConCriterio(
+  a: string,
+  b: string,
+  mini: Map<string, Stats>,
+  full: Map<string, Stats>,
+): { orden: number; criterio: CriterioDesempate } {
+  const ma = mini.get(a)!;
+  const mb = mini.get(b)!;
+  const fa = full.get(a)!;
+  const fb = full.get(b)!;
+  for (const c of CADENA_DESEMPATE) {
+    const va = c.valor(ma, fa);
+    const vb = c.valor(mb, fb);
+    if (va !== vb) return { orden: vb - va, criterio: c.id };
+  }
+  return { orden: 0, criterio: 'sin_resolver' };
+}
+
+/**
+ * Un empate resuelto (o no) dentro de una tabla, para poder explicarlo.
+ * `criterio` es el que separó a la PRIMERA del resto: es la respuesta a
+ * "¿por qué el #1 es el #1?".
+ */
+export interface DesempateAplicado {
+  /** Puntos en los que empataban. */
+  puntos: number;
+  /** Parejas implicadas, en el orden final. Siempre 2 o más. */
+  pairIds: string[];
+  criterio: CriterioDesempate;
+}
+
+/**
  * Resuelve un grupo de parejas EMPATADAS en puntos.
  * Mini-tabla entre ellas (criterios 1–5 del subconjunto), luego desempates globales.
  * (Para 2 parejas la mini-tabla equivale al head-to-head directo.)
+ *
+ * Devuelve además qué parejas quedaron indistinguibles: las que empatan con su
+ * vecina en TODA la cadena. Para esas el orden es el de entrada y no significa
+ * nada — hace falta un sorteo del organizador.
  */
 function resolveTie(
   run: string[],
   matches: MatchResultInput[],
   full: Map<string, Stats>,
   cfg: StandingsConfig,
-): string[] {
-  if (run.length === 1) return run;
+): { orden: string[]; sinResolver: Set<string>; criterio: CriterioDesempate } {
+  if (run.length === 1) {
+    return { orden: run, sinResolver: new Set(), criterio: 'sin_resolver' };
+  }
   const mini = computeStats(run, matches, cfg);
-  return [...run].sort((a, b) => {
-    const ma = mini.get(a)!;
-    const mb = mini.get(b)!;
-    if (mb.points !== ma.points) return mb.points - ma.points;
-    if (diff(mb, 'sets') !== diff(ma, 'sets')) return diff(mb, 'sets') - diff(ma, 'sets');
-    if (diff(mb, 'games') !== diff(ma, 'games')) return diff(mb, 'games') - diff(ma, 'games');
-    if (mb.gamesWon !== ma.gamesWon) return mb.gamesWon - ma.gamesWon;
-    // Desempates globales (Doc B §2, criterios 3–5):
-    const ga = full.get(a)!;
-    const gb = full.get(b)!;
-    if (diff(gb, 'sets') !== diff(ga, 'sets')) return diff(gb, 'sets') - diff(ga, 'sets');
-    if (diff(gb, 'games') !== diff(ga, 'games')) return diff(gb, 'games') - diff(ga, 'games');
-    if (gb.gamesWon !== ga.gamesWon) return gb.gamesWon - ga.gamesWon;
-    return 0; // último recurso: orden estable (sorteo / criterio del organizador)
-  });
+  const orden = [...run].sort(
+    (a, b) => compararConCriterio(a, b, mini, full).orden,
+  );
+
+  // Bloques de parejas consecutivas que ni la cadena entera separa.
+  const sinResolver = new Set<string>();
+  for (let i = 0; i < orden.length - 1; i++) {
+    if (compararConCriterio(orden[i], orden[i + 1], mini, full).orden === 0) {
+      sinResolver.add(orden[i]);
+      sinResolver.add(orden[i + 1]);
+    }
+  }
+
+  return {
+    orden,
+    sinResolver,
+    criterio: compararConCriterio(orden[0], orden[1], mini, full).criterio,
+  };
+}
+
+/** Tabla de un grupo + los empates que hubo que resolver para ordenarla. */
+export interface StandingsDetalle {
+  filas: StandingRow[];
+  /** Un elemento por cada corrida de parejas empatadas a puntos (2 o más). */
+  desempates: DesempateAplicado[];
 }
 
 /**
- * Calcula la tabla de posiciones ordenada de un grupo.
- * `pairIds` = parejas del grupo; `matches` = partidos del grupo (jugados o no).
+ * Igual que `computeStandings` pero devolviendo también CÓMO se desempató.
+ *
+ * Existe porque la tabla sola no se explica: el organizador ve un orden entre
+ * tres parejas con los mismos puntos y no tiene forma de saber si lo decidió
+ * la mini-tabla, los games, o nada. Con esto la pantalla puede decirlo.
  */
-export function computeStandings(
+export function computeStandingsDetalle(
   pairIds: string[],
   matches: MatchResultInput[],
   config: StandingsConfig = DEFAULT_STANDINGS_CONFIG,
-): StandingRow[] {
+): StandingsDetalle {
   const full = computeStats(pairIds, matches, config);
 
   // Orden inicial por puntos (desc), estable por orden de entrada.
@@ -199,16 +293,24 @@ export function computeStandings(
 
   // Segmentar en corridas de puntos iguales y resolver cada una.
   const ordered: string[] = [];
+  const sinResolver = new Set<string>();
+  const desempates: DesempateAplicado[] = [];
   let i = 0;
   while (i < byPoints.length) {
     let j = i;
     const p = full.get(byPoints[i])!.points;
     while (j < byPoints.length && full.get(byPoints[j])!.points === p) j++;
-    ordered.push(...resolveTie(byPoints.slice(i, j), matches, full, config));
+    const run = byPoints.slice(i, j);
+    const r = resolveTie(run, matches, full, config);
+    ordered.push(...r.orden);
+    r.sinResolver.forEach((id) => sinResolver.add(id));
+    if (run.length > 1) {
+      desempates.push({ puntos: p, pairIds: r.orden, criterio: r.criterio });
+    }
     i = j;
   }
 
-  return ordered.map((pairId, idx) => {
+  const filas = ordered.map((pairId, idx) => {
     const s = full.get(pairId)!;
     return {
       pairId,
@@ -221,6 +323,24 @@ export function computeStandings(
       gamesLost: s.gamesLost,
       points: s.points,
       position: idx + 1,
+      empateSinResolver: sinResolver.has(pairId),
     };
   });
+
+  return { filas, desempates };
+}
+
+/**
+ * Calcula la tabla de posiciones ordenada de un grupo.
+ * `pairIds` = parejas del grupo; `matches` = partidos del grupo (jugados o no).
+ *
+ * El ORDEN es el mismo de siempre. Lo único nuevo es `empateSinResolver` en
+ * cada fila: aditivo, para no romper a nadie que ya consumía esta tabla.
+ */
+export function computeStandings(
+  pairIds: string[],
+  matches: MatchResultInput[],
+  config: StandingsConfig = DEFAULT_STANDINGS_CONFIG,
+): StandingRow[] {
+  return computeStandingsDetalle(pairIds, matches, config).filas;
 }

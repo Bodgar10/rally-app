@@ -16,6 +16,16 @@ export const color = {
   gold:        '#D4AF37',   // Oro primario (acento, bordes activos)
   goldBright:  '#F1D98C',   // Brillo de oro (números hero)
   goldDeep:    '#9C7A28',   // Oro profundo (sombra del gradiente)
+  /**
+   * Oro atenuado (40%) para acciones DESHABILITADAS.
+   *
+   * El botón "Sembrar cuadro" apagado era un rectángulo gris (surface2) sobre
+   * fondo negro: no se leía como botón, se leía como un hueco de la pantalla —
+   * y es la acción que cierra la fase de grupos. Un borde y un texto en oro al
+   * 40% se ven apagados sin desaparecer: se entiende que existe y que todavía
+   * no toca.
+   */
+  goldMuted:   'rgba(212,175,55,0.40)',
   line:        'rgba(212,175,55,0.16)',   // Línea dorada hairline
   lineSoft:    'rgba(255,255,255,0.06)', // Línea neutra hairline
 

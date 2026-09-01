@@ -37,6 +37,11 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStandings';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
+import { computeStandingsDetalle } from '@/lib/engine/standings';
+import type { MatchResultInput } from '@/lib/engine/types';
+import {
+  avisoDeEmpateSinResolver, explicacionDeDesempates, parejasSinResolver,
+} from '@/lib/desempate-texto';
 import { horaDeTorneo } from '@/lib/fechas';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
@@ -79,6 +84,18 @@ interface Grupo {
   finalizados: number;
   /** Un grupo COMPLETO es el que ya tiene los tres resultados. */
   completo: boolean;
+  /**
+   * Parejas empatadas en TODOS los criterios de desempate.
+   *
+   * No sale de group_standings —la base guarda un orden, no si ese orden
+   * significa algo— sino de volver a pasar los partidos del grupo por el motor.
+   * Es barato: son tres partidos por grupo y ya están todos en memoria.
+   */
+  empatadasSinResolver: string[];
+  /** Aviso para arriba de la tabla, o null. */
+  avisoEmpate: string | null;
+  /** Con qué criterio se resolvió el empate, o null. */
+  explicacionDesempate: string | null;
 }
 
 interface Categoria {
@@ -266,6 +283,35 @@ export default function GruposScreen() {
         .map((g) => {
           const delGrupo = (partidos ?? []).filter((m) => m.group_id === g.id);
           const finalizados = delGrupo.filter((m) => m.status === 'finished').length;
+
+          // El motor otra vez, solo para saber si el orden que se va a pintar
+          // lo decidió el reglamento o el orden de las filas.
+          const parejasDelGrupo = (parejas ?? []).filter((p) => p.group_id === g.id).map((p) => p.id);
+          const entradas: MatchResultInput[] = delGrupo
+            .filter((m) => m.pair_a_id && m.pair_b_id)
+            .map((m) => ({
+              matchId: m.id,
+              pairAId: m.pair_a_id as string,
+              pairBId: m.pair_b_id as string,
+              winnerPairId: m.winner_pair_id ?? null,
+              played: m.status === 'finished',
+              sets: (setsPorMatch.get(m.id) ?? []).map((x) => ({
+                gamesA: x.games_a,
+                gamesB: x.games_b,
+                isSuperTiebreak: x.is_super_tiebreak,
+                tiebreakA: x.tiebreak_a,
+                tiebreakB: x.tiebreak_b,
+              })),
+            }));
+          // SOLO CON EL GRUPO TERMINADO. Un grupo sin jugar tiene a todas sus
+          // parejas a 0 puntos y empatadas en todo: eso no es un empate que
+          // haya que sortear, es un grupo que no ha empezado. Avisarlo ahí
+          // sería ruido en cuatro de cada cinco grupos del fin de semana.
+          const completo = delGrupo.length > 0 && finalizados === delGrupo.length;
+          const { desempates } = completo
+            ? computeStandingsDetalle(parejasDelGrupo, entradas)
+            : { desempates: [] };
+
           return {
             id: g.id,
             nombre: g.name,
@@ -273,7 +319,10 @@ export default function GruposScreen() {
             partidos: partidosPorGrupo.get(g.id) ?? [],
             finalizados,
             // Un grupo sin partidos no está "completo": está vacío.
-            completo: delGrupo.length > 0 && finalizados === delGrupo.length,
+            completo,
+            empatadasSinResolver: parejasSinResolver(desempates),
+            avisoEmpate: avisoDeEmpateSinResolver(desempates),
+            explicacionDesempate: explicacionDeDesempates(desempates),
           };
         });
 
@@ -435,20 +484,39 @@ export default function GruposScreen() {
                     <Text style={s.siembraHecha}>✓ El cuadro de esta categoría ya está sembrado.</Text>
                   ) : (
                     <>
+                      {/* EL BOTÓN MÁS IMPORTANTE DE LA PANTALLA, Y NO SE VEÍA.
+                          Deshabilitado era un rectángulo gris sobre negro: no
+                          parecía un botón, parecía un hueco. Ahora apagado es
+                          un contorno de oro atenuado con candado, y encendido
+                          es oro sólido — la única pieza maciza de la pantalla.
+                          El progreso va DENTRO de la etiqueta: dice a la vez
+                          qué hace y por qué todavía no. La condición que lo
+                          habilita no se toca. */}
                       <Pressable
                         onPress={() => void sembrarCuadro(activa)}
                         disabled={!todosCompletos(activa) || sembrando === activa.id}
                         style={[
                           s.botonSembrar,
-                          (!todosCompletos(activa) || sembrando === activa.id) && s.botonSembrarOff,
+                          !todosCompletos(activa) && s.botonSembrarOff,
                         ]}
                         accessibilityRole="button"
-                        accessibilityLabel={`Sembrar cuadro de ${activa.nombre}`}
+                        accessibilityLabel={
+                          todosCompletos(activa)
+                            ? `Sembrar cuadro de ${activa.nombre}`
+                            : `Sembrar cuadro de ${activa.nombre}. Bloqueado: ${activa.gruposCompletos} de ${activa.grupos.length} grupos listos.`
+                        }
                         accessibilityState={{ disabled: !todosCompletos(activa) }}
                       >
-                        {sembrando === activa.id
-                          ? <ActivityIndicator color={color.onGold} />
-                          : <Text style={s.botonSembrarTexto}>Sembrar cuadro</Text>}
+                        {sembrando === activa.id ? (
+                          <ActivityIndicator color={todosCompletos(activa) ? color.onGold : color.goldMuted} />
+                        ) : todosCompletos(activa) ? (
+                          <Text style={s.botonSembrarTexto}>Sembrar cuadro →</Text>
+                        ) : (
+                          <Text style={s.botonSembrarTextoOff}>
+                            🔒 Sembrar cuadro · {activa.gruposCompletos} de {activa.grupos.length}{' '}
+                            {activa.grupos.length === 1 ? 'grupo listo' : 'grupos listos'}
+                          </Text>
+                        )}
                       </Pressable>
                       {!todosCompletos(activa) && (
                         <Text style={s.siembraBloqueada}>
@@ -512,6 +580,9 @@ export default function GruposScreen() {
                       groupId={g.id}
                       filas={g.filas}
                       advanceCount={activa.pasanPorGrupo}
+                      empatadasSinResolver={g.empatadasSinResolver}
+                      avisoEmpate={g.avisoEmpate}
+                      explicacionDesempate={g.explicacionDesempate}
                     />
 
                     <View style={s.rejilla}>
@@ -640,9 +711,12 @@ const s = StyleSheet.create({
   sinHorario:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 18, marginTop: space[1] },
   progreso:       { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne, marginTop: space[2] },
 
-  botonSembrar:      { backgroundColor: color.gold, borderRadius: radius.sm, paddingVertical: space[3], alignItems: 'center', marginTop: space[2] },
-  botonSembrarOff:   { backgroundColor: color.surface2, opacity: 0.6 },
+  // Habilitado: oro sólido, texto negro. Es la acción que cierra la fase.
+  botonSembrar:      { backgroundColor: color.gold, borderWidth: 1, borderColor: color.gold, borderRadius: radius.sm, paddingVertical: space[3], paddingHorizontal: space[3], alignItems: 'center', marginTop: space[2] },
+  // Deshabilitado: contorno de oro al 40% sobre el fondo. Se lee como botón.
+  botonSembrarOff:   { backgroundColor: 'transparent', borderColor: color.goldMuted },
   botonSembrarTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.onGold },
+  botonSembrarTextoOff: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.goldMuted, textAlign: 'center' },
   siembraBloqueada:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
   siembraHecha:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, lineHeight: 18, marginTop: space[2] },
   aviso:             { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18, marginTop: space[2] },

@@ -14,6 +14,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View, Text, Pressable } from 'react-native';
 import { color, radius, font } from '@/lib/design-tokens';
+import { LEYENDA_TABLA } from '@/lib/desempate-texto';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, groupChannel } from '@/lib/realtime/channels';
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
@@ -22,7 +23,7 @@ import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 // Tipos locales (sin reimportar el engine)
 // ───────────────────────────────────────────
 
-type ClinchStatus = 'clinched' | 'alive' | 'eliminated';
+type ClinchStatus = 'clinched' | 'alive' | 'eliminated' | 'repechage_pending';
 
 interface StandingRow {
   id: string;
@@ -62,6 +63,19 @@ export interface LiveStandingsProps {
    * Sin la prop, el comportamiento es el de siempre — la rama del jugador.
    */
   filas?: StandingRow[];
+  /**
+   * pair_id de las parejas que empataron en TODOS los criterios.
+   *
+   * Para esas el orden de la tabla salió del orden de las filas, no del
+   * reglamento. Se marcan y se les esconde el sello de CLASIFICADO/ELIMINADO:
+   * enseñar un sello sobre un orden que puede cambiar al recalcular es
+   * exactamente la mentira que había que quitar.
+   */
+  empatadasSinResolver?: string[];
+  /** Aviso a pintar ARRIBA de la tabla cuando hay un empate que nadie resuelve. */
+  avisoEmpate?: string | null;
+  /** Línea corta bajo la tabla: con qué criterio se resolvió el empate. */
+  explicacionDesempate?: string | null;
 }
 
 export type { StandingRow };
@@ -73,13 +87,23 @@ export type { StandingRow };
 const CLINCH_COLORS: Record<ClinchStatus, string> = {
   clinched: color.gold,
   alive: color.alive,
+  // Pendiente de repesca NO es eliminación: no se pinta de rojo.
+  repechage_pending: color.alive,
   eliminated: color.danger,
 };
 
 const CLINCH_BG: Record<ClinchStatus, string> = {
   clinched: 'rgba(212,175,55,0.12)',
   alive: 'rgba(230,180,80,0.10)',
+  repechage_pending: 'rgba(230,180,80,0.10)',
   eliminated: 'rgba(224,114,111,0.10)',
+};
+
+const CLINCH_TEXTO: Record<ClinchStatus, string> = {
+  clinched: '✓ Clasificado',
+  alive: 'En juego',
+  repechage_pending: 'Pendiente de repesca',
+  eliminated: 'Eliminado',
 };
 
 // ───────────────────────────────────────────
@@ -135,7 +159,11 @@ export default function LiveStandings({
   currentUserId,
   advanceCount = 2,
   filas,
+  empatadasSinResolver,
+  avisoEmpate,
+  explicacionDesempate,
 }: LiveStandingsProps) {
+  const empatadas = new Set(empatadasSinResolver ?? []);
   const inyectado = filas !== undefined;
 
   const [rows, setRows] = useState<StandingRow[]>([]);
@@ -225,6 +253,38 @@ export default function LiveStandings({
         borderColor: color.lineSoft,
       }}
     >
+      {/* EMPATE QUE EL REGLAMENTO NO RESUELVE.
+          Va ARRIBA, antes que la tabla, porque cambia cómo hay que leerla:
+          debajo hay un orden que no significa nada hasta que haya sorteo. */}
+      {hayResultados && avisoEmpate && (
+        <View
+          style={{
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            backgroundColor: 'rgba(230,180,80,0.10)',
+            borderBottomWidth: 1,
+            borderBottomColor: color.lineSoft,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: font.display,
+              fontSize: 10,
+              fontWeight: '600',
+              color: color.alive,
+              textTransform: 'uppercase',
+              letterSpacing: 0.8,
+              marginBottom: 3,
+            }}
+          >
+            Empate sin resolver
+          </Text>
+          <Text style={{ fontFamily: font.body, fontSize: 12, color: color.text, lineHeight: 17 }}>
+            {avisoEmpate}
+          </Text>
+        </View>
+      )}
+
       {/* Header */}
       <View
         style={{
@@ -256,6 +316,8 @@ export default function LiveStandings({
         const clinchColor = CLINCH_COLORS[row.clinch_status];
         const clinchBg = CLINCH_BG[row.clinch_status];
         const setDiff = row.sets_won - row.sets_lost;
+        // Empatada en todo: su posición es provisional y su sello, prematuro.
+        const enEmpate = hayResultados && empatadas.has(row.pair_id);
 
         return (
           <React.Fragment key={row.id}>
@@ -265,7 +327,13 @@ export default function LiveStandings({
                 alignItems: 'center',
                 paddingHorizontal: 14,
                 paddingVertical: 12,
-                backgroundColor: isMe ? 'rgba(212,175,55,0.07)' : 'transparent',
+                backgroundColor: enEmpate
+                  ? 'rgba(230,180,80,0.08)'
+                  : isMe ? 'rgba(212,175,55,0.07)' : 'transparent',
+                // Filo lateral en las filas del empate: se ven como un bloque.
+                borderLeftWidth: enEmpate ? 3 : 0,
+                borderLeftColor: color.alive,
+                paddingLeft: enEmpate ? 11 : 14,
               }}
             >
               {/* Posición. Sin resultados no se pinta: serían ceros en fila. */}
@@ -276,10 +344,15 @@ export default function LiveStandings({
                       fontFamily: font.display,
                       fontSize: 16,
                       fontWeight: '600',
-                      color: row.position <= advanceCount ? color.gold : color.muted,
+                      color: enEmpate
+                        ? color.muted
+                        : row.position <= advanceCount ? color.gold : color.muted,
                     }}
                   >
-                    {row.position}
+                    {/* Con el empate sin resolver el número no es un puesto:
+                        es el sitio donde cayó la fila. Se dice con el '=' en
+                        vez de fingir un 1, un 2 y un 3. */}
+                    {enEmpate ? `=${row.position}` : row.position}
                   </Text>
                 </View>
               )}
@@ -304,7 +377,7 @@ export default function LiveStandings({
                   style={{
                     marginTop: 3,
                     alignSelf: 'flex-start',
-                    backgroundColor: clinchBg,
+                    backgroundColor: enEmpate ? 'rgba(230,180,80,0.10)' : clinchBg,
                     borderRadius: radius.pill,
                     paddingHorizontal: 6,
                     paddingVertical: 2,
@@ -315,16 +388,15 @@ export default function LiveStandings({
                       fontFamily: font.display,
                       fontSize: 9,
                       fontWeight: '500',
-                      color: clinchColor,
+                      color: enEmpate ? color.alive : clinchColor,
                       textTransform: 'uppercase',
                       letterSpacing: 0.8,
                     }}
                   >
-                    {row.clinch_status === 'clinched'
-                      ? '✓ Clasificado'
-                      : row.clinch_status === 'eliminated'
-                      ? 'Eliminado'
-                      : 'En juego'}
+                    {/* Ni CLASIFICADO ni ELIMINADO mientras el empate siga sin
+                        resolverse: cuál de las dos cosas es todavía no se
+                        sabe, y el sello se lee como definitivo. */}
+                    {enEmpate ? 'Empatadas · falta sorteo' : CLINCH_TEXTO[row.clinch_status]}
                   </Text>
                 </View>
                 )}
@@ -399,15 +471,32 @@ export default function LiveStandings({
       {/* Pie de tabla.
           Sin resultados no hay orden que enseñar: se dice, en vez de dejar una
           tabla de ceros que parece un error de carga.
-          Con resultados se explica la columna PTS. Hacía falta: mientras la
-          derrota jugada valía 1 punto, un jugador veía 0 ganados y 1 punto y
-          no había en toda la app dónde leer por qué. Ahora PTS son victorias
-          por dos y la línea lo dice, para que nadie tenga que deducirlo. */}
+
+          LA LEYENDA MENTÍA. Decía "si dos parejas empatan, decide la diferencia
+          de sets y luego la de games" — y estaba impresa justo debajo de un
+          empate de TRES que la diferencia de sets no había resuelto. Cuando son
+          tres o más lo primero que manda es la mini-tabla entre ellas. El texto
+          vive en `LEYENDA_TABLA` para que salga del mismo sitio que la cadena.
+
+          Encima va, cuando toca, la línea que dice CON QUÉ se resolvió el
+          empate: sin ella cualquier orden se lee como arbitrario aunque no lo
+          sea. */}
       <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: color.lineSoft }}>
+        {hayResultados && explicacionDesempate && (
+          <Text
+            style={{
+              fontFamily: font.body,
+              fontSize: 11,
+              color: color.champagne,
+              lineHeight: 16,
+              marginBottom: 6,
+            }}
+          >
+            {explicacionDesempate}
+          </Text>
+        )}
         <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, lineHeight: 16 }}>
-          {hayResultados
-            ? '2 puntos por partido ganado, 0 por perderlo. Si dos parejas empatan, decide la diferencia de sets y luego la de games.'
-            : 'El orden se define al jugar.'}
+          {hayResultados ? LEYENDA_TABLA : 'El orden se define al jugar.'}
         </Text>
       </View>
     </View>
