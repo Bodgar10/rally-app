@@ -326,3 +326,53 @@ describe('planAvance · determinismo y pureza', () => {
     expect(etiquetas).toEqual(['round_of_16-01', 'round_of_16-02', 'round_of_16-09', 'round_of_16-10']);
   });
 });
+
+/**
+ * EL PARTIDO QUE NACE SIN HORA.
+ *
+ * `match_schedule` reserva hora y cancha para todas las rondas desde que se
+ * programa el día, y las identifica por (categoría, etapa, slot_index). Sin
+ * emitir esa posición, la RPC no puede encontrar el hueco y el partido nace
+ * con scheduled_at en null: en bb8e137e las semifinales de 6ª Varonil
+ * aparecieron como "POR PROGRAMAR" con el calendario del domingo ya hecho.
+ */
+describe('planAvance — cada partido creado dice su hueco en el plan', () => {
+  const cuartos: PartidoCuadro[] = [0, 1, 2, 3].map((i) => ({
+    id: `q${i}`,
+    stage: 'quarter',
+    roundLabel: `quarter-0${i}`,
+    pairAId: `a${i}`,
+    pairBId: `b${i}`,
+    winnerPairId: i === 3 ? null : `a${i}`,
+    status: i === 3 ? 'scheduled' : 'finished',
+    sourceMatchIds: null,
+  }));
+
+  it('las semifinales salen numeradas 0 y 1, en orden', () => {
+    const plan = planAvance(cuartos, 'q3', 'a3');
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.crear.map((c) => c.slotIndex)).toEqual([0, 1]);
+    // Y la posición casa con la etiqueta: si divergieran, la RPC buscaría el
+    // hueco de otro partido.
+    expect(plan.crear.every((c, i) => c.slotIndex === i)).toBe(true);
+  });
+
+  it('el 3.er lugar es único en su etapa: su hueco es el 0', () => {
+    const semis: PartidoCuadro[] = [0, 1].map((i) => ({
+      id: `s${i}`,
+      stage: 'semi',
+      roundLabel: `semi-0${i}`,
+      pairAId: `a${i}`,
+      pairBId: `b${i}`,
+      winnerPairId: i === 0 ? 'a0' : null,
+      status: i === 0 ? 'finished' : 'scheduled',
+      sourceMatchIds: null,
+    }));
+    const plan = planAvance(semis, 's1', 'a1', true);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const tercero = plan.crear.find((c) => c.stage === 'third_place');
+    expect(tercero?.slotIndex).toBe(0);
+  });
+});

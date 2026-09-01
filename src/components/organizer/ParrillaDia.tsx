@@ -132,14 +132,28 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
                           onPress={() => onCelda(f)}
                           style={({ pressed }) => [
                             s.partido,
+                            // TERMINADO EN VERDE. La parrilla pintaba igual el
+                            // partido que ya se jugó y el que falta, así que
+                            // saber por dónde va el día obligaba a abrirlos uno
+                            // a uno. Es la misma pregunta que el organizador
+                            // hace cada media hora.
+                            f.estado === 'finished' && s.partidoHecho,
                             aqui.length > 1 && s.partidoChoque,
                             resaltado === f.id && s.partidoResaltado,
                             pressed && { opacity: 0.7 },
                           ]}
                           accessibilityRole="button"
-                          accessibilityLabel={`${f.categoria}, ${f.etapa}, cancha ${n}, ${h}`}
+                          accessibilityLabel={
+                            `${f.categoria}, ${f.etapa}, cancha ${n}, ${h}` +
+                            (f.estado === 'finished' ? ', terminado' : '')
+                          }
                         >
-                          <Text style={s.partidoCat} numberOfLines={1}>{f.categoria}</Text>
+                          <Text
+                            style={[s.partidoCat, f.estado === 'finished' && s.partidoCatHecho]}
+                            numberOfLines={1}
+                          >
+                            {f.estado === 'finished' ? '✓ ' : ''}{f.categoria}
+                          </Text>
                           <Text style={s.partidoEtapa} numberOfLines={1}>{f.etapa}</Text>
                         </Pressable>
                       ))}
@@ -193,9 +207,13 @@ const s = StyleSheet.create({
     flex: 1, backgroundColor: color.surface2, borderRadius: radius.sm,
     paddingHorizontal: 5, paddingVertical: 3, justifyContent: 'center',
   },
+  // `color.live` es el token de "en vivo / victoria / positivo" (Doc D §2.2).
+  // El fondo va tenue: la celda es pequeña y un verde sólido taparía el texto.
+  partidoHecho:     { backgroundColor: 'rgba(66,214,164,0.14)', borderWidth: 1, borderColor: 'rgba(66,214,164,0.35)' },
   partidoChoque:    { borderWidth: 1, borderColor: color.danger },
   partidoResaltado: { borderWidth: 1.5, borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.14)' },
   partidoCat:       { fontFamily: font.body, fontSize: 11, color: color.text },
+  partidoCatHecho:  { color: color.live },
   partidoEtapa:     { fontFamily: font.body, fontSize: 10, color: color.muted },
 
   vacio:     { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, paddingVertical: space[3] },

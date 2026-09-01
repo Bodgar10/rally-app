@@ -805,10 +805,10 @@ function planAvance(partidos, matchId, winnerPairId, tercerLugar = true) {
   const crear = [];
   const reapuntar = [];
   const bloqueadoPor = [];
-  const encajar = (stage, roundLabel, pairAId, pairBId, origenes) => {
+  const encajar = (stage, roundLabel, slotIndex, pairAId, pairBId, origenes) => {
     const existente = buscarExistente(partidos, stage, roundLabel, origenes);
     if (!existente) {
-      crear.push({ stage, roundLabel, pairAId, pairBId, sourceMatchIds: origenes });
+      crear.push({ stage, roundLabel, slotIndex, pairAId, pairBId, sourceMatchIds: origenes });
       return;
     }
     const igual = existente.pairAId === pairAId && existente.pairBId === pairBId;
@@ -820,12 +820,12 @@ function planAvance(partidos, matchId, winnerPairId, tercerLugar = true) {
     reapuntar.push({ matchId: existente.id, pairAId, pairBId });
   };
   next.forEach((cruce, i) => {
-    encajar(siguienteEtapa, etiquetaDeRonda(siguienteEtapa, i), cruce.pairAId, cruce.pairBId, cruce.sourceMatchIds);
+    encajar(siguienteEtapa, etiquetaDeRonda(siguienteEtapa, i), i, cruce.pairAId, cruce.pairBId, cruce.sourceMatchIds);
   });
   if (tercerLugar && partido.stage === "semi" && rondaConResultado.length === 2) {
     const tercero = thirdPlaceFromSemis([rondaConResultado[0], rondaConResultado[1]]);
     if (tercero) {
-      encajar("third_place", ETIQUETA_TERCERO, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);
+      encajar("third_place", ETIQUETA_TERCERO, 0, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);
     }
   }
   if (bloqueadoPor.length > 0) {

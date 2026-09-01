@@ -53,6 +53,16 @@ export interface PartidoCuadro {
 export interface CrearPartido {
   stage: MatchStage | 'third_place';
   roundLabel: string;
+  /**
+   * Posición dentro de la ronda, 0-based. Es la clave del plan.
+   *
+   * `match_schedule` reserva hora y cancha para TODAS las rondas desde que se
+   * programa el día, incluidas las que todavía no tienen fila en `matches`, y
+   * las identifica por (categoría, etapa, slot_index) — la posición es lo
+   * único que existe antes que el partido. Sin este dato el partido nacía sin
+   * hora y salía como "POR PROGRAMAR" aunque su hueco ya estuviera decidido.
+   */
+  slotIndex: number;
   pairAId: string | null;
   pairBId: string | null;
   sourceMatchIds: [string, string];
@@ -213,13 +223,14 @@ export function planAvance(
   const encajar = (
     stage: MatchStage | 'third_place',
     roundLabel: string,
+    slotIndex: number,
     pairAId: string | null,
     pairBId: string | null,
     origenes: [string, string],
   ) => {
     const existente = buscarExistente(partidos, stage, roundLabel, origenes);
     if (!existente) {
-      crear.push({ stage, roundLabel, pairAId, pairBId, sourceMatchIds: origenes });
+      crear.push({ stage, roundLabel, slotIndex, pairAId, pairBId, sourceMatchIds: origenes });
       return;
     }
     const igual = existente.pairAId === pairAId && existente.pairBId === pairBId;
@@ -232,7 +243,7 @@ export function planAvance(
   };
 
   next.forEach((cruce, i) => {
-    encajar(siguienteEtapa, etiquetaDeRonda(siguienteEtapa, i), cruce.pairAId, cruce.pairBId, cruce.sourceMatchIds);
+    encajar(siguienteEtapa, etiquetaDeRonda(siguienteEtapa, i), i, cruce.pairAId, cruce.pairBId, cruce.sourceMatchIds);
   });
 
   // 3.er lugar: sale de los perdedores de las dos semifinales, igual que en
@@ -241,7 +252,8 @@ export function planAvance(
   if (tercerLugar && partido.stage === 'semi' && rondaConResultado.length === 2) {
     const tercero = thirdPlaceFromSemis([rondaConResultado[0], rondaConResultado[1]]);
     if (tercero) {
-      encajar('third_place', ETIQUETA_TERCERO, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);
+      // El 3.er lugar es único en su etapa: su hueco en el plan es el 0.
+      encajar('third_place', ETIQUETA_TERCERO, 0, tercero.pairAId, tercero.pairBId, tercero.sourceMatchIds);
     }
   }
 

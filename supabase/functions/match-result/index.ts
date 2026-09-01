@@ -193,9 +193,12 @@ Deno.serve(async (req) => {
           p_played_at: played_at ?? new Date().toISOString(),
           p_sets: sets,
           p_bracket_state: estadoCuadro,
+          // `slot_index` es lo que le deja a la RPC buscar el hueco en
+          // `match_schedule` y nacer con hora y cancha en vez de en null.
           p_crear: plan.crear.map((c: any) => ({
             stage: c.stage,
             round_label: c.roundLabel,
+            slot_index: c.slotIndex,
             pair_a_id: c.pairAId,
             pair_b_id: c.pairBId,
             source_match_ids: c.sourceMatchIds,

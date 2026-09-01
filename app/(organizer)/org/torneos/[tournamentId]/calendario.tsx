@@ -29,7 +29,7 @@
  *   Los reales van primero: una certeza pesa más que una probabilidad.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
@@ -37,6 +37,7 @@ import {
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { subscribeToTable, tournamentChannel } from '@/lib/realtime/channels';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -567,6 +568,22 @@ export default function CalendarioScreen() {
   }, [tournamentId]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
+
+  /**
+   * En vivo. Igual que en Grupos: esta pantalla inyecta los partidos en
+   * `LiveBracket`, que con datos inyectados no abre canal. Sin esto, capturar
+   * un resultado no movía nada aquí hasta recargar.
+   */
+  useEffect(() => {
+    if (!tournamentId) return;
+    return subscribeToTable<Record<string, unknown>>({
+      channelName: tournamentChannel(tournamentId),
+      table: 'matches',
+      filter: `tournament_id=eq.${tournamentId}`,
+      onData: () => { void cargar(); },
+      onError: (e) => console.warn('[calendario] realtime error:', e),
+    });
+  }, [tournamentId, cargar]);
 
   async function programar() {
     setError(null);

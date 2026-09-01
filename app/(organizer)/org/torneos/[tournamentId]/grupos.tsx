@@ -31,6 +31,7 @@ import {
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { subscribeToTable, tournamentChannel } from '@/lib/realtime/channels';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -457,6 +458,32 @@ export default function GruposScreen() {
   }, [cargar]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
+
+  /**
+   * EN VIVO, sin salir y volver a entrar.
+   *
+   *   Esta pantalla INYECTA las filas en `LiveStandings` y en `LiveBracket`
+   *   —una consulta por categoría en vez de diez— y esos componentes, con
+   *   datos inyectados, no abren canal: los datos son de quien llama. El
+   *   efecto secundario era que aquí no se movía nada hasta recargar: se
+   *   capturaba un cuarto y la pareja no aparecía en la semifinal, y una
+   *   pareja que ya había clasificado matemáticamente seguía "En juego".
+   *
+   *   Basta con escuchar `matches` del torneo: `match-result` escribe el
+   *   partido y `group_standings` en la MISMA transacción, así que cuando
+   *   llega el evento del partido la tabla ya está recalculada. Un canal por
+   *   torneo, no diez por grupo.
+   */
+  useEffect(() => {
+    if (!tournamentId) return;
+    return subscribeToTable<Record<string, unknown>>({
+      channelName: tournamentChannel(tournamentId),
+      table: 'matches',
+      filter: `tournament_id=eq.${tournamentId}`,
+      onData: () => { void cargar(); },
+      onError: (e) => console.warn('[grupos] realtime error:', e),
+    });
+  }, [tournamentId, cargar]);
 
   const activa = useMemo(() => cats.find((c) => c.id === tab) ?? null, [cats, tab]);
 

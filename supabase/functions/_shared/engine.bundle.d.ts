@@ -348,6 +348,16 @@ interface PartidoCuadro {
 interface CrearPartido {
     stage: MatchStage | 'third_place';
     roundLabel: string;
+    /**
+     * Posición dentro de la ronda, 0-based. Es la clave del plan.
+     *
+     * `match_schedule` reserva hora y cancha para TODAS las rondas desde que se
+     * programa el día, incluidas las que todavía no tienen fila en `matches`, y
+     * las identifica por (categoría, etapa, slot_index) — la posición es lo
+     * único que existe antes que el partido. Sin este dato el partido nacía sin
+     * hora y salía como "POR PROGRAMAR" aunque su hueco ya estuviera decidido.
+     */
+    slotIndex: number;
     pairAId: string | null;
     pairBId: string | null;
     sourceMatchIds: [string, string];
