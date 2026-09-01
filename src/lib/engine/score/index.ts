@@ -24,12 +24,22 @@ export const DEFAULT_SCORE_CONFIG: ScoreConfig = {
 };
 
 export interface ValidatedScore {
+  /** El marcador es un partido COMPLETO y legal. Lo que decide si se cierra. */
   valid: boolean;
   errors: string[];
   /** Ganador derivado del marcador. null si inválido o incompleto. */
   winnerSide: 'A' | 'B' | null;
   setsA: number;
   setsB: number;
+  /**
+   * ¿Algún lado llegó ya a los sets necesarios?
+   *
+   * `valid` responde "¿se puede cerrar el partido?" y `completo` responde
+   * "¿está decidido?". Son casi lo mismo salvo cuando hay otro error —un set
+   * mal escrito, sets de más—, y separarlas es lo que permite guardar un set
+   * suelto sin que el motor exija el partido entero.
+   */
+  completo: boolean;
 }
 
 /** Qué formato tiene un par de números, si es que tiene alguno. */
@@ -134,7 +144,7 @@ export function validateScore(
   const setsToWin = Math.ceil(config.bestOf / 2);
 
   if (!sets || sets.length === 0) {
-    return { valid: false, errors: ['Sin sets capturados.'], winnerSide: null, setsA: 0, setsB: 0 };
+    return { valid: false, errors: ['Sin sets capturados.'], winnerSide: null, setsA: 0, setsB: 0, completo: false };
   }
   if (sets.length > config.bestOf) {
     errors.push(`Demasiados sets: ${sets.length} > mejor de ${config.bestOf}.`);
@@ -186,5 +196,31 @@ export function validateScore(
   const valid = errors.length === 0;
   const winnerSide = valid ? (setsA > setsB ? 'A' : 'B') : null;
 
-  return { valid, errors, winnerSide, setsA, setsB };
+  return { valid, errors, winnerSide, setsA, setsB, completo: decided };
+}
+
+/**
+ * ¿Es LEGAL lo capturado hasta ahora, aunque el partido siga?
+ *
+ * EL SUPUESTO QUE HACÍA FALTA ROMPER
+ *   `validateScore` responde a "¿es esto un partido completo y legal?", y a un
+ *   6-4 suelto le contesta "Falta el segundo set." Correcto para cerrar un
+ *   partido; inservible para el juez que anota set a set y quiere guardar el
+ *   primero en cuanto termina.
+ *
+ *   Esta función hace la MISMA validación de cada set —formato, súper muerte
+ *   solo en el decisivo, sets de más, sets después de estar decidido— y se
+ *   salta la única regla que sobra: exigir que haya ganador.
+ *
+ *   No se toca `validateScore`: su `valid` sigue significando lo de siempre y
+ *   es lo que decide si el partido se cierra. Esto es aditivo.
+ */
+export function validateParcial(
+  sets: SetScore[],
+  config: ScoreConfig = DEFAULT_SCORE_CONFIG,
+): ValidatedScore {
+  const r = validateScore(sets, config);
+  // El único error que se perdona es el de "todavía falta un set".
+  const errors = r.errors.filter((e) => !/^Falta el |^Partido incompleto:/.test(e));
+  return { ...r, errors, valid: errors.length === 0 };
 }

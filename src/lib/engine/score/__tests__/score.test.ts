@@ -1,5 +1,5 @@
 // src/lib/engine/score/__tests__/score.test.ts
-import { clasificarSet, validateScore } from '../index';
+import { clasificarSet, validateParcial, validateScore } from '../index';
 import type { SetScore } from '../../types';
 
 const set = (a: number, b: number): SetScore => ({
@@ -236,5 +236,44 @@ describe('validateScore — determinismo', () => {
   it('misma entrada, misma salida', () => {
     const s = [set(6, 4), set(6, 3)];
     expect(validateScore(s)).toEqual(validateScore(s));
+  });
+});
+
+describe('validateParcial — un set suelto es legal', () => {
+  it('un 6-4 solo no es un partido, pero sí un set bien anotado', () => {
+    const p = validateParcial([set(6, 4)]);
+    expect(p.valid).toBe(true);
+    expect(p.completo).toBe(false);
+    expect(p.errors).toEqual([]);
+  });
+
+  it('1-1 en sets es legal y sigue sin estar decidido', () => {
+    const p = validateParcial([set(6, 4), set(3, 6)]);
+    expect(p.valid).toBe(true);
+    expect(p.completo).toBe(false);
+  });
+
+  it('un set MAL escrito sigue siendo un error', () => {
+    // Perdonar "falta un set" no es perdonar cualquier cosa.
+    const p = validateParcial([set(3, 1)]);
+    expect(p.valid).toBe(false);
+    expect(p.errors.join(' ')).toMatch(/Set 1/);
+  });
+
+  it('una súper muerte en el primer set se sigue rechazando', () => {
+    const p = validateParcial([superSet(10, 5)]);
+    expect(p.valid).toBe(false);
+  });
+
+  it('cuando el partido ya está decidido, lo dice', () => {
+    const p = validateParcial([set(6, 4), set(6, 3)]);
+    expect(p.completo).toBe(true);
+    expect(p.valid).toBe(true);
+  });
+
+  it('validateScore no cambió: el partido incompleto sigue siendo inválido', () => {
+    const r = validateScore([set(6, 4)]);
+    expect(r.valid).toBe(false);
+    expect(r.completo).toBe(false);
   });
 });

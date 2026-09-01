@@ -1,6 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   validateScore,
+  validateParcial,
   computeStandings,
   computeClinch,
   planAvance,
@@ -63,11 +64,15 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   try {
     const auth = req.headers.get('Authorization') ?? '';
-    const { match_id, sets, played_at, winner_pair_id } = await req.json();
+    const { match_id, sets, played_at, winner_pair_id, parcial } = await req.json();
     if (!match_id || !Array.isArray(sets)) return json({ error: 'bad_request' }, 400);
-    // El ganador que marcó el juez es obligatorio: se contrasta contra el que
-    // deriva el marcador. Es una comprobación de intención, no un dato de más.
-    if (!winner_pair_id) return json({ error: 'winner_required' }, 400);
+    // CAPTURA PARCIAL: el juez guarda un set en cuanto termina y el partido
+    // sigue. Sin ganador todavía, y eso no es un dato que falte.
+    const esParcial = parcial === true;
+    // El ganador que marcó el juez es obligatorio en la captura completa: se
+    // contrasta contra el que deriva el marcador. Es una comprobación de
+    // intención, no un dato de más.
+    if (!esParcial && !winner_pair_id) return json({ error: 'winner_required' }, 400);
 
     // Cliente con el JWT del que llama (para autenticar quién es)
     const asUser = createClient(
@@ -114,15 +119,27 @@ Deno.serve(async (req) => {
     // 2) Validar marcador y derivar ganador (ENGINE — no reimplementar).
     //    validateScore espera SetScore[] (camelCase) y devuelve winnerSide 'A'|'B'.
     const reqSets = sets.map(toSetScore);
-    const score = validateScore(reqSets);
+    // `validateParcial` en la captura set a set: hace la MISMA comprobación de
+    // cada set y solo perdona la de "falta un set". Un 3-1 sigue siendo un
+    // marcador inválido aunque el partido esté a medias.
+    const score = esParcial ? validateParcial(reqSets) : validateScore(reqSets);
     if (!score.valid) {
       return json({ error: 'invalid_score', detail: score.errors.join(' · '), errors: score.errors }, 400);
     }
-    const derivado = score.winnerSide === 'A' ? match.pair_a_id : match.pair_b_id;
+
+    // SI EL MARCADOR YA DECIDE, EL PARTIDO SE CIERRA aunque venga marcado como
+    // parcial. El juez que teclea el set que remata no tiene por qué pulsar
+    // otra cosa distinta, y dejar 'in_progress' un partido terminado sería
+    // mentir en la pantalla de todos.
+    const cierra = score.completo;
+    const derivado = cierra
+      ? (score.winnerSide === 'A' ? match.pair_a_id : match.pair_b_id)
+      : null;
 
     // El ganador marcado por el juez tiene que coincidir con el que dice el
     // marcador. Si no, se rechaza: uno de los dos está mal y no sabemos cuál.
-    if (winner_pair_id !== derivado) {
+    // En una captura que no cierra no hay ganador que contrastar.
+    if (cierra && winner_pair_id && winner_pair_id !== derivado) {
       return json({
         error: 'winner_mismatch',
         derived_winner_pair_id: derivado,
@@ -161,21 +178,29 @@ Deno.serve(async (req) => {
 
         // ENGINE: qué crear y qué reapuntar. Incluye el 3.er lugar al cerrar semis
         // y rechaza la corrección que movería un partido ya jugado.
-        const plan = planAvance(
-          cuadro.map((m: any) => ({
-            id: m.id,
-            stage: m.stage,
-            roundLabel: m.round_label,
-            pairAId: m.pair_a_id,
-            pairBId: m.pair_b_id,
-            winnerPairId: m.winner_pair_id,
-            status: m.status,
-            sourceMatchIds: m.source_match_ids ?? null,
-          })),
-          match_id,
-          derivado,
-          tercerLugar,
-        );
+        //
+        // SIN CIERRE NO HAY AVANCE QUE PLANIFICAR. Un set suelto no mueve el
+        // cuadro: no hay ganador del que salga el cruce siguiente, y llamar a
+        // `planAvance` con un ganador nulo sería pedirle que se lo invente.
+        // La RPC lo vuelve a comprobar por su cuenta con `p_parcial`.
+        const plan = cierra
+          ? planAvance(
+              cuadro.map((m: any) => ({
+                id: m.id,
+                stage: m.stage,
+                roundLabel: m.round_label,
+                pairAId: m.pair_a_id,
+                pairBId: m.pair_b_id,
+                winnerPairId: m.winner_pair_id,
+                status: m.status,
+                sourceMatchIds: m.source_match_ids ?? null,
+              })),
+              match_id,
+              derivado!,
+              tercerLugar,
+            )
+          : { ok: true as const, esCorreccion: false, rondaCompleta: false,
+              siguienteEtapa: null, crear: [], reapuntar: [] };
 
         if (!plan.ok) {
           const status = plan.motivo === 'downstream_already_played' ? 409 : 400;
@@ -190,6 +215,7 @@ Deno.serve(async (req) => {
           p_actor: actor,
           p_match_id: match_id,
           p_winner_pair: derivado,
+          p_parcial: !cierra,
           p_played_at: played_at ?? new Date().toISOString(),
           p_sets: sets,
           p_bracket_state: estadoCuadro,
@@ -363,6 +389,7 @@ Deno.serve(async (req) => {
         p_sets: sets,
         p_standings: standingsRows,
         p_group_state: estado,
+        p_parcial: !cierra,
       });
 
       if (!re) {

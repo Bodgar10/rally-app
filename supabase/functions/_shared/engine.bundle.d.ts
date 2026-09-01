@@ -100,12 +100,22 @@ interface ScoreConfig {
     superTiebreakWinBy: number;
 }
 interface ValidatedScore {
+    /** El marcador es un partido COMPLETO y legal. Lo que decide si se cierra. */
     valid: boolean;
     errors: string[];
     /** Ganador derivado del marcador. null si inválido o incompleto. */
     winnerSide: 'A' | 'B' | null;
     setsA: number;
     setsB: number;
+    /**
+     * ¿Algún lado llegó ya a los sets necesarios?
+     *
+     * `valid` responde "¿se puede cerrar el partido?" y `completo` responde
+     * "¿está decidido?". Son casi lo mismo salvo cuando hay otro error —un set
+     * mal escrito, sets de más—, y separarlas es lo que permite guardar un set
+     * suelto sin que el motor exija el partido entero.
+     */
+    completo: boolean;
 }
 /** Qué formato tiene un par de números, si es que tiene alguno. */
 type FormatoDeSet = 'normal' | 'super' | null;
@@ -141,6 +151,17 @@ interface StandingsConfig {
     pointsPlayedLoss: number;
     /** Cómo cuentan los games del super muerte para el desempate. */
     superTiebreakGames: 'one' | 'score';
+    /**
+     * Ignorar los partidos en curso, con sets capturados pero sin ganador.
+     *
+     * Por defecto NO se ignoran: sus sets y games entran en la tabla en cuanto
+     * el juez los teclea, que es el punto de la captura set a set. Lo que no
+     * entra son los PUNTOS ni los PJ — ver `computeStats`.
+     *
+     * `computeClinch` lo pone en true, y esa decisión tiene motivo propio: ver
+     * la cabecera de ../clinch/index.ts.
+     */
+    soloTerminados?: boolean;
 }
 /**
  * LA CADENA DE DESEMPATE, EN UN SOLO SITIO.

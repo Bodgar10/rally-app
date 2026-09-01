@@ -258,7 +258,27 @@ function cambiaConElPartido(arr: boolean[], bit: number, k: number): boolean {
 export function computeClinch(input: ClinchInput): ClinchResult[] {
   const advancePerGroup = exigirEntero(input?.advancePerGroup, 'advancePerGroup', 1);
   const bestExtraQualifiers = exigirEntero(input?.bestExtraQualifiers, 'bestExtraQualifiers', 0);
-  const cfg = input.config ?? DEFAULT_STANDINGS_CONFIG;
+  /**
+   * EL CLINCH IGNORA LOS PARTIDOS EN CURSO. `soloTerminados: true`, siempre.
+   *
+   * LA TABLA SÍ los cuenta —sus sets y games se mueven en vivo— pero el clinch
+   * no puede, porque su promesa es distinta: 'clinched' significa "clasifica
+   * pase lo que pase", y una pareja a la que se le dice "ya pasaste" y media
+   * hora después se le quita es el peor fallo posible de esta pantalla.
+   *
+   * Con un partido a medias, decidir eso bien exige enumerar TODAS las formas
+   * en que ese partido puede terminar. No son dos: un set 1 en 6-0 deja
+   * abiertos todos los marcadores del segundo y del tercero, y el saldo de
+   * games —que es lo que desempata— puede caer en cualquier punto de un rango
+   * amplio. Ese espacio no es enumerable como los 2^k escenarios de "gana A o
+   * gana B", y aproximarlo por el escenario sintético de 6-0 6-0 que usa
+   * `applyScenario` haría que el clinch SE RETRACTARA en cuanto el marcador
+   * real no fuera ese.
+   *
+   * Así que el clinch mira solo lo cerrado y espera al final del partido. Es
+   * lento a propósito: tarda más en decir "ya pasaste", y nunca se desdice.
+   */
+  const cfg = { ...(input.config ?? DEFAULT_STANDINGS_CONFIG), soloTerminados: true };
   const groups = input.groups ?? [];
   if (groups.length === 0) return [];
 

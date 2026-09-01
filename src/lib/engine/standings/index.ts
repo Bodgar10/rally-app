@@ -13,6 +13,17 @@ export interface StandingsConfig {
   pointsPlayedLoss: number;
   /** Cómo cuentan los games del super muerte para el desempate. */
   superTiebreakGames: 'one' | 'score';
+  /**
+   * Ignorar los partidos en curso, con sets capturados pero sin ganador.
+   *
+   * Por defecto NO se ignoran: sus sets y games entran en la tabla en cuanto
+   * el juez los teclea, que es el punto de la captura set a set. Lo que no
+   * entra son los PUNTOS ni los PJ — ver `computeStats`.
+   *
+   * `computeClinch` lo pone en true, y esa decisión tiene motivo propio: ver
+   * la cabecera de ../clinch/index.ts.
+   */
+  soloTerminados?: boolean;
 }
 
 /**
@@ -44,6 +55,7 @@ export const DEFAULT_STANDINGS_CONFIG: StandingsConfig = {
   pointsWin: 2,
   pointsPlayedLoss: 0,
   superTiebreakGames: 'one',
+  soloTerminados: false,
 };
 
 interface Stats {
@@ -105,13 +117,30 @@ function computeStats(
   pairIds.forEach((id) => stats.set(id, emptyStats()));
 
   for (const m of matches) {
-    if (!m.played || m.winnerPairId == null) continue;
     if (!set.has(m.pairAId) || !set.has(m.pairBId)) continue;
+
+    /**
+     * UN PARTIDO EN CURSO CUENTA SUS SETS, PERO NO SUS PUNTOS NI SU PJ.
+     *
+     *   El juez captura set a set: en cuanto termina el primero, la cancha
+     *   deja de ser una caja negra durante 75 minutos. Esos games ya se
+     *   jugaron y son los que desempatan, así que entran en la tabla.
+     *
+     *   Los PUNTOS no, porque no hay ganador todavía. Y el PJ tampoco: la
+     *   columna dice PARTIDOS JUGADOS, y un partido que sigue en la cancha no
+     *   lo está. Si contara, la tabla afirmaría "2 puntos en 2 partidos" de
+     *   alguien que va por la mitad del segundo, y se rompería la lectura que
+     *   sostiene toda la columna PTS: 2 puntos = una victoria.
+     */
+    const terminado = m.played && m.winnerPairId != null;
+    if (!terminado && (cfg.soloTerminados || m.sets.length === 0)) continue;
 
     const sa = stats.get(m.pairAId)!;
     const sb = stats.get(m.pairBId)!;
-    sa.played++;
-    sb.played++;
+    if (terminado) {
+      sa.played++;
+      sb.played++;
+    }
 
     let setsA = 0;
     let setsB = 0;
@@ -132,6 +161,8 @@ function computeStats(
     sa.gamesLost += gamesB;
     sb.gamesWon += gamesB;
     sb.gamesLost += gamesA;
+
+    if (!terminado) continue;   // sin ganador no hay ni victoria ni puntos
 
     if (m.winnerPairId === m.pairAId) {
       sa.won++;

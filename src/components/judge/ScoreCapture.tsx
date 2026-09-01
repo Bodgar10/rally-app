@@ -50,7 +50,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
-import { clasificarSet, validateScore } from '@/lib/engine/score';
+import { clasificarSet, validateParcial, validateScore } from '@/lib/engine/score';
 import type { SetScore as SetDelMotor } from '@/lib/engine/types';
 
 // ───────────────────────────────────────────
@@ -200,6 +200,8 @@ export default function ScoreCapture({
   );
   const [submitting, setSubmitting] = useState(false);
   const [errorServidor, setErrorServidor] = useState<string | null>(null);
+  /** Acuse de recibo del último set guardado. Se borra al seguir tecleando. */
+  const [guardado, setGuardado] = useState<string | null>(null);
 
   /**
    * EL VEREDICTO, recalculado en cada tecla.
@@ -214,6 +216,21 @@ export default function ScoreCapture({
     return validateScore(completos);
   }, [sets]);
 
+  /**
+   * EL VEREDICTO DE LO CAPTURADO HASTA AHORA.
+   *
+   * Misma validación set a set, sin exigir que el partido esté decidido. Es lo
+   * que permite guardar el primer set en cuanto termina, que es de lo que va
+   * todo esto: sin captura incremental, durante 75 minutos nadie sabe nada de
+   * esa cancha — ni el que espera para entrar, ni el que ya jugó y quiere
+   * saber si clasificó.
+   */
+  const parcial = useMemo(() => {
+    const completos = aMotor(sets);
+    if (completos.length === 0) return null;
+    return validateParcial(completos);
+  }, [sets]);
+
   const ganadorId = veredicto?.winnerSide
     ? (veredicto.winnerSide === 'A' ? pairAId : pairBId)
     : null;
@@ -221,7 +238,17 @@ export default function ScoreCapture({
     ? (veredicto.winnerSide === 'A' ? pairAName : pairBName)
     : null;
 
-  const listo = !!ganadorId && !submitting;
+  /** ¿El marcador ya cierra el partido? */
+  const cierra = !!ganadorId;
+  /**
+   * SE PUEDE GUARDAR con lo que haya, mientras lo que haya sea legal.
+   *
+   * DOS TOQUES, y es una restricción de diseño, no un adorno: el juez teclea
+   * los dos números del set que acaba de terminar y pulsa una vez. Si costara
+   * un modal, una confirmación o una pantalla más, no lo haría entre punto y
+   * punto y no habría nada de esto.
+   */
+  const listo = !submitting && (parcial?.valid ?? false) && (parcial?.setsA ?? 0) + (parcial?.setsB ?? 0) > 0;
 
   /**
    * El error de un SET concreto, para ponerlo en su fila.
@@ -265,6 +292,7 @@ export default function ScoreCapture({
       return next;
     });
     setErrorServidor(null);
+    setGuardado(null);
   }
 
   function addSet() {
@@ -280,9 +308,9 @@ export default function ScoreCapture({
   // ───────────────────────────────────────────
 
   async function handleSubmit() {
-    // El botón está apagado sin ganador, así que esto es la red por si el
-    // marcador cambia entre el toque y el envío.
-    if (!ganadorId) return;
+    // El botón está apagado si lo capturado no es legal; esto es la red por si
+    // el marcador cambia entre el toque y el envío.
+    if (!listo) return;
 
     setErrorServidor(null);
     setSubmitting(true);
@@ -303,6 +331,9 @@ export default function ScoreCapture({
             match_id: matchId,
             winner_pair_id: ganadorId,
             sets: payloadDeSets(sets),
+            // El servidor decide igual: si el marcador ya cierra, cierra. Esto
+            // solo le dice que un marcador a medias no es un error.
+            parcial: !cierra,
           }),
         }
       );
@@ -316,7 +347,12 @@ export default function ScoreCapture({
         return;
       }
 
-      onSuccess();
+      // Con el partido cerrado se sale, como siempre. Con un set suelto la
+      // hoja SE QUEDA ABIERTA: el juez va a anotar el siguiente en un rato y
+      // hacerle volver a buscar el partido es el toque de más que mata la
+      // función.
+      if (cierra) onSuccess();
+      else setGuardado(`Set ${(parcial?.setsA ?? 0) + (parcial?.setsB ?? 0)} guardado. El partido sigue en juego.`);
     } catch (e) {
       console.error('[ScoreCapture] submit error:', e);
       setErrorServidor('Error de conexión. Intenta de nuevo.');
@@ -439,6 +475,12 @@ export default function ScoreCapture({
         </View>
       )}
 
+      {guardado && !errorServidor && (
+        <View style={estilos.guardadoCaja} accessibilityLiveRegion="polite">
+          <Text style={estilos.guardadoTexto}>✓ {guardado}</Text>
+        </View>
+      )}
+
       {/* Confirmar */}
       <Pressable
         onPress={handleSubmit}
@@ -449,14 +491,16 @@ export default function ScoreCapture({
           pressed && listo && { opacity: 0.85 },
         ]}
         accessibilityRole="button"
-        accessibilityLabel={corrigiendo ? 'Guardar corrección' : 'Confirmar resultado'}
+        accessibilityLabel={cierra ? 'Guardar el resultado y cerrar el partido' : 'Guardar el set capturado'}
         accessibilityState={{ disabled: !listo }}
       >
         {submitting ? (
           <ActivityIndicator color={color.onGold} />
         ) : (
           <Text style={[estilos.botonPrincipalTexto, !listo && estilos.botonPrincipalTextoOff]}>
-            {corrigiendo ? 'Guardar corrección' : 'Confirmar resultado'}
+            {cierra
+              ? (corrigiendo ? 'Guardar corrección' : 'Guardar y cerrar el partido')
+              : 'Guardar set · el partido sigue'}
           </Text>
         )}
       </Pressable>
@@ -621,6 +665,17 @@ const estilos = {
     borderColor: 'rgba(224,114,111,0.35)',
   },
   errorTexto: { fontFamily: font.body as string, fontSize: 14, lineHeight: 20, color: color.danger },
+
+  // Acuse de recibo del set guardado. Verde de "positivo" (Doc D §2.2): el
+  // juez tiene que ver que su toque llegó sin quedarse mirando la pantalla.
+  guardadoCaja: {
+    backgroundColor: 'rgba(66,214,164,0.10)',
+    borderRadius: radius.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(66,214,164,0.35)',
+  },
+  guardadoTexto: { fontFamily: font.body as string, fontSize: 14, lineHeight: 20, color: color.live },
 
   botonPrincipal: {
     backgroundColor: color.gold,

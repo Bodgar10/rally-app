@@ -217,7 +217,7 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
   const errors = [];
   const setsToWin = Math.ceil(config.bestOf / 2);
   if (!sets || sets.length === 0) {
-    return { valid: false, errors: ["Sin sets capturados."], winnerSide: null, setsA: 0, setsB: 0 };
+    return { valid: false, errors: ["Sin sets capturados."], winnerSide: null, setsA: 0, setsB: 0, completo: false };
   }
   if (sets.length > config.bestOf) {
     errors.push(`Demasiados sets: ${sets.length} > mejor de ${config.bestOf}.`);
@@ -251,14 +251,15 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
   }
   const valid = errors.length === 0;
   const winnerSide = valid ? setsA > setsB ? "A" : "B" : null;
-  return { valid, errors, winnerSide, setsA, setsB };
+  return { valid, errors, winnerSide, setsA, setsB, completo: decided };
 }
 
 // src/lib/engine/standings/index.ts
 var DEFAULT_STANDINGS_CONFIG = {
   pointsWin: 2,
   pointsPlayedLoss: 0,
-  superTiebreakGames: "one"
+  superTiebreakGames: "one",
+  soloTerminados: false
 };
 var emptyStats = () => ({
   played: 0,
@@ -291,12 +292,15 @@ function computeStats(pairIds, matches, cfg) {
   const stats = /* @__PURE__ */ new Map();
   pairIds.forEach((id) => stats.set(id, emptyStats()));
   for (const m of matches) {
-    if (!m.played || m.winnerPairId == null) continue;
     if (!set.has(m.pairAId) || !set.has(m.pairBId)) continue;
+    const terminado = m.played && m.winnerPairId != null;
+    if (!terminado && (cfg.soloTerminados || m.sets.length === 0)) continue;
     const sa = stats.get(m.pairAId);
     const sb = stats.get(m.pairBId);
-    sa.played++;
-    sb.played++;
+    if (terminado) {
+      sa.played++;
+      sb.played++;
+    }
     let setsA = 0;
     let setsB = 0;
     let gamesA = 0;
@@ -316,6 +320,7 @@ function computeStats(pairIds, matches, cfg) {
     sa.gamesLost += gamesB;
     sb.gamesWon += gamesB;
     sb.gamesLost += gamesA;
+    if (!terminado) continue;
     if (m.winnerPairId === m.pairAId) {
       sa.won++;
       sb.lost++;
@@ -526,7 +531,7 @@ function cambiaConElPartido(arr, bit, k) {
 function computeClinch(input) {
   const advancePerGroup = exigirEntero(input?.advancePerGroup, "advancePerGroup", 1);
   const bestExtraQualifiers = exigirEntero(input?.bestExtraQualifiers, "bestExtraQualifiers", 0);
-  const cfg = input.config ?? DEFAULT_STANDINGS_CONFIG;
+  const cfg = { ...input.config ?? DEFAULT_STANDINGS_CONFIG, soloTerminados: true };
   const groups = input.groups ?? [];
   if (groups.length === 0) return [];
   const puestoRepesca = advancePerGroup + 1;
