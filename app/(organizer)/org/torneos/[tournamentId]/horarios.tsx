@@ -423,13 +423,32 @@ const s = StyleSheet.create({
   checkMarcado:  { backgroundColor: color.gold },
   checkPalomita: { fontSize: 12, color: color.onGold, fontWeight: '700' },
 
-  horas: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  horas: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  /**
+   * `minWidth: 0` NO ES DECORATIVO: es lo que hace que la fila quepa en un iPhone.
+   *
+   * En el navegador, un hijo de una fila flex arranca con `min-width: auto`, y
+   * para un `<input>` eso no es cero: es su ancho intrínseco (el `size` por
+   * defecto, ~170px). Los dos campos se negaban a bajar de ahí, sumaban más que
+   * la tarjeta y el de la derecha se salía por el borde — «14:00 a 23» con el
+   * 23 cortado. En React Native nativo no pasa porque no existe esa regla, así
+   * que el fallo solo se veía en Safari del móvil.
+   *
+   * Con `minWidth: 0` el `flex: 1` puede por fin repartir a partes iguales lo
+   * que sobra, y el padding baja a space[2] para que las dos horas completas
+   * quepan holgadas en 390px. Un solo layout: en nativo esta clave es inerte.
+   */
   hora: {
-    flex: 1, backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft,
-    borderRadius: radius.sm, minHeight: touchTarget, paddingHorizontal: space[3],
+    flex: 1, minWidth: 0,
+    backgroundColor: color.surface2, borderWidth: 1, borderColor: color.lineSoft,
+    borderRadius: radius.sm, minHeight: touchTarget, paddingHorizontal: space[2],
     fontFamily: font.body, fontSize: inputFontSize(fontSize.body), color: color.text, textAlign: 'center',
   },
-  guion: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  /** La «a» tiene su propio ancho y no encoge: no compite con los campos. */
+  guion: {
+    width: 14, flexShrink: 0, textAlign: 'center',
+    fontFamily: font.body, fontSize: fontSize.caption, color: color.muted,
+  },
   horasEco: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: -space[1] },
 
   campo:         { gap: space[1], marginTop: space[2] },

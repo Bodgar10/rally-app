@@ -3,11 +3,28 @@ import { mensajeDeCaptura, vaLaPenaReintentar } from '../captura-errores';
 describe('mensajeDeCaptura', () => {
   it('traduce la clave y conserva el detalle del engine', () => {
     const m = mensajeDeCaptura({
-      error: 'invalid_score',
-      detail: 'Set 2 con marcador de games inválido (6-6).',
+      error: 'group_busy',
+      detail: 'El grupo A de Mixta B está bloqueado.',
     });
-    expect(m).toContain('El marcador no es válido');
-    expect(m).toContain('6-6');
+    expect(m).toContain('Otro juez está capturando');
+    expect(m).toContain('Mixta B');
+  });
+
+  // El detalle del engine nombra el set, el marcador y qué habría que escribir
+  // en su lugar. "El marcador no es válido." delante no añade nada y es lo
+  // primero que se lee, así que para `invalid_score` el detalle va SOLO.
+  it('un marcador inválido dice qué marcador SÍ vale, sin preámbulo genérico', () => {
+    const m = mensajeDeCaptura({
+      error: 'invalid_score',
+      detail: 'Set 2: 6-5 no es un marcador válido. Puede ser un set normal (6-4, 7-5, 7-6).',
+    });
+    expect(m).toBe('Set 2: 6-5 no es un marcador válido. Puede ser un set normal (6-4, 7-5, 7-6).');
+    expect(m).not.toContain('El marcador no es válido.');
+  });
+
+  // Sin detalle no hay nada mejor que decir: la traducción sigue siendo la red.
+  it('sin detalle, invalid_score sigue diciendo algo legible', () => {
+    expect(mensajeDeCaptura({ error: 'invalid_score' })).toBe('El marcador no es válido.');
   });
 
   it('nunca devuelve la clave cruda de un error conocido', () => {

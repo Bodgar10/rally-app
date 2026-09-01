@@ -334,12 +334,15 @@ export default function ScoreCapture({
       {/* Cabecera: quién juega. Los nombres van ARRIBA y una sola vez, en el
           mismo orden que las columnas de abajo. Antes se repetían debajo de
           cada casilla de cada set, recortados al primer jugador. */}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
-        <View style={{ width: 26 }} />
-        <Text style={estilos.nombreColumna} numberOfLines={2}>{pairAName}</Text>
-        <View style={{ width: 14 }} />
-        <Text style={estilos.nombreColumna} numberOfLines={2}>{pairBName}</Text>
-        <View style={{ width: 26 }} />
+      {/* Las medidas fijas son LAS MISMAS que las de la fila de sets (26 del
+          número, 24 del guion, gap 10) y en el mismo orden, para que cada
+          nombre caiga exactamente sobre su casilla. Antes sobraba un hueco de
+          26 al final que desplazaba las dos columnas media casilla. */}
+      <View style={estilos.fila}>
+        <View style={estilos.huecoNumero} />
+        <Text style={estilos.nombreColumna} numberOfLines={2} ellipsizeMode="tail">{pairAName}</Text>
+        <View style={estilos.huecoGuion} />
+        <Text style={estilos.nombreColumna} numberOfLines={2} ellipsizeMode="tail">{pairBName}</Text>
       </View>
 
       {/* Una fila por set */}
@@ -348,7 +351,7 @@ export default function ScoreCapture({
           const malo = errorPorSet.get(idx);
           return (
             <View key={idx} style={{ gap: 5 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={estilos.fila}>
                 <Text style={estilos.numeroSet}>{idx + 1}</Text>
 
                 <ScoreInput
@@ -496,9 +499,33 @@ function ScoreInput({
 // Estilos
 // ───────────────────────────────────────────
 
+/**
+ * POR QUÉ HAY `minWidth: 0` EN TODO LO QUE LLEVA `flex: 1`
+ *
+ * En el navegador un hijo de una fila flex nace con `min-width: auto`, que NO
+ * es cero: para un `<input>` es su ancho intrínseco (~170px por el `size` por
+ * defecto) y para un texto, el de su palabra más larga. Los dos números del set
+ * se negaban a bajar de ahí, la fila sumaba más que la hoja y la columna
+ * derecha se salía por el borde. En React Native nativo esa regla no existe,
+ * así que el corte solo aparecía en Safari del móvil — que es justo donde
+ * captura el juez.
+ *
+ * `minWidth: 0` es la clave que devuelve el reparto a partes iguales. Un solo
+ * layout para iOS, Android y web: en nativo la clave es inerte.
+ */
+const ANCHO_NUMERO = 26; // la columna del "1" / "2" de cada set
+const ANCHO_GUION = 24;  // el "–" entre las dos casillas
+const HUECO = 10;        // el gap de la fila
+
 const estilos = {
+  /** La rejilla de la hoja: mismas medidas en la cabecera y en cada set. */
+  fila: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: HUECO },
+  huecoNumero: { width: ANCHO_NUMERO, flexShrink: 0 },
+  huecoGuion: { width: ANCHO_GUION, flexShrink: 0 },
+
   nombreColumna: {
     flex: 1,
+    minWidth: 0,
     fontFamily: font.body as string,
     fontSize: 11,
     color: color.champagne,
@@ -506,7 +533,8 @@ const estilos = {
   },
 
   numeroSet: {
-    width: 26,
+    width: ANCHO_NUMERO,
+    flexShrink: 0,
     fontFamily: font.display as string,
     fontSize: 12,
     color: color.muted,
@@ -515,6 +543,7 @@ const estilos = {
 
   casilla: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: color.surface2,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -525,21 +554,29 @@ const estilos = {
     fontWeight: '600' as const,
     textAlign: 'center' as const,
     paddingVertical: 10,
+    paddingHorizontal: 4,
     minHeight: 52,
   },
   casillaMala: { borderColor: color.danger },
 
-  guion: { width: 14, textAlign: 'center' as const, color: color.muted, fontFamily: font.display as string, fontSize: 16 },
+  guion: {
+    width: ANCHO_GUION,
+    flexShrink: 0,
+    textAlign: 'center' as const,
+    color: color.muted,
+    fontFamily: font.display as string,
+    fontSize: 16,
+  },
 
   notaSet: {
-    marginLeft: 36,
+    marginLeft: ANCHO_NUMERO + HUECO,
     fontFamily: font.body as string,
     fontSize: 11,
     color: color.champagne,
   },
 
   errorSet: {
-    marginLeft: 36,
+    marginLeft: ANCHO_NUMERO + HUECO,
     fontFamily: font.body as string,
     fontSize: 11,
     color: color.danger,

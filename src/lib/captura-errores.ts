@@ -20,6 +20,11 @@ const MENSAJES: Record<string, string> = {
   match_not_found:          'Ese partido ya no existe. Actualiza la lista.',
   group_missing:            'Este partido de grupos no tiene grupo asignado. Avisa al organizador.',
   not_a_knockout_match:     'Ese partido no es de eliminatorias.',
+  // Se queda como RED, no como respuesta: cuando la Edge Function manda su
+  // `detail` (el error del engine, que dice qué set está mal y qué marcador sí
+  // valdría), ese detalle SUSTITUYE a esta frase — ver `mensajeDeCaptura`.
+  // Anteponerla producía «El marcador no es válido. Set 2: 6-5 no es un
+  // marcador válido…»: la primera mitad no añade nada y retrasa la útil.
   invalid_score:            'El marcador no es válido.',
   winner_mismatch:          'El ganador que marcaste no coincide con el marcador.',
   group_busy:               'Otro juez está capturando en este grupo. Espera unos segundos y reintenta.',
@@ -50,10 +55,25 @@ const MENSAJES: Record<string, string> = {
 const GENERICO = 'No se pudo guardar el resultado.';
 
 /**
+ * Claves cuya traducción es un RESUMEN de lo que el `detail` ya dice mejor.
+ *
+ * El engine no devuelve "marcador inválido" a secas: devuelve «Set 2: 6-5 no
+ * es un marcador válido. Puede ser un set normal (6-4, 7-5, 7-6)», que nombra
+ * el set, el marcador y qué habría que escribir en su lugar. Anteponerle "El
+ * marcador no es válido." solo pone una frase genérica delante de la única que
+ * sirve, y en la caja de error del juez la genérica es la que se lee primero.
+ *
+ * Para el resto de claves la traducción SÍ aporta —el detalle de `group_busy`
+ * o `not_authorized` es técnico— y se conserva delante.
+ */
+const RESUMIDAS_POR_EL_DETALLE = new Set(['invalid_score']);
+
+/**
  * Frase para el juez a partir de la respuesta de la Edge Function.
  *
  * `detail` se añade cuando aporta algo que la traducción no dice ya: los
- * errores del engine son la mitad útil del mensaje.
+ * errores del engine son la mitad útil del mensaje. Cuando es la mitad ENTERA
+ * (ver `RESUMIDAS_POR_EL_DETALLE`), va solo.
  */
 export function mensajeDeCaptura(cuerpo: unknown): string {
   if (!cuerpo || typeof cuerpo !== 'object') return GENERICO;
@@ -63,6 +83,7 @@ export function mensajeDeCaptura(cuerpo: unknown): string {
   const detalle = typeof c.detail === 'string' ? c.detail.trim() : '';
   const base = MENSAJES[clave] ?? (typeof c.message === 'string' ? c.message : '') ?? '';
 
+  if (detalle && RESUMIDAS_POR_EL_DETALLE.has(clave)) return detalle;
   if (base && detalle) return `${base} ${detalle}`;
   if (base) return base;
   if (detalle) return detalle;

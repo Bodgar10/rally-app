@@ -115,7 +115,7 @@ export default function Hoja({
   // solo hace algo en iOS nativo, y en web dejaba el modal a pantalla completa
   // sin bordes ni forma de ver qué había debajo.
   //
-  // `maxHeight: '92%'` y no `flex: 1`: deja ver un dedo de la pantalla de atrás
+  // `maxHeight: '85%'` y no `flex: 1`: deja ver un dedo de la pantalla de atrás
   // —que es lo que dice "esto es una hoja, se cierra"— y, sobre todo, obliga al
   // ScrollView interior a hacerse cargo del desbordamiento en vez de estirar la
   // hoja fuera de la ventana. Ese estiramiento era el motivo de que en móvil el
@@ -152,7 +152,7 @@ const s = StyleSheet.create({
   /** El hueco de arriba también cierra: es el gesto que ya espera cualquiera. */
   zonaCierre: { flex: 1, minHeight: space[6] },
   hojaAbajo: {
-    maxHeight: '92%',
+    maxHeight: '85%',
     backgroundColor: color.bg,
     borderTopWidth: 1,
     borderTopColor: color.line,

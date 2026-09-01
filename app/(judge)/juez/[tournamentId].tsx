@@ -268,18 +268,29 @@ export default function JudgeTournamentScreen() {
         >
           <Text style={{ color: color.gold, fontFamily: font.body, fontSize: 15 }}>← Volver</Text>
         </Pressable>
+        {/* `minWidth: 0`: en el navegador un hijo flex no baja de su ancho
+            intrínseco salvo que se le diga, y sin esto el título empujaba la
+            fila más allá del borde en vez de recortarse. */}
         <Text
-          style={{ fontFamily: font.display, fontSize: 18, fontWeight: '600', color: color.text, flex: 1 }}
+          style={{ fontFamily: font.display, fontSize: 18, fontWeight: '600', color: color.text, flex: 1, minWidth: 0 }}
           numberOfLines={1}
         >
           Partidos
         </Text>
-        {!loading && !loadError && (
+      </View>
+
+      {/* EL CONTADOR, EN SU PROPIA LÍNEA.
+          Iba al final de la fila del título, pegado al borde derecho, y en un
+          iPhone de 390px se comía sus propias letras: «159 por captur…». No es
+          un dato de la cabecera, es el resumen de la lista — así que va debajo
+          del título y alineado a la izquierda, donde se lee entero. */}
+      {!loading && !loadError && (
+        <View style={{ paddingHorizontal: 18, paddingBottom: 10, ...webContentColumn }}>
           <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>
             {pendientes} por capturar
           </Text>
-        )}
-      </View>
+        </View>
+      )}
 
       {loading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -309,8 +320,13 @@ export default function JudgeTournamentScreen() {
         </View>
       ) : (
         <>
-          {/* Filtros */}
+          {/* FILTROS
+              Eran tres filas de píldoras seguidas, sin nada que dijera qué
+              filtraba cada una: «Pendientes / Todas / Grupo A» se leía como una
+              sola lista revuelta. Cada fila lleva ahora su rótulo, del mismo
+              tipo que el FASE DE GRUPOS del resto de la app. */}
           <View style={{ paddingHorizontal: 18, gap: 8, ...webContentColumn }}>
+            <Rotulo texto="Estado" />
             <View style={{ flexDirection: 'row', gap: 6 }}>
               {([
                 ['pendientes', 'Pendientes'],
@@ -327,21 +343,35 @@ export default function JudgeTournamentScreen() {
             </View>
 
             {categorias.length > 1 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
-                <Chip texto="Todas" activo={catId === TODAS} onPress={() => elegirCategoria(TODAS)} />
-                {categorias.map((c) => (
-                  <Chip key={c.id} texto={c.nombre} activo={catId === c.id} onPress={() => elegirCategoria(c.id)} />
-                ))}
-              </ScrollView>
+              <>
+                <Rotulo texto="Categoría" />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
+                  <Chip texto="Todas" activo={catId === TODAS} onPress={() => elegirCategoria(TODAS)} />
+                  {categorias.map((c) => (
+                    <Chip key={c.id} texto={c.nombre} activo={catId === c.id} onPress={() => elegirCategoria(c.id)} />
+                  ))}
+                </ScrollView>
+              </>
             )}
 
-            {grupos.length > 1 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
-                <Chip texto="Todos los grupos" activo={grupoId === TODAS} onPress={() => setGrupoId(TODAS)} />
-                {grupos.map((g) => (
-                  <Chip key={g.id} texto={`Grupo ${g.nombre}`} activo={grupoId === g.id} onPress={() => setGrupoId(g.id)} />
-                ))}
-              </ScrollView>
+            {/* LA FILA DE GRUPO SOLO EXISTE DENTRO DE UNA CATEGORÍA.
+                Los grupos se llaman A, B, C DENTRO de su categoría, así que con
+                «Todas» puesto la fila listaba el grupo A de cada una y salía
+                «Grupo A · Grupo A · Grupo A»: tres píldoras distintas con el
+                mismo nombre y ninguna forma de saber cuál era cuál. No es un
+                problema de etiqueta —sería igual de malo poner «Grupo A (Mixta
+                B)»— sino de que la pregunta «¿qué grupo?» no significa nada sin
+                categoría. Se oculta la fila entera, rótulo incluido. */}
+            {catId !== TODAS && grupos.length > 1 && (
+              <>
+                <Rotulo texto="Grupo" />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
+                  <Chip texto="Todos los grupos" activo={grupoId === TODAS} onPress={() => setGrupoId(TODAS)} />
+                  {grupos.map((g) => (
+                    <Chip key={g.id} texto={`Grupo ${g.nombre}`} activo={grupoId === g.id} onPress={() => setGrupoId(g.id)} />
+                  ))}
+                </ScrollView>
+              </>
             )}
           </View>
 
@@ -406,7 +436,10 @@ export default function JudgeTournamentScreen() {
 
                     {/* Hora / marcador + acción */}
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, flex: 1 }} numberOfLines={1}>
+                      {/* `minWidth: 0`: sin él, en web esta línea no baja de su
+                          ancho intrínseco y empuja el «Capturar resultado →»
+                          fuera de la tarjeta en vez de recortarse. */}
+                      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, flex: 1, minWidth: 0 }} numberOfLines={1}>
                         {item.marcador
                           ? item.marcador
                           : item.scheduledAt
@@ -468,6 +501,33 @@ export default function JudgeTournamentScreen() {
         </Hoja>
       )}
     </SafeAreaView>
+  );
+}
+
+// ───────────────────────────────────────────
+// Rótulo de fila de filtro
+// ───────────────────────────────────────────
+
+/**
+ * El título de una fila de filtros: versalitas pequeñas y grises.
+ *
+ * Mismas medidas que el «FASE DE GRUPOS» de bloques/grupos/cerrar-inscripciones
+ * (Oswald 12, tracking 1.8, `color.muted`), para que se lea como el mismo
+ * elemento de la misma app y no como una etiqueta inventada aquí.
+ */
+function Rotulo({ texto }: { texto: string }) {
+  return (
+    <Text
+      style={{
+        fontFamily: font.display,
+        fontSize: 12,
+        color: color.muted,
+        letterSpacing: 1.8,
+        textTransform: 'uppercase',
+      }}
+    >
+      {texto}
+    </Text>
   );
 }
 
