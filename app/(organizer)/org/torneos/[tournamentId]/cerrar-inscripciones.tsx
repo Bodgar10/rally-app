@@ -48,6 +48,9 @@ import {
   type Capacidad, type PlanTorneo, type Fase as FaseCapacidad,
 } from '@/lib/engine/planner';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
+import {
+  NOMBRE_RONDA, pow2AlMenos, rondaDeCuadro, explicarCuadro, estaEnElPiso,
+} from '@/lib/cuadro-tamano';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import CuadroPreview from '@/components/tournament/CuadroPreview';
@@ -105,10 +108,7 @@ interface Categoria {
 
 // ── Presentación del plan ───────────────────────────────────────────────────
 
-const RONDA: Record<string, string> = {
-  final: 'final directa', semi: 'semifinales', quarter: 'cuartos de final',
-  r16: 'octavos', r32: 'ronda de 32',
-};
+const RONDA = NOMBRE_RONDA;
 
 /** Agrupa tamaños repetidos: [4,4,3,3] -> "2 grupos de 4 y 2 de 3". */
 function describirGrupos(tam: number[]): string {
@@ -227,21 +227,9 @@ function fraseSegundos(x: { n: number; grupos: number; ratio: number }): string 
   return 'Solo avanzan los primeros. Quien pierda su primer partido queda eliminado en la práctica.';
 }
 
-/** Ronda en la que arranca un cuadro de ese tamaño. */
-function knockoutStartFor(bracketSize: number): string {
-  if (bracketSize <= 2) return 'final';
-  if (bracketSize <= 4) return 'semi';
-  if (bracketSize <= 8) return 'quarter';
-  if (bracketSize <= 16) return 'r16';
-  return 'r32';
-}
-
-/** La menor potencia de 2 que contiene a n. */
-function pow2AlMenos(n: number): number {
-  let p = 1;
-  while (p < n) p *= 2;
-  return Math.max(p, 2);
-}
+// `rondaDeCuadro` y `pow2AlMenos` vivían aquí como copias locales. Ahora salen
+// de `@/lib/cuadro-tamano`, que es de donde tira también la pantalla de Grupos:
+// las dos enseñan el mismo número y no pueden desincronizarse.
 
 /**
  * Todo lo que se deriva de una sola perilla: cuántos segundos avanzan.
@@ -394,7 +382,7 @@ function BloquesDelPlan({
 
   const grupos = plan.groupSizes.length;
   const d      = derivar(grupos, repescados);
-  const ronda  = RONDA[knockoutStartFor(d.bracketSize)] ?? '';
+  const ronda  = RONDA[rondaDeCuadro(d.bracketSize)] ?? '';
   const seg    = { n: repescados, grupos, ratio: d.ratio };
 
   // El salto de ronda es lo más contraintuitivo del sistema: repescar UNA más
@@ -402,6 +390,24 @@ function BloquesDelPlan({
   // potencia de 2. Se avisa ANTES de pulsar.
   const siguiente = repescados < grupos ? derivar(grupos, repescados + 1) : null;
   const salta     = siguiente && siguiente.bracketSize > d.bracketSize;
+
+  /**
+   * EL PISO, que es lo que el stepper NO puede bajar.
+   *
+   * Bajar la perilla a cero no siempre da el cuadro más chico que uno espera:
+   * de cada grupo pasa su primero, así que con 10 grupos hay 10 clasificados
+   * como mínimo y 10 no caben en 8 — el cuadro se queda en octavos por más que
+   * se baje. Sin decirlo, la perilla parece rota en el mínimo.
+   *
+   * `derivar` ya convierte la repesca al modelo del motor (`repescados >=
+   * grupos` pasa a 2 por grupo), así que la cuenta se hace con lo mismo que se
+   * va a guardar: `d.clasificados` dividido entre los grupos da el "por grupo"
+   * efectivo.
+   */
+  const porGrupoEfectivo = repescados >= grupos ? 2 : 1;
+  const extraEfectivo    = repescados >= grupos ? 0 : repescados;
+  const explicacion      = explicarCuadro(grupos, porGrupoEfectivo, extraEfectivo);
+  const enElPiso         = estaEnElPiso(grupos, porGrupoEfectivo, extraEfectivo);
 
   // El ratio se pinta, no solo se dice: el color lo hace legible de un vistazo
   // sin tener que leer la frase.
@@ -476,8 +482,20 @@ function BloquesDelPlan({
           {salta && (
             <Text style={s.aviso}>
               Con {repescados + 1}, el cuadro salta a{' '}
-              {(RONDA[knockoutStartFor(siguiente!.bracketSize)] ?? '').toLowerCase()} y{' '}
+              {(RONDA[rondaDeCuadro(siguiente!.bracketSize)] ?? '').toLowerCase()} y{' '}
               {siguiente!.byes} parejas pasan directo.
+            </Text>
+          )}
+
+          {/* DE DÓNDE SALE EL TAMAÑO, Y HASTA DÓNDE BAJA.
+              Arriba ya se dice la ronda y los clasificados; lo que faltaba es
+              la cuenta que los produce y, sobre todo, el piso: con 10 grupos el
+              cuadro no baja de octavos aunque el stepper llegue a cero. En el
+              mínimo la perilla deja de mover la ronda, y sin explicación eso se
+              lee como que la pantalla no responde. */}
+          {explicacion && (
+            <Text style={[s.bloqueNota, enElPiso && { color: color.champagne }]}>
+              {explicacion}
             </Text>
           )}
 

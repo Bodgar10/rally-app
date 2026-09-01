@@ -43,6 +43,7 @@ import {
   avisoDeEmpateSinResolver, explicacionDeDesempates, parejasSinResolver,
 } from '@/lib/desempate-texto';
 import { horaDeTorneo } from '@/lib/fechas';
+import { explicarCuadro } from '@/lib/cuadro-tamano';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 
@@ -399,6 +400,19 @@ export default function GruposScreen() {
   const activa = useMemo(() => cats.find((c) => c.id === tab) ?? null, [cats, tab]);
 
   /**
+   * La explicación del tamaño del cuadro de la categoría abierta.
+   *
+   * Se recalcula con la categoría, no con la pestaña de grupo: cada categoría
+   * tiene los suyos, y la 3.ª Varonil es la única que llega a 32.
+   */
+  const explicacionCuadro = useMemo(
+    () => (activa
+      ? explicarCuadro(activa.grupos.length, activa.pasanPorGrupo, activa.repescados)
+      : null),
+    [activa],
+  );
+
+  /**
    * El grupo elegido, saneado contra la categoría activa.
    *
    * Se calcula en vez de guardarse "corregido" en un efecto: cambiar de
@@ -465,6 +479,21 @@ export default function GruposScreen() {
                     {activa.grupos.length === 1 ? 'grupo' : 'grupos'} ·{' '}
                     {clasificados(activa)} clasifican
                   </Text>
+
+                  {/* DE DÓNDE SALE EL TAMAÑO DEL CUADRO.
+                      La 3.ª Varonil abre en ronda de 32 —que en padel no se
+                      ve— y la pantalla no decía por qué: son 10 grupos × 2, o
+                      sea 20 clasificados, y 20 no caben en 16. El número no se
+                      elige aquí, pero es aquí donde se descubre, así que aquí
+                      tiene que estar la cuenta.
+
+                      Y sobre todo el PISO: quitar repescados no lo arregla,
+                      porque los 10 primeros de grupo siguen sin caber en 8.
+                      Sin decirlo, el organizador mueve las perillas de la otra
+                      pantalla esperando un cuadro que no puede existir. */}
+                  {explicacionCuadro && (
+                    <Text style={s.cuadroExplicacion}>{explicacionCuadro}</Text>
+                  )}
                   {/* Una sola vez, no en cada partido. Y solo mientras sea
                       verdad: en cuanto haya horas, sobra. */}
                   {!activa.conHorario && (
@@ -729,6 +758,9 @@ const s = StyleSheet.create({
 
   resumen:        { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4], gap: space[1] },
   resumenLinea:   { fontFamily: font.display, fontSize: fontSize.body, color: color.text },
+  /* La cuenta del cuadro: es contexto, no una alarma, así que va en el gris de
+     las notas y no en el ámbar de los avisos. */
+  cuadroExplicacion: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
   resumenDetalle: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
   sinHorario:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 18, marginTop: space[1] },
   progreso:       { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne, marginTop: space[2] },
