@@ -51,6 +51,41 @@ const aHHMM = (t: string): string => t.slice(0, 5);
 /** 'YYYY-MM-DDTHH:MM' del motor → timestamptz sin ambigüedad. */
 const aTimestamptz = (local: string): string => `${local}:00${OFFSET_MX}`;
 
+/**
+ * Los cuatro motivos del motor, mas el que solo conoce esta funcion.
+ *
+ * `escritura_fallida` no sale del motor: es el partido que el motor SI coloco
+ * pero cuyo UPDATE no llego a la base. Se nombra igual que los otros porque
+ * para el organizador es el mismo problema — su grupo no tiene hora.
+ */
+type MotivoSinProgramar =
+  | 'sin_bloque'
+  | 'bloque_desconocido'
+  | 'bloque_sobrevendido'
+  | 'no_cabe_en_el_bloque'
+  | 'escritura_fallida';
+
+/**
+ * QUE HACER con cada motivo, en el idioma del organizador.
+ *
+ * Un bloque sobrevendido NO es un bug: es que a esa hora hay mas grupos que
+ * canchas, y eso se arregla abriendo una cancha o hablando con una pareja. Un
+ * error tecnico ("bloque_sobrevendido") le dice al organizador que algo se
+ * rompio; esta frase le dice que tiene una decision que tomar.
+ */
+const QUE_HACER: Record<MotivoSinProgramar, string> = {
+  sin_bloque:
+    'Ninguna de sus parejas eligió horario. Asígnales un bloque en la pantalla de horarios de la fase de grupos y vuelve a programar.',
+  bloque_desconocido:
+    'Sus parejas eligieron un horario que ya no existe porque cambiaron las ventanas del torneo. Vuelve a asignarles bloque y programa otra vez.',
+  bloque_sobrevendido:
+    'A esa hora hay más grupos que canchas. Abre otra cancha en ese horario, alarga el día, o mueve este grupo a otro bloque.',
+  no_cabe_en_el_bloque:
+    'El grupo necesita más turnos seguidos de los que quedan antes de que acabe el día. Alarga esa ventana horaria o muévelo a un bloque más temprano.',
+  escritura_fallida:
+    'El horario se calculó pero no se pudo guardar. Vuelve a programar; si insiste, es un fallo de la base.',
+};
+
 interface FilaVentana { dia: string; desde: string; hasta: string }
 interface FilaGrupo { id: string; name: string; category_id: string }
 interface FilaPareja {
@@ -320,10 +355,79 @@ Deno.serve(async (req) => {
       ...s,
       categoria: nombrePorCat.get(s.categoryId) ?? s.categoryId,
       grupo: filasGrupo.find((g) => g.id === s.groupId)?.name ?? s.groupId,
+      queHacer: QUE_HACER[s.motivo as MotivoSinProgramar] ?? null,
     }));
 
+    // ─────────────────── 8. Cuadrar las cuentas ───────────────────
+    //
+    // ANTES SE RESPONDÍA `ok` POR NO HABER TRONADO.
+    //   `ok` era `fallos.length === 0`, y `fallos` solo recoge errores de
+    //   UPDATE de Postgres. Un grupo que el motor no pudo colocar sale en
+    //   `plan.sinProgramar` y NO genera ni un UPDATE: cero fallos, `ok: true`,
+    //   HTTP 200. Con 54 de 55 grupos saltados la respuesta era idéntica a la
+    //   de un torneo entero programado.
+    //
+    //   El motor hace bien en no tronar —un grupo que no cabe no puede impedir
+    //   que los otros 54 tengan hora—, pero eso convierte a esta función en la
+    //   que tiene que mirar el resultado. Y no lo miraba.
+    //
+    // SE CUENTA CONTRA LA BASE, NO CONTRA EL PLAN.
+    //   Releer es la única forma de incluir lo que el plan no sabe: un UPDATE
+    //   que falló, un partido de un grupo que ni siquiera llegó a la entrada
+    //   (sin filas en `matches`), o una fila que otro proceso dejó a medias.
+    //   Contar `plan.partidos` contra `escritos` solo comprobaría que hicimos
+    //   lo que dijimos, no que el torneo quedó programado.
+    const { data: pendientes, error: errRelectura } = await admin
+      .from('matches')
+      .select('id, group_id')
+      .eq('tournament_id', tournamentId)
+      .eq('stage', 'group')
+      .is('scheduled_at', null);
+
+    // Si la relectura falla NO se afirma que todo quedó bien: se dice que no se
+    // pudo comprobar. Un `ok: true` sin verificar es exactamente el bug que
+    // esto viene a cerrar.
+    if (errRelectura) {
+      return json({
+        ok: false,
+        verificado: false,
+        error: 'verificacion_fallida',
+        message: 'Se escribieron los horarios pero no se pudo comprobar que todos los partidos quedaran con hora. Vuelve a programar.',
+        matchesActualizados: escritos,
+        sinProgramar, empalmes, sobrevendidos: plan.sobrevendidos, avisos,
+      }, 500);
+    }
+
+    const partidosSinHora = (pendientes ?? []).length;
+
+    // Los grupos que quedaron sin hora, con el motivo del motor cuando lo hay.
+    // Un grupo puede aparecer aquí SIN estar en `sinProgramar`: es el caso de
+    // los partidos que el motor sí colocó pero cuyo UPDATE falló, y merece
+    // salir nombrado igual.
+    const motivoPorGrupo = new Map(plan.sinProgramar.map((x) => [x.groupId, x.motivo]));
+    const gruposAfectados = [...new Set((pendientes ?? []).map((m) => m.group_id).filter(Boolean))]
+      .map((gid) => {
+        const g = filasGrupo.find((x) => x.id === gid);
+        const motivo = (motivoPorGrupo.get(gid as string) ?? 'escritura_fallida') as MotivoSinProgramar | 'escritura_fallida';
+        return {
+          groupId: gid,
+          grupo: g?.name ?? gid,
+          categoria: g ? (nombrePorCat.get(g.category_id) ?? g.category_id) : null,
+          motivo,
+          queHacer: QUE_HACER[motivo] ?? null,
+        };
+      })
+      .sort((a, b) => `${a.categoria}${a.grupo}`.localeCompare(`${b.categoria}${b.grupo}`));
+
+    const ok = fallos.length === 0 && partidosSinHora === 0;
+
     return json({
-      ok: fallos.length === 0,
+      // `ok` significa AHORA "todos los partidos de grupo tienen hora", no
+      // "ningún UPDATE devolvió error".
+      ok,
+      verificado: true,
+      partidosSinHora,
+      gruposAfectados,
       matchesActualizados: escritos,
       partidosPlanificados: plan.partidos.length,
       partidosYaJugados: plan.partidos.length - porEscribir.length,
@@ -334,7 +438,7 @@ Deno.serve(async (req) => {
       ocupacionPorBloque: plan.ocupacionPorBloque,
       avisos,
       fallos: fallos.length > 0 ? fallos : undefined,
-    }, fallos.length > 0 ? 500 : 200);
+    }, ok ? 200 : 409);
   } catch (e) {
     console.error('[schedule-groups] error no controlado:', e);
     return json({ error: 'internal', message: String((e as Error).message ?? e) }, 500);

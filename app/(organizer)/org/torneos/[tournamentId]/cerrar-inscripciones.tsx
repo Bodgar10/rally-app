@@ -49,6 +49,9 @@ import {
 } from '@/lib/engine/planner';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import {
+  leerVeredicto, type EstadoHorarios,
+} from '@/lib/veredicto-horarios';
+import {
   NOMBRE_RONDA, pow2AlMenos, rondaDeCuadro, explicarCuadro, estaEnElPiso,
 } from '@/lib/cuadro-tamano';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
@@ -678,12 +681,6 @@ interface AvisoBloques {
  * ofrece reintentar, en vez de dejar al organizador con un torneo cerrado que
  * nadie sabe a qué hora se juega.
  */
-type EstadoHorarios =
-  | { t: 'no_intentado' }              // quedan categorías abiertas
-  | { t: 'ok' }
-  | { t: 'fallo'; grupos: boolean; eliminatorias: boolean }
-  | { t: 'reintentando' };
-
 type Fase =
   | { t: 'cargando' }
   | { t: 'lista' }
@@ -1032,30 +1029,58 @@ export default function CerrarInscripcionesScreen() {
     await cargar();
   }
 
+  /**
+   * LA RED DE SEGURIDAD: se cuenta contra la BASE, no contra lo que dijo nadie.
+   *
+   * Todo lo demás de esta pantalla depende de que la respuesta de los
+   * schedulers llegue y se lea bien. Esto no: pregunta a `matches` cuántos
+   * partidos de grupo siguen sin `scheduled_at`. Si el organizador acaba de
+   * cerrar y quedan partidos sin hora, se dice — aunque la Edge Function
+   * hubiera contestado que todo salió bien, aunque la respuesta se perdiera por
+   * el camino, aunque alguien reintroduzca mañana el bug que esto viene a
+   * cerrar.
+   *
+   * Devuelve null si la consulta falla: entonces no se afirma nada, que es
+   * distinto de afirmar que está todo bien.
+   */
+  async function contarPartidosSinHora(): Promise<number | null> {
+    const { count, error } = await supabase
+      .from('matches')
+      .select('id', { count: 'exact', head: true })
+      .eq('tournament_id', tournamentId)
+      .eq('stage', 'group')
+      .is('scheduled_at', null);
+    if (error) {
+      console.error('[cerrar-inscripciones] no se pudo contar los partidos sin hora:', error);
+      return null;
+    }
+    return count ?? 0;
+  }
+
   async function reportar(
     fallos: { nombre: string; motivo: string; queHacer: string | null }[],
     bloques: AvisoBloques[] = [],
     horarios: EstadoHorarios = { t: 'no_intentado' },
   ) {
-    const real = await leerEstadoReal();
+    const [real, sinHora] = await Promise.all([leerEstadoReal(), contarPartidosSinHora()]);
+
+    // El veredicto de la base MANDA sobre el de la respuesta. Si los
+    // schedulers dijeron "ok" y en `matches` quedan partidos sin hora, gana
+    // `matches`: es el estado que el jugador va a ver.
+    //
+    // Solo se corrige hacia abajo (ok → incompleto), nunca al revés: un cero
+    // partidos sin hora no convierte en éxito un scheduler que falló, porque
+    // puede que ni siquiera llegara a crear los partidos.
+    const veredicto: EstadoHorarios =
+      horarios.t === 'ok' && sinHora !== null && sinHora > 0
+        ? { t: 'incompleto', partidosSinHora: sinHora, grupos: [], categoriasSaltadas: [] }
+        : horarios;
+
     setFase(real
-      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallos, bloques, horarios }
-      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallos, bloques, horarios });
+      ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallos, bloques, horarios: veredicto }
+      : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallos, bloques, horarios: veredicto });
   }
 
-  /** La respuesta de close-registration traducida al estado de la pantalla. */
-  function leerHorarios(h: unknown): EstadoHorarios {
-    const x = h as {
-      intentado?: boolean;
-      grupos?: { ok?: boolean } | null;
-      eliminatorias?: { ok?: boolean } | null;
-    } | null | undefined;
-
-    if (!x?.intentado) return { t: 'no_intentado' };
-    const grupos = x.grupos?.ok === true;
-    const eliminatorias = x.eliminatorias?.ok === true;
-    return grupos && eliminatorias ? { t: 'ok' } : { t: 'fallo', grupos, eliminatorias };
-  }
 
   /**
    * Vuelve a correr los dos schedulers.
@@ -1072,6 +1097,9 @@ export default function CerrarInscripcionesScreen() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setFase({ ...previo, horarios: { t: 'fallo', grupos: false, eliminatorias: false } }); return; }
 
+    // Devuelve el CUERPO, no `res.ok`. Un 409 con la lista de grupos que no
+    // cupieron es más útil que un booleano, y es lo que distingue "no programó"
+    // de "programó a medias" — que se arreglan de formas distintas.
     const correr = async (fn: string) => {
       try {
         const res = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/${fn}`, {
@@ -1085,19 +1113,22 @@ export default function CerrarInscripcionesScreen() {
         });
         const cuerpo = await res.json().catch(() => null);
         if (!res.ok) console.error(`[cerrar-inscripciones] ${fn}:`, cuerpo);
-        return res.ok;
+        return { ok: res.ok, detalle: cuerpo };
       } catch (e) {
         console.error(`[cerrar-inscripciones] ${fn} no llegó:`, e);
-        return false;
+        return { ok: false, detalle: null };
       }
     };
 
     const grupos = await correr('schedule-groups');
     const eliminatorias = await correr('schedule-knockout');
 
+    // La MISMA lectura que tras el cierre: un solo sitio decide qué significa
+    // la respuesta de los schedulers, así que reintentar no puede contar una
+    // historia distinta de la que contó el cierre.
     setFase({
       ...previo,
-      horarios: grupos && eliminatorias ? { t: 'ok' } : { t: 'fallo', grupos, eliminatorias },
+      horarios: leerVeredicto({ intentado: true, grupos, eliminatorias }),
     });
   }
 
@@ -1155,7 +1186,7 @@ export default function CerrarInscripcionesScreen() {
           avisos.push({ categoria: c.nombre, mezclados, sinBloque });
         }
 
-        horarios = leerHorarios(json?.horarios);
+        horarios = leerVeredicto(json?.horarios);
       } catch (e) {
         // El error se CAPTURA y se registra. Antes este catch era desnudo y
         // fijaba "Sin conexión con el servidor", que es una conclusión, no un
@@ -1304,6 +1335,55 @@ export default function CerrarInscripcionesScreen() {
               <Text style={s.resumenLinea}>
                 Cada partido tiene ya su hora y su cancha. Los jugadores lo ven
                 desde su pantalla del torneo.
+              </Text>
+            </View>
+          )}
+
+          {/* ── PROGRAMÓ A MEDIAS ────────────────────────────────────────
+              Distinto de 'fallo' a propósito. Aquí los horarios SÍ se
+              calcularon y casi todo el torneo tiene hora: lo que falta son
+              grupos concretos, cada uno por un motivo concreto. Reintentar no
+              sirve —daría el mismo resultado—, así que no se ofrece el botón:
+              se dice qué pasa con cada grupo y qué hacer.
+
+              Un bloque sobrevendido no es un fallo del sistema: a esa hora hay
+              más grupos que canchas, y eso lo resuelve el organizador abriendo
+              una cancha o moviendo a alguien. Por eso el texto no dice "error",
+              dice qué decisión tiene delante. */}
+          {fase.horarios.t === 'incompleto' && (
+            <View style={s.resumenPendiente}>
+              <Text style={s.resumenTituloAviso}>
+                Cerrado, pero {fase.horarios.partidosSinHora}{' '}
+                {fase.horarios.partidosSinHora === 1 ? 'partido se quedó' : 'partidos se quedaron'} sin hora
+              </Text>
+              <Text style={s.resumenLinea}>
+                {fase.horarios.grupos.length > 0
+                  ? 'El resto del torneo quedó programado. Estos grupos no cupieron y necesitan que cambies algo antes de volver a programar:'
+                  : 'El resto del torneo quedó programado. Abre el calendario para ver cuáles son y darles hora a mano.'}
+              </Text>
+
+              {fase.horarios.grupos.map((g) => (
+                <View key={`${g.categoria}-${g.grupo}`} style={{ marginTop: space[2] }}>
+                  <Text style={s.resumenLinea}>
+                    · <Text style={s.resumenNegrita}>
+                      {g.categoria ? `${g.categoria} · grupo ${g.grupo}` : `Grupo ${g.grupo}`}
+                    </Text>
+                  </Text>
+                  {g.queHacer && <Text style={s.resumenNota}>{g.queHacer}</Text>}
+                </View>
+              ))}
+
+              {fase.horarios.categoriasSaltadas.length > 0 && (
+                <Text style={[s.resumenLinea, { marginTop: space[2] }]}>
+                  · <Text style={s.resumenNegrita}>Eliminatorias</Text> — sin hora en{' '}
+                  {fase.horarios.categoriasSaltadas.join(', ')}. El cuadro sembrado y el
+                  plan no tienen el mismo número de partidos: vuelve a sembrarlo.
+                </Text>
+              )}
+
+              <Text style={[s.resumenNota, { marginTop: space[2] }]}>
+                No hace falta deshacer el cierre: los grupos y los partidos están
+                bien. Cuando lo arregles, vuelve a programar desde el calendario.
               </Text>
             </View>
           )}

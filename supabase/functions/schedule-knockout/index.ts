@@ -249,6 +249,9 @@ Deno.serve(async (req) => {
     if (!plan.cabe) {
       return json({
         cabe: false,
+        ok: false,
+        categoriasSaltadas: [],
+        partidosNoEscritos: 0,
         finEstimado: plan.finEstimado,
         cotaInferior: plan.cotaInferior,
         totalPartidos: plan.totalPartidos,
@@ -257,7 +260,7 @@ Deno.serve(async (req) => {
         avisos,
         diagnostico: plan.diagnostico ?? null,
         matchesActualizados: 0,
-      });
+      }, 409);
     }
 
     // ─────────────────── 7a. Persistir el plan completo ───────────────────
@@ -349,6 +352,8 @@ Deno.serve(async (req) => {
     }
 
     let matchesActualizados = 0;
+    /** UPDATE que no llegaron a la base. Antes solo se contaban en `avisos`. */
+    let erroresDeEscritura = 0;
     for (const [k, slots] of planPorGrupo) {
       const [categoryId] = k.split('#');
       if (catsConDesajuste.has(categoryId)) continue;
@@ -365,6 +370,7 @@ Deno.serve(async (req) => {
           })
           .eq('id', filas[i].id);
         if (error) {
+          erroresDeEscritura += 1;
           avisos.push(
             `${nombreCat.get(categoryId) ?? categoryId}: no se pudo guardar la hora de un partido (${error.message}).`,
           );
@@ -374,8 +380,36 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─────────────────── 8. Cuadrar las cuentas ───────────────────
+    //
+    // `cabe: true` estaba escrito a mano y significaba "el plan cabía en la
+    // ventana". Pero entre el plan y la base hay dos filtros que pueden dejar
+    // una categoría sin una sola hora — el desajuste de conteo, que salta la
+    // categoría ENTERA, y los UPDATE que fallan uno a uno—, y los dos se
+    // contaban solo en `avisos`. Un aviso en una lista no es un veredicto: la
+    // pantalla leía `cabe` y pintaba "listo".
+    //
+    // Ahora una categoría saltada es un NO. El plan cabía; el torneo no quedó
+    // programado, que es lo que el organizador necesita saber.
+    const categoriasSaltadas = [...catsConDesajuste].map((id) => ({
+      categoryId: id,
+      categoria: nombreCat.get(id) ?? id,
+      motivo: 'desajuste_con_el_cuadro' as const,
+      queHacer:
+        'El plan y el cuadro sembrado no tienen el mismo número de partidos. ' +
+        'Suele pasar si se resembró la categoría o hubo una baja después de programar: ' +
+        'vuelve a sembrar el cuadro y programa otra vez.',
+    }));
+
+    const okKnockout = categoriasSaltadas.length === 0 && erroresDeEscritura === 0;
+
     return json({
+      // `cabe` sigue diciendo lo que decía —si el plan entraba en la ventana—,
+      // pero ya no es el veredicto: para eso está `ok`.
       cabe: true,
+      ok: okKnockout,
+      categoriasSaltadas,
+      partidosNoEscritos: erroresDeEscritura,
       finEstimado: plan.finEstimado,
       cotaInferior: plan.cotaInferior,
       totalPartidos: plan.totalPartidos,
@@ -388,7 +422,10 @@ Deno.serve(async (req) => {
       avisos,
       diagnostico: plan.diagnostico ?? null,
       matchesActualizados,
-    });
+      // 409 y no 200 cuando algo quedó sin hora: `close-registration` y la
+      // pantalla miran `res.ok`, así que el veredicto tiene que estar también
+      // en el status y no solo en el cuerpo.
+    }, okKnockout ? 200 : 409);
   } catch (e) {
     return json({ error: 'unhandled', detail: String(e) }, 500);
   }
