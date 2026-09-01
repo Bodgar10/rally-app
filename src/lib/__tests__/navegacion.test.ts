@@ -32,6 +32,18 @@ describe('rutaPadre — donde la jerarquía de archivos no es la del producto', 
   });
 });
 
+describe('rutaPadre — las dos pantallas que no tenían salida', () => {
+  // Al panel de juez se entra por el tab, que hace `replace`: no hay historial
+  // y el único destino posible es el suelo de la app.
+  it('la lista de torneos del juez sale al dashboard del jugador', () => {
+    expect(rutaPadre('/juez')).toBe(DESTINO_POR_DEFECTO);
+  });
+
+  it('el onboarding de Connect vuelve al panel del organizador', () => {
+    expect(rutaPadre('/org/onboarding-connect')).toBe('/org');
+  });
+});
+
 describe('rutaPadre — cuando no hay padre dentro de la app', () => {
   it('una pantalla de primer nivel cae al dashboard', () => {
     expect(rutaPadre('/perfil')).toBe(DESTINO_POR_DEFECTO);

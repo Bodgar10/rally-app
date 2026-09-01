@@ -481,7 +481,29 @@ export default function GruposScreen() {
 
                   {/* Siembra del cuadro. */}
                   {activa.cuadroSembrado ? (
-                    <Text style={s.siembraHecha}>✓ El cuadro de esta categoría ya está sembrado.</Text>
+                    /* EL AVISO ERA UN CALLEJÓN SIN SALIDA.
+                       Decía que el cuadro estaba sembrado y ahí se quedaba: la
+                       única forma de VERLO era salir del panel y buscar la
+                       categoría por el camino del jugador. Un estado que se
+                       anuncia y no se puede mirar es peor que no anunciarlo.
+
+                       Lleva a la pantalla pública de la categoría, que es la
+                       que pinta el cuadro (LiveBracket) — no hay una versión de
+                       organizador, y tampoco hace falta: el cuadro es público
+                       (migración 040) y el organizador ve exactamente lo mismo
+                       que el jugador que lo consulta desde la grada.
+
+                       Con `push` y no `replace`: el "Volver" de esa pantalla
+                       tiene que devolver AQUÍ, no al torneo. */
+                    <Pressable
+                      onPress={() => router.push(`/(protected)/torneos/${tournamentId}/${activa.id}`)}
+                      style={({ pressed }) => [s.siembraHechaCaja, pressed && { opacity: 0.7 }]}
+                      accessibilityRole="link"
+                      accessibilityLabel={`Ver el cuadro de ${activa.nombre}`}
+                    >
+                      <Text style={s.siembraHecha}>✓ El cuadro de esta categoría ya está sembrado.</Text>
+                      <Text style={s.siembraHechaEnlace}>Ver el cuadro →</Text>
+                    </Pressable>
                   ) : (
                     <>
                       {/* EL BOTÓN MÁS IMPORTANTE DE LA PANTALLA, Y NO SE VEÍA.
@@ -718,7 +740,11 @@ const s = StyleSheet.create({
   botonSembrarTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.onGold },
   botonSembrarTextoOff: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.goldMuted, textAlign: 'center' },
   siembraBloqueada:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
-  siembraHecha:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, lineHeight: 18, marginTop: space[2] },
+  /* El aviso y su enlace, apilados: en 390px "Ver el cuadro →" al lado del
+     texto dejaría las dos cosas en una columna de cuatro palabras. */
+  siembraHechaCaja:  { marginTop: space[2], gap: space[1], alignSelf: 'flex-start' },
+  siembraHecha:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, lineHeight: 18 },
+  siembraHechaEnlace:{ fontFamily: font.body, fontSize: fontSize.caption, color: color.gold, fontWeight: '600', lineHeight: 18 },
   aviso:             { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18, marginTop: space[2] },
   enlace:            { marginTop: space[3], paddingVertical: space[2] },
   enlaceTexto:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },

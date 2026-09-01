@@ -24,6 +24,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 import { formatearRango } from '@/lib/fechas';
 import {
   useJudgeTournaments,
@@ -72,6 +73,18 @@ export default function JudgeIndexScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
+      {/* LA SALIDA, QUE NO EXISTÍA.
+          Al panel de juez se entra por el tab, que hace `router.replace` — así
+          que aquí NO hay historial y `router.back()` habría sido un botón que
+          no hace nada. `BotonVolver` ya lo contempla: sin historial navega a
+          `rutaPadre('/juez')`, que es el dashboard del jugador.
+
+          Y el dashboard es donde vive el menú principal (tab bar en nativo,
+          WebShell en web): el grupo (judge) no lo monta a propósito —es una
+          herramienta de captura, no la app del jugador—, así que sin este
+          botón el juez se quedaba dentro sin manera de salir. */}
+      <BotonVolver texto="Modo Jugador" />
+
       {/* Header */}
       {/* Fuera del FlatList: no hereda la columna del contentContainerStyle. */}
       <View style={{ paddingHorizontal: 18, paddingTop: 20, paddingBottom: 8, ...webContentColumn }}>

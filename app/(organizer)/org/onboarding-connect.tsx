@@ -26,6 +26,7 @@ import { useRouter } from 'expo-router';
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import BotonVolver from '@/components/ui/BotonVolver';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -265,6 +266,9 @@ export default function OnboardingConnectScreen() {
   if (status === 'active') {
     return (
       <View style={{ flex: 1, backgroundColor: color.bg }}>
+        {/* Hermano del scroller, como en el resto del panel: aporta su propia
+            columna centrada y queda fijo mientras el contenido scrollea. */}
+        <BotonVolver texto="Organizar" />
         <ScrollView
           contentContainerStyle={{ padding: 18, paddingTop: 32, paddingBottom: bottomInset, ...webContentColumn }}
           showsVerticalScrollIndicator={false}
@@ -472,6 +476,7 @@ export default function OnboardingConnectScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: color.bg }}>
+      <BotonVolver texto="Organizar" />
       <ScrollView
         contentContainerStyle={{ padding: 18, paddingTop: 32, paddingBottom: bottomInset, ...webContentColumn }}
         showsVerticalScrollIndicator={false}
