@@ -13,6 +13,11 @@
  *   en los partidos que aún no existen —los del plan— no pasaba nada de nada:
  *   un toque muerto, sin explicación.
  *
+ * LA CABECERA LA PONE `Hoja`
+ *   Categoría y ronda van en su `eyebrow` y su `titulo`, no aquí. Cada hoja
+ *   con su propia cabecera a mano es como acaban siendo cinco cabeceras
+ *   distintas; aquí dentro va solo lo que la celda no cabía.
+ *
  * LOS PARTIDOS DEL PLAN SE PUEDEN VER, PERO NO MOVER
  *   Las semifinales y la final no tienen fila en `matches` hasta que la ronda
  *   anterior termina. Se ven en la parrilla porque su hora está planificada, y
@@ -46,30 +51,14 @@ interface Props {
   /** Falso en los partidos que aún no existen como fila. Ver la cabecera. */
   sePuedeMover: boolean;
   onMover: () => void;
-  onCerrar: () => void;
 }
 
-export default function DetallePartido({ partido, sePuedeMover, onMover, onCerrar }: Props) {
+export default function DetallePartido({ partido, sePuedeMover, onMover }: Props) {
   const est = ESTADO[partido.estado] ?? ESTADO.scheduled;
   const jugado = partido.estado === 'finished';
 
   return (
     <View style={s.marco}>
-      <View style={s.cabecera}>
-        <View style={s.titulos}>
-          <Text style={s.categoria}>{partido.categoria}</Text>
-          <Text style={s.etapa}>{partido.etapa}</Text>
-        </View>
-        <Pressable
-          onPress={onCerrar}
-          style={s.cerrar}
-          accessibilityRole="button"
-          accessibilityLabel="Cerrar el detalle"
-        >
-          <Text style={s.cerrarTexto}>Cerrar</Text>
-        </Pressable>
-      </View>
-
       {/* Quiénes juegan: es lo que la celda no cabía y lo que se vino a ver. */}
       <View style={s.parejas}>
         <Text style={s.pareja} numberOfLines={2}>{partido.parejaA ?? 'Por definir'}</Text>
@@ -122,12 +111,6 @@ export default function DetallePartido({ partido, sePuedeMover, onMover, onCerra
 const s = StyleSheet.create({
   marco: { gap: space[3] },
 
-  cabecera:  { flexDirection: 'row', alignItems: 'flex-start', gap: space[3] },
-  titulos:   { flex: 1 },
-  categoria: { fontFamily: font.display, fontSize: fontSize.h1Inline, color: color.text },
-  etapa:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
-  cerrar:      { minHeight: touchTarget, justifyContent: 'center' },
-  cerrarTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
 
   parejas: {
     backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft,

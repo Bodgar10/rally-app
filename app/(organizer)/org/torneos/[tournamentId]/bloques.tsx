@@ -38,7 +38,7 @@
 
 import { useCallback, useState } from 'react';
 import {
-  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable, Modal,
+  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 
@@ -50,6 +50,7 @@ import {
 } from '@/lib/bloques-formato';
 import { formatearConDia } from '@/lib/fechas';
 import SelectorDeBloque from '@/components/tournament/SelectorDeBloque';
+import Hoja from '@/components/ui/Hoja';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -433,64 +434,45 @@ export default function BloquesScreen() {
           lleno. Esa gente ya pagó y decirle que no cabe no es una respuesta;
           lo que se le debe es el aviso de la consecuencia, que lo pone el
           propio selector. */}
-      <Modal
-        visible={asignando !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAsignando(null)}
-      >
-        <View style={s.overlay}>
-          <View style={s.hoja}>
-            <View style={s.hojaCabecera}>
-              <View style={s.hojaTextos}>
-                <Text style={s.hojaTitulo}>{asignando?.categoria}</Text>
-                <Text style={s.hojaSub}>
-                  {asignando?.pairIds.length} pareja
-                  {asignando?.pairIds.length === 1 ? '' : 's'} sin hora
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setAsignando(null)}
-                style={s.hojaCerrar}
-                accessibilityRole="button"
-                accessibilityLabel="Cerrar"
-              >
-                <Text style={s.hojaCerrarTexto}>Cancelar</Text>
-              </Pressable>
+      {/* Misma hoja que el resto del proyecto: tarjeta centrada en escritorio,
+          hoja acotada en móvil. Antes era un Modal a mano que en 1280 px se
+          estiraba de borde a borde. */}
+      {asignando && (
+        <Hoja
+          visible
+          onClose={() => setAsignando(null)}
+          eyebrow={`${asignando.pairIds.length} pareja${asignando.pairIds.length === 1 ? '' : 's'} sin hora`}
+          titulo={asignando.categoria}
+        >
+          {guardando ? (
+            <View style={s.hojaCargando}>
+              <ActivityIndicator color={color.gold} />
+              <Text style={s.cajaTexto}>Guardando…</Text>
             </View>
+          ) : (
+            <View style={s.hojaCuerpo}>
+              {errorAsig && <Text style={s.hojaError}>{errorAsig}</Text>}
 
-            {guardando ? (
-              <View style={s.hojaCargando}>
-                <ActivityIndicator color={color.gold} />
-                <Text style={s.cajaTexto}>Guardando…</Text>
-              </View>
-            ) : (
-              <ScrollView contentContainerStyle={s.hojaCuerpo}>
-                {errorAsig && <Text style={s.hojaError}>{errorAsig}</Text>}
+              <Text style={s.cajaTexto}>
+                Van todas al mismo horario: son las que van a jugar entre
+                ellas, y repartirlas las dejaría sin grupo.
+              </Text>
 
-                <Text style={s.cajaTexto}>
-                  Van todas al mismo horario: son las que van a jugar entre
-                  ellas, y repartirlas las dejaría sin grupo.
-                </Text>
-
-                {asignando && (
-                  <SelectorDeBloque
-                    bloques={bloques}
-                    ocupacion={ocupacion}
-                    categoriaId={asignando.categoryId}
-                    valor={null}
-                    pregunta={`¿Qué horario les das?`}
-                    opcionesCupo={opciones}
-                    minutosPorHorario={datos?.reticula?.minutosPorBloque}
-                    permitirLlenos
-                    onCambio={(id, cupo) => { void asignarHorario(id, cupo); }}
-                  />
-                )}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+              <SelectorDeBloque
+                bloques={bloques}
+                ocupacion={ocupacion}
+                categoriaId={asignando.categoryId}
+                valor={null}
+                pregunta="¿Qué horario les das?"
+                opcionesCupo={opciones}
+                minutosPorHorario={datos?.reticula?.minutosPorBloque}
+                permitirLlenos
+                onCambio={(id, cupo) => { void asignarHorario(id, cupo); }}
+              />
+            </View>
+          )}
+        </Hoja>
+      )}
     </SafeAreaView>
   );
 }
@@ -560,19 +542,7 @@ const s = StyleSheet.create({
   btnAsignar:       { borderWidth: 1, borderColor: color.gold, borderRadius: radius.sm, paddingHorizontal: space[3], paddingVertical: space[2] },
   btnAsignarTexto:  { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.gold },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(6,6,8,0.82)', justifyContent: 'flex-end' },
-  hoja: {
-    backgroundColor: color.bg, borderTopWidth: 1, borderTopColor: color.gold,
-    borderTopLeftRadius: radius.xl2, borderTopRightRadius: radius.xl2,
-    maxHeight: '85%', paddingTop: space[4],
-  },
-  hojaCabecera: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space[4.5], gap: space[3] },
-  hojaTextos:   { flex: 1 },
-  hojaTitulo:   { fontFamily: font.display, fontSize: fontSize.h1Inline, color: color.text },
-  hojaSub:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
-  hojaCerrar:   { minHeight: touchTarget, justifyContent: 'center' },
-  hojaCerrarTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
-  hojaCuerpo:   { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3] },
+  hojaCuerpo:   { gap: space[3] },
   hojaCargando: { padding: space[6], alignItems: 'center', gap: space[3] },
   hojaError:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger },
   cajaTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },

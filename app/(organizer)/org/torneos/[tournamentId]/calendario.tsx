@@ -32,7 +32,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  ActivityIndicator, StyleSheet, SafeAreaView, Modal,
+  ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
@@ -47,6 +47,7 @@ import ParrillaDia from '@/components/organizer/ParrillaDia';
 import AvisosPlegables, { type GrupoAvisos } from '@/components/organizer/AvisosPlegables';
 import MoverPartido from '@/components/organizer/MoverPartido';
 import DetallePartido from '@/components/organizer/DetallePartido';
+import Hoja from '@/components/ui/Hoja';
 import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
 import {
   agruparPorHora, type Franja, type FilaCalendario,
@@ -804,32 +805,27 @@ export default function CalendarioScreen() {
             {/* El detalle de la celda. Va antes que el de mover porque es el
                 paso previo: se mira, y desde ahí se decide mover. */}
             {detalle && (
-              <Modal
+              <Hoja
                 visible
-                transparent
-                animationType="slide"
-                onRequestClose={() => setDetalle(null)}
+                onClose={() => setDetalle(null)}
+                eyebrow={detalle.categoria}
+                titulo={detalle.etapa}
               >
-                <View style={s.hojaFondo}>
-                  <View style={s.hoja}>
-                    <DetallePartido
-                      partido={{
-                        id: detalle.id,
-                        categoria: detalle.categoria,
-                        etapa: detalle.etapa,
-                        hora: detalle.hora,
-                        cancha: detalle.cancha,
-                        parejaA: detalle.parejaA,
-                        parejaB: detalle.parejaB,
-                        estado: detalle.estado,
-                      }}
-                      sePuedeMover={sePuedeMover(detalle)}
-                      onMover={() => { setMoviendo(detalle); setDetalle(null); }}
-                      onCerrar={() => setDetalle(null)}
-                    />
-                  </View>
-                </View>
-              </Modal>
+                <DetallePartido
+                  partido={{
+                    id: detalle.id,
+                    categoria: detalle.categoria,
+                    etapa: detalle.etapa,
+                    hora: detalle.hora,
+                    cancha: detalle.cancha,
+                    parejaA: detalle.parejaA,
+                    parejaB: detalle.parejaB,
+                    estado: detalle.estado,
+                  }}
+                  sePuedeMover={sePuedeMover(detalle)}
+                  onMover={() => { setMoviendo(detalle); setDetalle(null); }}
+                />
+              </Hoja>
             )}
 
             {/* El modal de mover. La validación es del engine; aquí solo se pinta. */}
@@ -1079,13 +1075,6 @@ function etiquetaDeDia(dia: string): string {
 // ── Estilos ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  // La hoja del detalle: sube desde abajo, no tapa el día entero.
-  hojaFondo: { flex: 1, backgroundColor: 'rgba(6,6,8,0.82)', justifyContent: 'flex-end' },
-  hoja: {
-    backgroundColor: color.bg, borderTopWidth: 1, borderTopColor: color.gold,
-    borderTopLeftRadius: radius.xl2, borderTopRightRadius: radius.xl2,
-    padding: space[4.5], paddingBottom: bottomInset,
-  },
 
   pantalla: { flex: 1, backgroundColor: color.bg },
   centro:   { flex: 1, alignItems: 'center', justifyContent: 'center' },

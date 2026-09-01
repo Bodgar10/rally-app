@@ -19,6 +19,16 @@
  * NO HAY FILAS "SIN PARTIDOS"
  *   En una lista había que escribirlo. En una parrilla el hueco ES la celda
  *   vacía, y una franja muerta a media tarde se ve como una columna en blanco.
+ *
+ * LA COLUMNA DE CANCHAS NO SE MUEVE
+ *   Un día de ocho horas mide 1100 px y un móvil tiene 390: la parrilla se
+ *   desplaza a lo ancho, y si el número de cancha viaja con ella, al llegar a
+ *   las 17:00 hay ocho filas sin etiqueta. Verificado en un viewport de 390 px:
+ *   era ilegible.
+ *
+ *   Por eso son DOS columnas hermanas — la de canchas fuera del scroll, las
+ *   horas dentro — y no un `position: sticky`, que solo existe en web. Las
+ *   alturas cuadran porque las dos usan las mismas constantes.
  */
 
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
@@ -78,11 +88,24 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
 
   return (
     <View style={s.marco}>
-      <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ paddingBottom: space[1] }}>
+      <View style={s.fila}>
+        {/* Columna fija: los números de cancha. Fuera del scroll a propósito. */}
+        <View>
+          <View style={[s.celdaCancha, s.cabecera]} />
+          {filasCancha.map((n) => {
+            const vacia = !rejilla.get(n) || rejilla.get(n)!.size === 0;
+            return (
+              <View key={n} style={s.celdaCancha}>
+                <Text style={[s.cancha, vacia && s.canchaLibre]}>{n}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ paddingBottom: space[1] }}>
         <View>
           {/* Cabecera de horas */}
           <View style={s.fila}>
-            <View style={[s.celdaCancha, s.cabecera]} />
             {horas.map((h) => (
               <View key={h} style={[s.celda, s.cabecera]}>
                 <Text style={s.hora}>{h}</Text>
@@ -92,12 +115,8 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
 
           {filasCancha.map((n) => {
             const porHora = rejilla.get(n);
-            const vacia = !porHora || porHora.size === 0;
             return (
               <View key={n} style={s.fila}>
-                <View style={s.celdaCancha}>
-                  <Text style={[s.cancha, vacia && s.canchaLibre]}>{n}</Text>
-                </View>
                 {horas.map((h) => {
                   const aqui = porHora?.get(h) ?? [];
                   if (aqui.length === 0) {
@@ -131,7 +150,8 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
             );
           })}
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {sinCancha.length > 0 && (
         <Text style={s.sinCancha}>
@@ -150,6 +170,9 @@ const s = StyleSheet.create({
   celdaCancha: {
     width: ANCHO_CANCHA, height: ALTO_FILA,
     alignItems: 'center', justifyContent: 'center',
+    // El borde inferior cuadra la columna fija con las filas de horas, que lo
+    // llevan en `celda`. Sin él las dos mitades se desalinean al ojo.
+    borderBottomWidth: 1, borderBottomColor: color.lineSoft,
     borderRightWidth: 1, borderRightColor: color.line,
   },
   celda: {
