@@ -516,16 +516,16 @@ export default function GruposScreen() {
                        categoría por el camino del jugador. Un estado que se
                        anuncia y no se puede mirar es peor que no anunciarlo.
 
-                       Lleva a la pantalla pública de la categoría, que es la
-                       que pinta el cuadro (LiveBracket) — no hay una versión de
-                       organizador, y tampoco hace falta: el cuadro es público
-                       (migración 040) y el organizador ve exactamente lo mismo
-                       que el jugador que lo consulta desde la grada.
+                       Lleva a la pantalla de cuadro DEL PANEL, no a la
+                       pública del jugador. Aquella deja el cuadro debajo de
+                       todas las tablas de grupos y, por vivir en `(protected)`,
+                       monta el nav del jugador: el organizador salía de su
+                       panel para mirar un dato de su panel.
 
                        Con `push` y no `replace`: el "Volver" de esa pantalla
                        tiene que devolver AQUÍ, no al torneo. */
                     <Pressable
-                      onPress={() => router.push(`/(protected)/torneos/${tournamentId}/${activa.id}`)}
+                      onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cuadro/${activa.id}`)}
                       style={({ pressed }) => [s.siembraHechaCaja, pressed && { opacity: 0.7 }]}
                       accessibilityRole="link"
                       accessibilityLabel={`Ver el cuadro de ${activa.nombre}`}

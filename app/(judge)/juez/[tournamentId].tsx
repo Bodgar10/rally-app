@@ -71,6 +71,13 @@ interface JudgeMatch extends PartidoOrdenable {
 
 type FiltroEstado = 'pendientes' | 'capturados' | 'todos';
 
+/**
+ * La fase del torneo. `stage` en la base es 'group' o una ronda del cuadro
+ * ('quarter', 'semi', 'final'…), así que aquí solo hacen falta tres valores:
+ * el juez quiere "lo de grupos", "lo del cuadro" o todo.
+ */
+type FiltroFase = 'todas' | 'grupos' | 'eliminatorias';
+
 const STAGE_LABEL: Record<string, string> = {
   group: 'Grupos',
   round_of_32: 'R32',
@@ -181,6 +188,7 @@ export default function JudgeTournamentScreen() {
   const [selectedMatch, setSelectedMatch] = useState<JudgeMatch | null>(null);
 
   const [estado, setEstado] = useState<FiltroEstado>('pendientes');
+  const [fase, setFase] = useState<FiltroFase>('todas');
   const [catId, setCatId] = useState<string>(TODAS);
   const [grupoId, setGrupoId] = useState<string>(TODAS);
 
@@ -231,10 +239,24 @@ export default function JudgeTournamentScreen() {
   const visibles = useMemo(() => matches.filter((m) => {
     if (estado === 'pendientes' && m.status === 'finished') return false;
     if (estado === 'capturados' && m.status !== 'finished') return false;
+    if (fase === 'grupos' && m.stage !== 'group') return false;
+    if (fase === 'eliminatorias' && m.stage === 'group') return false;
     if (catId !== TODAS && m.categoryId !== catId) return false;
     if (grupoId !== TODAS && m.groupId !== grupoId) return false;
     return true;
-  }), [matches, estado, catId, grupoId]);
+  }), [matches, estado, fase, catId, grupoId]);
+
+  /**
+   * ¿Hay partidos de cuadro en este torneo?
+   *
+   * Sin cuadro sembrado la fila de FASE sobra: sus tres píldoras filtrarían
+   * sobre un solo valor. Se pinta solo cuando de verdad hay dos fases, que es
+   * el mismo criterio que ya usan CATEGORÍA (`> 1`) y GRUPO.
+   */
+  const hayDosFases = useMemo(
+    () => matches.some((m) => m.stage === 'group') && matches.some((m) => m.stage !== 'group'),
+    [matches],
+  );
 
   const pendientes = useMemo(
     () => matches.filter((m) => m.status !== 'finished').length,
@@ -244,6 +266,18 @@ export default function JudgeTournamentScreen() {
   function elegirCategoria(id: string) {
     setCatId(id);
     setGrupoId(TODAS); // el grupo elegido puede no existir en la nueva categoría
+  }
+
+  /**
+   * Al pasar a eliminatorias se suelta el grupo elegido.
+   *
+   * Su fila se oculta —un partido de cuartos no pertenece a ningún grupo—, y un
+   * filtro activo que ya no se ve dejaría la lista vacía sin nada en pantalla
+   * que explicara por qué.
+   */
+  function elegirFase(f: FiltroFase) {
+    setFase(f);
+    if (f === 'eliminatorias') setGrupoId(TODAS);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -320,12 +354,26 @@ export default function JudgeTournamentScreen() {
         </View>
       ) : (
         <>
+          {/* LOS FILTROS VAN DENTRO DE LA LISTA, NO ENCIMA.
+              Con la fila de FASE son cuatro, y fijas ocupaban 248 de los 844
+              px de un iPhone: casi un tercio de la pantalla, permanente, para
+              algo que el juez toca una vez y luego no vuelve a mirar en media
+              hora. Como cabecera del FlatList se usan igual y se van al hacer
+              scroll, y la lista recupera esa altura.
+
+              `ListEmptyComponent` y no un `if` fuera: la lista vacía es JUSTO
+              cuando hacen falta los filtros —para deshacer el que dejó cero
+              resultados—, y sacarlos del render los habría escondido ahí. */}
+          <FlatList
+              data={visibles}
+              keyExtractor={(item) => item.id}
+              ListHeaderComponent={
+                <View style={{ paddingBottom: 10, gap: 8 }}>
           {/* FILTROS
               Eran tres filas de píldoras seguidas, sin nada que dijera qué
               filtraba cada una: «Pendientes / Todas / Grupo A» se leía como una
               sola lista revuelta. Cada fila lleva ahora su rótulo, del mismo
               tipo que el FASE DE GRUPOS del resto de la app. */}
-          <View style={{ paddingHorizontal: 18, gap: 8, ...webContentColumn }}>
             <Rotulo texto="Estado" />
             <View style={{ flexDirection: 'row', gap: 6 }}>
               {([
@@ -354,6 +402,30 @@ export default function JudgeTournamentScreen() {
               </>
             )}
 
+            {/* FASE. Va antes de GRUPO porque lo condiciona: en eliminatorias
+                no hay grupos que elegir. Solo aparece cuando el torneo tiene de
+                verdad las dos fases — con el cuadro sin sembrar, sus tres
+                píldoras filtrarían sobre un único valor. */}
+            {hayDosFases && (
+              <>
+                <Rotulo texto="Fase" />
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {([
+                    ['todas', 'Todas'],
+                    ['grupos', 'Fase de grupos'],
+                    ['eliminatorias', 'Eliminatorias'],
+                  ] as [FiltroFase, string][]).map(([id, etiqueta]) => (
+                    <Chip
+                      key={id}
+                      texto={etiqueta}
+                      activo={fase === id}
+                      onPress={() => elegirFase(id)}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
+
             {/* LA FILA DE GRUPO SOLO EXISTE DENTRO DE UNA CATEGORÍA.
                 Los grupos se llaman A, B, C DENTRO de su categoría, así que con
                 «Todas» puesto la fila listaba el grupo A de cada una y salía
@@ -361,8 +433,14 @@ export default function JudgeTournamentScreen() {
                 mismo nombre y ninguna forma de saber cuál era cuál. No es un
                 problema de etiqueta —sería igual de malo poner «Grupo A (Mixta
                 B)»— sino de que la pregunta «¿qué grupo?» no significa nada sin
-                categoría. Se oculta la fila entera, rótulo incluido. */}
-            {catId !== TODAS && grupos.length > 1 && (
+                categoría. Se oculta la fila entera, rótulo incluido.
+
+                Y TAMPOCO CON ELIMINATORIAS EN PANTALLA: un partido de cuartos
+                no pertenece a ningún grupo, así que ahí la pregunta «¿qué
+                grupo?» no tiene respuesta posible. Con la fase en "Todas" sí se
+                enseña: la lista mezcla las dos y filtrar por grupo sigue
+                sirviendo para la mitad de grupos. */}
+            {fase !== 'eliminatorias' && catId !== TODAS && grupos.length > 1 && (
               <>
                 <Rotulo texto="Grupo" />
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 18 }}>
@@ -373,24 +451,21 @@ export default function JudgeTournamentScreen() {
                 </ScrollView>
               </>
             )}
-          </View>
-
-          {visibles.length === 0 ? (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-              <Text style={{ color: estado === 'pendientes' ? color.live : color.muted, fontFamily: font.display, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
-                {estado === 'pendientes' ? '✓ Todo al día' : 'Nada que mostrar'}
-              </Text>
-              <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
-                {estado === 'pendientes'
-                  ? 'No hay partidos pendientes con estos filtros.'
-                  : 'Ningún partido coincide con los filtros elegidos.'}
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={visibles}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={{ padding: 18, gap: 10, paddingBottom: bottomInset, ...webContentColumn }}
+                </View>
+              }
+              ListEmptyComponent={
+                <View style={{ alignItems: 'center', paddingHorizontal: 24, paddingVertical: 40 }}>
+                  <Text style={{ color: estado === 'pendientes' ? color.live : color.muted, fontFamily: font.display, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
+                    {estado === 'pendientes' ? '✓ Todo al día' : 'Nada que mostrar'}
+                  </Text>
+                  <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
+                    {estado === 'pendientes'
+                      ? 'No hay partidos pendientes con estos filtros.'
+                      : 'Ningún partido coincide con los filtros elegidos.'}
+                  </Text>
+                </View>
+              }
+              contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 0, paddingBottom: bottomInset, gap: 10, ...webContentColumn }}
               renderItem={({ item }) => {
                 const capturado = item.status === 'finished';
                 const ganador = capturado && item.winnerPairId
@@ -454,7 +529,6 @@ export default function JudgeTournamentScreen() {
                 );
               }}
             />
-          )}
         </>
       )}
 

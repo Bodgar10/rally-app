@@ -97,8 +97,12 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
     // Sin embed de `pairs → users`: users_select_own solo deja leer la propia
     // fila, así que devolvía null para todos los rivales. Los nombres van por
     // bracket_pairs_public. Ver src/lib/parejas-publicas.ts.
+    // `court_label` no se pedía y por eso el cuadro solo decía la hora: el
+    // campo existe en `matches` desde siempre y `BracketMatch` ya lo tenía
+    // declarado, pero nadie lo traía. En un torneo con ocho canchas, saber a
+    // qué hora juegas sin saber dónde no sirve de mucho.
     .select(
-      `id, stage, round_label, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at`
+      `id, stage, round_label, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at, court_label`
     )
     .eq('category_id', categoryId)
     .neq('stage', 'group')
@@ -128,7 +132,40 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
     pairBName: row.pair_b_id ? nombreDePareja(parejas.get(row.pair_b_id)) : null,
     winnerPairId: row.winner_pair_id,
     scheduledAt: row.scheduled_at,
+    courtLabel: row.court_label,
   }));
+}
+
+// ───────────────────────────────────────────
+// Cuándo y dónde
+// ───────────────────────────────────────────
+
+/**
+ * La línea de estado de una tarjeta: "14:00 · Cancha 3".
+ *
+ * Iban en DOS líneas —la hora arriba, la cancha debajo en 9px— y la cancha ni
+ * siquiera llegaba, porque la consulta no la pedía. Juntas y con el mismo
+ * separador que las tarjetas de la fase de grupos: es el mismo dato en la misma
+ * app, y leerlo de dos formas distintas obliga a aprenderlo dos veces.
+ *
+ * La hora sale de `horaDeTorneo`, NUNCA de `toLocaleTimeString`: los
+ * `scheduled_at` son timestamptz y el navegador del jugador puede estar en otra
+ * zona que el club. Sin eso, el mismo partido se anuncia a horas distintas
+ * según quién mire.
+ *
+ * TERMINADO NO LLEVA CANCHA. Ya se jugó: dónde fue no le sirve a nadie y le
+ * quita sitio al resultado. En vivo SÍ, que es justo cuando alguien la busca.
+ */
+function cuandoYDonde(match: BracketMatch, isLive: boolean, isDone: boolean): string {
+  if (isDone) return '✓ Finalizado';
+
+  const cuando = isLive
+    ? '🟢 En vivo'
+    : match.scheduledAt
+      ? horaDeTorneo(match.scheduledAt)
+      : 'Por programar';
+
+  return match.courtLabel ? `${cuando} · ${match.courtLabel}` : cuando;
 }
 
 // ───────────────────────────────────────────
@@ -237,30 +274,8 @@ function MatchCard({
             letterSpacing: 0.6,
           }}
         >
-          {isLive
-            ? '🟢 En vivo'
-            : isDone
-            ? '✓ Finalizado'
-            : match.scheduledAt
-            ? horaDeTorneo(match.scheduledAt)
-            : 'Por programar'}
+          {cuandoYDonde(match, isLive, isDone)}
         </Text>
-
-        {/* La cancha solo cuando viene y el partido no ha terminado: en un
-            partido jugado ya no le sirve a nadie, y compite con el resultado. */}
-        {match.courtLabel && !isDone && (
-          <Text
-            style={{
-              fontFamily: font.body,
-              fontSize: 9,
-              color: color.champagne,
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-            }}
-          >
-            {match.courtLabel}
-          </Text>
-        )}
       </View>
     </View>
   );
