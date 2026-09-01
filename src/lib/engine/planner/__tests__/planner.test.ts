@@ -185,14 +185,22 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     // parte del colchón, así que hay que repescar a menos gente para pagarlo.
     // Es la consecuencia REAL de esa opción, y antes quedaba escondida en un
     // margen que no existía.
+    // ⚠️ CAMBIÓ AL PASAR LA RETÍCULA A 60 MIN (hora en punto).
+    //   El 3.er lugar YA NO cambia el plan, solo la ocupación: con la retícula
+    //   alineada las dos variantes cierran a la misma hora y el planificador
+    //   mantiene el cuadro grande en las dos. El coste que se veía antes
+    //   (repescar a dos menos) era en parte artefacto del paso de 30: colocar
+    //   una ronda a las :30 desfasaba las siguientes y alargaba la cadena.
+    // Con el descanso como preferencia el domingo se compacta, sobra colchon
+    // y el planificador llena el cuadro en las dos variantes: el 3.er lugar ya
+    // no se paga con repesca. Cierran a la misma hora.
     const sin = planTournament(CATEGORIAS_CIMEPA, { ...CIMEPA, tercerLugar: false });
-    expect(sin.eliminacion.usados).toBe(72);
-    expect(sin.ultimoDia!.finRealista).toBe('18:30');
+    expect(sin.eliminacion.usados).toBe(80);
+    expect(sin.ultimoDia!.finRealista).toBe('19:00');
     expect(r.ultimoDia!.finRealista).toBe('19:00');
 
-    // 4ª y 5ª Fuerza repescan a dos parejas menos cada una para pagar el 3.er lugar.
-    expect(r.planes.get('5A')!.clasificados).toBe(12);
-    expect(sin.planes.get('5A')!.clasificados).toBe(14);
+    expect(r.planes.get('5A')!.clasificados).toBe(14);
+    expect(sin.planes.get('5A')!.clasificados).toBe(16);
   });
 
   it('la ocupación en slots sobrevive como dato, pero ya no manda', () => {
@@ -224,11 +232,19 @@ describe('§11 · verificación contra el Sexto Torneo Cimepa', () => {
     //
     // No prueba que 2 sea óptimo. Sí que el modelo dejó de proponer un plan
     // que la persona que estuvo allí no eligió.
+    // ⚠️ YA NO COINCIDE CON LA ELECCIÓN DEL ORGANIZADOR, y hay que saberlo.
+    //   Con la retícula de 30 min el modelo decía 2, exactamente lo que Cimepa
+    //   hizo a mano. Con la retícula de 60 alineada a la hora en punto dice 4:
+    //   el día cierra igual (19:00 con retrasos) y sobra colchón para repescar
+    //   a dos parejas más. Puede que 4 sea mejor —quedar segundo sirve el
+    //   doble— pero la calibración contra la decisión humana se perdió, y esta
+    //   es la única prueba que la guardaba. Si se recupera el paso de 30, esto
+    //   vuelve a 2.
     const p = r.planes.get('5A')!;
-    expect(p.segundosQueAvanzan).toBe(2);
-    expect(p.clasificados).toBe(12);
+    expect(p.segundosQueAvanzan).toBe(4);
+    expect(p.clasificados).toBe(14);
     expect(p.bracketSize).toBe(16);
-    expect(p.byes).toBe(4);
+    expect(p.byes).toBe(2);
   });
 
   it('avisa de que los grupos van al límite', () => {
@@ -270,8 +286,8 @@ describe('criterio "quedar segundo debe servir"', () => {
     // segundo en 5ª sirve bastante menos que antes. A cambio, el domingo acaba
     // a las 19:00 y no depende de que ningún partido se alargue.
     const peor = Math.min(...[...r.planes.values()].map((p) => p.ratioSegundos));
-    expect(peor).toBeCloseTo(0.2);
-    expect(r.planes.get('5A')!.segundosQueAvanzan).toBe(2);
+    expect(peor).toBeCloseTo(0.4);   // era 0.2 con la retícula de 30 min
+    expect(r.planes.get('5A')!.segundosQueAvanzan).toBe(4);
     for (const p of r.planes.values()) expect(p.ratioSegundos).toBeGreaterThan(0);
   });
 
@@ -404,7 +420,7 @@ describe('§9 · casos límite', () => {
       ],
     });
     expect(r.cabe).toBe(false);
-    expect(r.ultimoDia!.finRealista).toBe('15:30');
+    expect(r.ultimoDia!.finRealista).toBe('14:00');
     expect(r.avisos.some((a) => /después del cierre de las 10:30/.test(a))).toBe(true);
   });
 });
@@ -479,7 +495,11 @@ describe('margen de cierre (§ MARGEN_CIERRE_MIN)', () => {
       ...CIMEPA,
       ventanas: [
         ...CIMEPA.ventanas.slice(0, 2),
-        { fecha: '2026-03-15', desde: '08:00', hasta: '17:00' },
+        // 17:00 ya no aprieta: con el encadenamiento libre el domingo se
+        // compacta y cabe de sobra. A las 16:00 el piso ya roza el cierre.
+        // Por debajo de eso el piso NO CABE y salta otro aviso distinto, no
+        // el del margen: son dos situaciones y hay que probar la de margen.
+        { fecha: '2026-03-15', desde: '08:00', hasta: '16:00' },
       ],
     });
     expect(apretado.avisos.some((a) => /min de margen/.test(a))).toBe(true);

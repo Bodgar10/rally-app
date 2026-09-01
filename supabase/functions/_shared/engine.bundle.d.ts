@@ -856,6 +856,15 @@ interface Conflicto {
     matchId?: string;
 }
 interface ResultadoMovimiento {
+    /**
+     * ¿Se puede hacer el movimiento?
+     *
+     * NO es `conflictos.length === 0`. El descanso insuficiente es un AVISO, no
+     * un impedimento: en un torneo de padel se juega seguido, y el respiro entre
+     * rondas es consecuencia de que falten canchas, no una regla. Bloquear un
+     * movimiento por eso era el motor arbitrando una decisión que es del
+     * organizador, que además tiene delante a las parejas y sabe si aguantan.
+     */
     ok: boolean;
     conflictos: Conflicto[];
 }

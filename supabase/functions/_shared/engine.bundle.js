@@ -845,7 +845,6 @@ var MAX_ESPERA_POR_EMPALME = 4;
 var FACTOR_RETRASO = 1.25;
 var DEFAULT_MINUTOS_PARTIDO = 60;
 var DEFAULT_DESCANSO_MINIMO = 30;
-var DEFAULT_PASO = 30;
 function parseHora(hhmm) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!m) throw new Error(`Hora invalida: ${hhmm}`);
@@ -874,10 +873,22 @@ function partidosPorRonda(clasificados) {
 function hayTercerLugar(clasificados, activo) {
   return activo && clasificados >= 4;
 }
+function etiquetaEtapa(etapa) {
+  const M = {
+    round_of_32: "ronda de 32",
+    round_of_16: "ronda de 16",
+    quarter: "ronda de cuartos",
+    semi: "semifinal",
+    final: "final",
+    third_place: "final de 3.er lugar"
+  };
+  return M[etapa] ?? etapa;
+}
 function cotaInferior(entrada) {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
-  const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
+  const paso = entrada.paso ?? dur;
   const inicio = parseHora(entrada.desde);
+  const enLaReticula = (t) => t <= inicio ? inicio : inicio + Math.ceil((t - inicio) / paso) * paso;
   const tercerLugar = entrada.tercerLugar ?? true;
   const items = [];
   for (const cat of entrada.categorias) {
@@ -895,7 +906,8 @@ function cotaInferior(entrada) {
   for (let j = 0; j <= maxDist; j++) {
     const n = items.filter((i) => i.distancia >= j).reduce((a, b) => a + b.partidos, 0);
     if (n === 0) continue;
-    const t = inicio + Math.ceil(n / entrada.canchas) * dur + j * (dur + desc);
+    const arranqueUltimo = inicio + Math.ceil(n / entrada.canchas) * dur + j * dur - dur;
+    const t = enLaReticula(arranqueUltimo) + dur;
     if (t > mejor) mejor = t;
   }
   return mejor;
@@ -925,7 +937,7 @@ function grafoDeHermandad(categorias) {
 function correrCalendario(entrada) {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
   const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
-  const paso = entrada.paso ?? DEFAULT_PASO;
+  const paso = entrada.paso ?? dur;
   const inicio = parseHora(entrada.desde);
   const techo = parseHora(entrada.hasta);
   const tercerLugar = entrada.tercerLugar ?? true;
@@ -990,13 +1002,14 @@ function correrCalendario(entrada) {
   const esperando = /* @__PURE__ */ new Map();
   const enInstante = /* @__PURE__ */ new Map();
   const empalmes = [];
+  const sinDescanso = [];
   for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
     const listas = pendientes().map((tarea) => {
       let earliest = inicio;
       if (tarea.ronda > 1) {
         const fin = finDe(tarea.categoryId, tarea.ronda - 1);
         if (fin === null) return null;
-        earliest = fin + desc;
+        earliest = fin;
       }
       if (earliest > t) return null;
       const critico = (tarea.totalRondas - tarea.ronda) * (dur + desc) + dur;
@@ -1036,6 +1049,16 @@ function correrCalendario(entrada) {
       }
       if (yaAqui) yaAqui.add(tarea.categoryId);
       else enInstante.set(t, /* @__PURE__ */ new Set([tarea.categoryId]));
+      if (tarea.ronda > 1 && tarea.colocados === 0) {
+        const finPrevia = finDe(tarea.categoryId, tarea.ronda - 1);
+        if (finPrevia !== null && t - finPrevia < desc) {
+          sinDescanso.push({
+            categoryId: tarea.categoryId,
+            etapa: tarea.tercerLugar ? "third_place" : etapaDeRonda(tarea.ronda, tarea.totalRondas),
+            minutos: t - finPrevia
+          });
+        }
+      }
       for (let k = 0; k < cupo; k++) {
         const cancha = libres[k];
         ocupadaHasta.push({ cancha, desde: t, hasta: t + dur });
@@ -1057,6 +1080,11 @@ function correrCalendario(entrada) {
   }
   const sinProgramar = tareas.reduce((a, t) => a + t.restantes, 0);
   const cabe = sinProgramar === 0;
+  for (const d of sinDescanso) {
+    avisos.push(
+      d.minutos === 0 ? `${d.categoryId}: la ${etiquetaEtapa(d.etapa)} empieza justo despues de la ronda anterior, sin descanso.` : `${d.categoryId}: la ${etiquetaEtapa(d.etapa)} empieza ${d.minutos} min despues de la ronda anterior, menos de los ${desc} de descanso deseable.`
+    );
+  }
   for (const cat of oleadasForzosas) {
     avisos.push(
       `${cat}: la ronda tiene mas partidos que canchas, se juega en oleadas y la mitad del cuadro descansa mas.`
@@ -1139,6 +1167,17 @@ function programarEliminatorias(entrada) {
   const unaMenosMin = unaMenos ? finRealistaEncadenado(cadenasDePartidos(unaMenos.partidos), dur) : null;
   const avisos = [...plan2.avisos];
   const techoReal = parseHora(entrada.hasta);
+  if (realMin !== null && realMin > techoReal) {
+    avisos.push(
+      `Escenario con retrasos: si todos los partidos se alargaran, el dia acabaria a las ${formatHora(realMin)}, pasado el cierre de las ${entrada.hasta}. El plan nominal cierra a las ${plan2.finEstimado} y si cabe.`
+    );
+  }
+  const finPlanMin = plan2.ultimoInicio === null ? null : parseHora(plan2.ultimoInicio) + dur;
+  if (plan2.cabe && finPlanMin !== null && finPlanMin <= parseHora(plan2.cotaInferior)) {
+    avisos.push(
+      `Este calendario ya es el mas corto posible con ${entrada.canchas} canchas y partidos de ${dur} minutos: reprogramar no lo va a acortar. Los huecos del final son la cadena del cuadro, no tiempo desaprovechado.`
+    );
+  }
   if (unaMenosMin !== null && unaMenosMin > techoReal) {
     avisos.push(
       `Con una cancha menos, este formato terminaria a las ${formatHora(unaMenosMin)}.`
@@ -1639,6 +1678,9 @@ function bloqueDeGrupo(elecciones) {
 }
 
 // src/lib/engine/schedule/mover.ts
+var SOLO_AVISAN = /* @__PURE__ */ new Set([
+  "descanso_insuficiente"
+]);
 var ETIQUETA_ETAPA = {
   group: "partido de grupos",
   round_of_32: "ronda de 32",
@@ -1713,7 +1755,7 @@ function validarMovimiento(entrada) {
       conflictos.push({
         motivo: "descanso_insuficiente",
         matchId: otro.id,
-        mensaje: hace === 0 ? `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} justo a esa hora.` : `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} ${duracionLegible(hace)} antes; necesita ${duracionLegible(desc)} de descanso.`
+        mensaje: hace === 0 ? `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} justo a esa hora.` : `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} ${duracionLegible(hace)} antes; son menos de los ${duracionLegible(desc)} de descanso deseable.`
       });
       continue;
     }
@@ -1737,7 +1779,7 @@ function validarMovimiento(entrada) {
         continue;
       }
       const pFin = previo.inicioMin + dur;
-      const antes = previo.dia < mov.dia || previo.dia === mov.dia && pFin + desc <= inicio;
+      const antes = previo.dia < mov.dia || previo.dia === mov.dia && pFin <= inicio;
       if (!antes) {
         conflictos.push({
           motivo: "ronda_previa_despues",
@@ -1747,7 +1789,10 @@ function validarMovimiento(entrada) {
       }
     }
   }
-  return { ok: conflictos.length === 0, conflictos };
+  return {
+    ok: conflictos.every((c) => SOLO_AVISAN.has(c.motivo)),
+    conflictos
+  };
 }
 function partidosPrevios(partido, todos) {
   if (partido.sourceMatchIds?.length) {

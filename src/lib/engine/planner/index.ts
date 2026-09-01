@@ -648,6 +648,19 @@ export function planTournament(
           // Se queda el criterio de slots, que sí cuenta las dos fases.
           if (unSoloDia) return ok(despuesE, antesE, presupuestoElim);
           if (despuesE === antesE) return true;   // la subida no toca el último día
+
+          // PRIORIDAD 1: no pasarse de la ventana, con su margen.
+          //
+          // SE PROBÓ LA REGLA ESTRICTA —"la subida no puede empujar el cierre
+          // ni un minuto"— y hay que dejarlo escrito, porque parece la lectura
+          // literal de la prioridad 2 y no funciona: en Cimepa deja la repesca
+          // en CERO en las ocho categorías. Repescar añade partidos a la
+          // primera ronda, que es la oleada más llena del día, así que casi
+          // siempre empuja algo. Con esa regla el domingo cierra a las 15:00 y
+          // quedar segundo no sirve para nada, que es el criterio contrario
+          // que este planificador tiene escrito en §"quedar segundo debe
+          // servir". La palanca real es `margenCierreMin`: subirlo aprieta la
+          // repesca, bajarlo la suelta. Ver MARGEN_CIERRE_MIN.
           const fin = horaFin([...elegido.values()]);
           return fin !== null && aMinutos(fin) + margenCierre <= aMinutos(ventanaElim!.hasta);
         };

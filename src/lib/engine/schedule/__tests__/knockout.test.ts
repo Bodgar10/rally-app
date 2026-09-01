@@ -96,11 +96,18 @@ describe('formatHora', () => {
 
 describe('cota inferior', () => {
   it('manda el encadenamiento, no la division simple', () => {
-    // 17:00 con el 3.er lugar contando cancha en la oleada de las finales;
-    // 16:30 sin el. La cota mide dos cosas a la vez: el camino critico y si
-    // los partidos caben en las canchas.
+    // 17:00 con el 3.er lugar contando cancha en la oleada de las finales. La
+    // cota mide dos cosas a la vez: el camino critico y si los partidos caben
+    // en las canchas.
+    //
+    // SIN 3.er LUGAR TAMBIEN ES 17:00, y antes era 16:30: la cota se redondea
+    // a la reticula. Un minimo teorico de 16:30 con partidos de 60 alineados a
+    // la hora en punto no lo puede alcanzar ningun plan —no existe ese hueco—
+    // y el motor se avisaba a si mismo de no llegar a un imposible.
+    // El descanso ya no figura en la cota: es preferencia, no muro, y ponerlo
+    // en el MINIMO teorico prometia una hora peor que la que el plan alcanza.
     expect(formatHora(cotaInferior(CIMEPA))).toBe('17:00');
-    expect(formatHora(cotaInferior({ ...CIMEPA, tercerLugar: false }))).toBe('16:30');
+    expect(formatHora(cotaInferior({ ...CIMEPA, tercerLugar: false }))).toBe('16:00');
   });
 });
 
@@ -133,7 +140,9 @@ describe('Cimepa', () => {
   it('sin 3.er lugar vuelve exactamente a los numeros de antes', () => {
     const sin = programarEliminatorias({ ...CIMEPA, tercerLugar: false });
     expect(sin.totalPartidos).toBe(62);
-    expect(sin.finEstimado).toBe('16:30');
+    // 16:30 con la reticula de 30 min y el descanso duro. Con la reticula
+    // horaria y el descanso como preferencia, 16:00.
+    expect(sin.finEstimado).toBe('16:00');
     expect(sin.partidos.some((p) => p.etapa === 'third_place')).toBe(false);
   });
 
@@ -179,7 +188,7 @@ describe('Cimepa', () => {
     }
   });
 
-  it('respeta el encadenamiento y el descanso minimo', () => {
+  it('respeta el encadenamiento: nunca antes de que acabe la ronda anterior', () => {
     const inicioDe = new Map<string, number>();
     for (const p of r.partidos) {
       inicioDe.set(`${p.categoryId}#${p.ronda}`, p.inicioMin);
@@ -187,7 +196,9 @@ describe('Cimepa', () => {
     for (const p of r.partidos) {
       if (p.ronda === 1) continue;
       const previa = inicioDe.get(`${p.categoryId}#${p.ronda - 1}`)!;
-      expect(p.inicioMin).toBeGreaterThanOrEqual(previa + 60 + 30);
+      // Sin `+ 30`: el descanso es preferencia. Lo que no se puede es jugar
+      // la ronda siguiente antes de que termine la anterior.
+      expect(p.inicioMin).toBeGreaterThanOrEqual(previa + 60);
     }
   });
 
@@ -198,13 +209,27 @@ describe('Cimepa', () => {
     expect(new Set(primera)).toEqual(new Set(['3a', '4a']));
   });
 
-  it('no deja avisos del plan cuando es optimo', () => {
-    const delPlan = r.avisos.filter((a) => !a.startsWith('Con una cancha menos'));
-    expect(delPlan).toEqual([]);
+  it('no deja avisos de PROBLEMA cuando es optimo', () => {
+    // El aviso de optimalidad si sale, y tiene que salir: es la respuesta a
+    // "veo huecos al final, ¿reprogramo?".
+    const problemas = r.avisos.filter(
+      (a) => !a.startsWith('Con una cancha menos')
+        && !a.startsWith('Este calendario ya es')
+        // El descanso sacrificado se informa con nombre: es el precio de
+        // cerrar antes, no un problema del plan.
+        && !/sin descanso|de descanso deseable/.test(a),
+    );
+    expect(problemas).toEqual([]);
   });
 
-  it('avisa de que Cimepa depende de sus 8 canchas', () => {
-    expect(r.avisos.some((a) => a.startsWith('Con una cancha menos'))).toBe(true);
+  it('dice que el plan ya es el mas corto posible', () => {
+    expect(r.avisos.some((a) => a.startsWith('Este calendario ya es'))).toBe(true);
+  });
+
+  it('con una cancha menos ya no se sale del cierre: el aviso desaparece', () => {
+    // Antes saltaba. Con encadenamiento libre, 7 canchas siguen cabiendo en la
+    // ventana, y avisar de un riesgo que ya no existe es ruido.
+    expect(r.avisos.some((a) => a.startsWith('Con una cancha menos'))).toBe(false);
   });
 });
 
@@ -379,10 +404,10 @@ describe('las tres horas', () => {
     expect(solo.finRealista).not.toBeNull();
   });
 
-  it('avisa de la cancha menos cuando se pasa del cierre', () => {
-    // Cimepa cabe a las 16:30 con 8 canchas, pero con 7 y partidos de 75
-    // minutos se va a las 22:45: el formato depende de que no falle ninguna.
-    expect(r.avisos.some((a) => a.includes('Con una cancha menos'))).toBe(true);
+  it('ya no depende de sus 8 canchas: con 7 sigue cabiendo', () => {
+    // Con el descanso como preferencia el dia se compacta lo suficiente para
+    // absorber una cancha caida dentro de la ventana.
+    expect(r.avisos.some((a) => a.includes('Con una cancha menos'))).toBe(false);
   });
 
   it('no avisa cuando sobra tarde', () => {
@@ -420,8 +445,10 @@ describe('separacion de categorias hermanas', () => {
 
   it('ningun empalme temprano queda registrado', () => {
     const r = programarEliminatorias(HERMANAS);
+    // El 3.er lugar cuelga de la final: misma distancia (0), misma exencion.
+    // Antes no salia aqui porque el descanso lo separaba por accidente.
     const tempranos = r.empalmes.filter(
-      (e) => e.etapa !== 'semi' && e.etapa !== 'final',
+      (e) => e.etapa !== 'semi' && e.etapa !== 'final' && e.etapa !== 'third_place',
     );
     expect(tempranos).toEqual([]);
   });
@@ -573,5 +600,54 @@ describe('grafoDeHermandad — un id vacío no es una persona', () => {
       { id: 'B', clasificados: 4, jugadores: ['comun', ''] },
     ]);
     expect(g.get('A')?.has('B')).toBe(true);
+  });
+});
+
+/**
+ * EL DOMINGO DE bb8e137e. 8 categorías, 90 partidos, 8 canchas, 08:00–21:00.
+ *
+ * El organizador veía huecos al final (18:30, 19:00 y 19:30 con 2 canchas de 8)
+ * y volvía a darle a Reprogramar esperando que se compactaran. No se compactan:
+ * el plan YA iguala la cota inferior. Lo que sí faltaba era el aviso de que la
+ * hora realista se sale de la ventana.
+ */
+describe('domingo de bb8e137e — el plan es óptimo y lo dice', () => {
+  const CATS: { id: string; clasificados: number }[] = [
+    { id: '6ª Varonil', clasificados: 8 }, { id: '5ª Femenil', clasificados: 7 },
+    { id: '5ª Varonil', clasificados: 16 }, { id: '4ª Mixto', clasificados: 11 },
+    { id: '4ª Varonil', clasificados: 19 }, { id: '3ª Varonil', clasificados: 19 },
+    { id: '3ª Mixto', clasificados: 5 }, { id: '2ª Varonil', clasificados: 13 },
+  ];
+  const entrada = {
+    canchas: 8, desde: '08:00', hasta: '21:00', tercerLugar: false, categorias: CATS,
+  };
+  const r = programarEliminatorias(entrada);
+
+  it('cierra exactamente en la cota inferior: no hay nada que compactar', () => {
+    // 20:30 era la cota SIN reticula. Con partidos de 60 en hora en punto no
+    // existe el hueco de las 19:30, asi que el minimo real es 21:00 — y el
+    // plan lo clava. Alinear a la hora en punto cuesta 30 minutos de cierre.
+    // 20:30 con la reticula de 30 y el descanso duro; 21:00 con la reticula
+    // horaria y el descanso duro; 20:00 ahora que encadenar es legal. Y el
+    // plan clava la cota: no queda nada que compactar.
+    expect(r.cotaInferior).toBe('20:00');
+    expect(r.finEstimado).toBe('20:00');
+  });
+
+  it('avisa de que la hora realista se pasa del cierre de la ventana', () => {
+    expect(r.finRealista).toBe('21:15');
+    // Es un ESCENARIO, no el veredicto: el plan nominal cabe.
+    expect(r.cabe).toBe(true);
+    expect(r.avisos.join(' ')).toMatch(/Escenario con retrasos/);
+    expect(r.avisos.join(' ')).toMatch(/El plan nominal cierra a las 20:00 y si cabe/);
+  });
+
+  it('dice que reprogramar no lo va a acortar', () => {
+    expect(r.avisos.join(' ')).toMatch(/ya es el mas corto posible/);
+  });
+
+  it('con una cancha más el cierre baja una hora entera', () => {
+    const nueve = programarEliminatorias({ ...entrada, canchas: 9, hasta: '23:59' });
+    expect(nueve.finEstimado).toBe('19:00');
   });
 });

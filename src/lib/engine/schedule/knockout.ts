@@ -96,6 +96,11 @@ export const FACTOR_RETRASO = 1.25;
 
 export const DEFAULT_MINUTOS_PARTIDO = 60;
 export const DEFAULT_DESCANSO_MINIMO = 30;
+/**
+ * @deprecated Ya no es el paso por defecto: la reticula vale lo que dura un
+ * partido (ver `correrCalendario`). Se conserva porque hay entradas guardadas
+ * que lo pasan explicitamente.
+ */
 export const DEFAULT_PASO = 30;
 
 export function parseHora(hhmm: string): number {
@@ -164,10 +169,29 @@ export function byesDelCuadro(clasificados: number): number {
  * Para cada j: los partidos a j rondas o mas del final deben caber en las canchas,
  * y despues quedan j rondas encadenadas.
  */
+/** 'semi' -> 'semifinal'. Para que el aviso se lea como una frase. */
+function etiquetaEtapa(etapa: string): string {
+  const M: Record<string, string> = {
+    round_of_32: 'ronda de 32', round_of_16: 'ronda de 16', quarter: 'ronda de cuartos',
+    semi: 'semifinal', final: 'final', third_place: 'final de 3.er lugar',
+  };
+  return M[etapa] ?? etapa;
+}
+
 export function cotaInferior(entrada: EntradaScheduler): number {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
-  const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
+  const paso = entrada.paso ?? dur;
   const inicio = parseHora(entrada.desde);
+
+  /**
+   * La cota tiene que caer en la RETICULA, o promete una hora que ningun plan
+   * puede dar. Con partidos de 60 alineados a la hora en punto, un minimo
+   * teorico de 20:30 no es alcanzable: no existe el hueco de las 19:30. Sin
+   * redondear, el motor se avisaba a si mismo de que no llegaba a un minimo
+   * imposible por construccion, en cada corrida y para siempre.
+   */
+  const enLaReticula = (t: number) =>
+    t <= inicio ? inicio : inicio + Math.ceil((t - inicio) / paso) * paso;
 
   const tercerLugar = entrada.tercerLugar ?? true;
   const items: { distancia: number; partidos: number }[] = [];
@@ -193,7 +217,13 @@ export function cotaInferior(entrada: EntradaScheduler): number {
       .filter((i) => i.distancia >= j)
       .reduce((a, b) => a + b.partidos, 0);
     if (n === 0) continue;
-    const t = inicio + Math.ceil(n / entrada.canchas) * dur + j * (dur + desc);
+    // El ultimo partido de la cadena EMPIEZA en un hueco de la reticula; la
+    // hora de fin es ese hueco mas la duracion.
+    // Sin `desc` en la cadena: el descanso es una preferencia, no un muro, asi
+    // que no puede figurar en el MINIMO teorico. Si figurara, la cota
+    // prometeria una hora peor que la que el plan de verdad alcanza.
+    const arranqueUltimo = inicio + Math.ceil(n / entrada.canchas) * dur + j * dur - dur;
+    const t = enLaReticula(arranqueUltimo) + dur;
     if (t > mejor) mejor = t;
   }
   return mejor;
@@ -270,7 +300,17 @@ export function grafoDeHermandad(categorias: CategoriaCuadro[]): Map<string, Set
 export function correrCalendario(entrada: EntradaScheduler): Calendario {
   const dur = entrada.minutosPorPartido ?? DEFAULT_MINUTOS_PARTIDO;
   const desc = entrada.descansoMinimo ?? DEFAULT_DESCANSO_MINIMO;
-  const paso = entrada.paso ?? DEFAULT_PASO;
+  // LA RETICULA VALE LO QUE DURA UN PARTIDO, NO LA MITAD.
+  //
+  //   Era 30 con partidos de 60. Eso no adelantaba nada: una ronda solo entra
+  //   cuando se libera una cancha, y una cancha se libera al terminar un
+  //   partido, o sea cada 60 minutos. Lo unico que anadia el paso de 30 era
+  //   colocar rondas a las 18:30 —cuando la oleada anterior liberaba canchas a
+  //   media hora del resto— y a partir de ahi el dia entero quedaba desfasado:
+  //   ese partido termina a las 19:30 y arrastra a los suyos.
+  //
+  //   Un torneo de padel programa a las 18:00 o a las 19:00. Nunca a las 18:30.
+  const paso = entrada.paso ?? dur;
   const inicio = parseHora(entrada.desde);
   const techo = parseHora(entrada.hasta);
   const tercerLugar = entrada.tercerLugar ?? true;
@@ -353,6 +393,14 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
   /** Que categorias ya ocupan cada instante, para detectar el empalme. */
   const enInstante = new Map<number, Set<string>>();
   const empalmes: Calendario['empalmes'] = [];
+  /**
+   * Rondas que arrancan con menos descanso del deseable.
+   *
+   * No es un error ni un rechazo: es el precio de cerrar antes, y el
+   * organizador tiene derecho a verlo con nombre y apellidos antes de publicar
+   * el calendario. El algoritmo informa; no bloquea.
+   */
+  const sinDescanso: { categoryId: string; etapa: string; minutos: number }[] = [];
 
   for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
     const listas = pendientes()
@@ -361,7 +409,21 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
         if (tarea.ronda > 1) {
           const fin = finDe(tarea.categoryId, tarea.ronda - 1);
           if (fin === null) return null;
-          earliest = fin + desc;
+          // EL DESCANSO NO ES UN MURO. Lo unico que de verdad impide jugar la
+          // ronda siguiente es que la anterior no haya TERMINADO.
+          //
+          //   Era `fin + desc`, y eso bloqueaba canchas vacias: las semis
+          //   acababan a las 18:00, habia dos canchas libres, y la final se
+          //   iba a las 19:00 porque el motor exigia media hora de descanso
+          //   que en un torneo de padel no existe. Los jugadores juegan
+          //   seguido; el respiro que se ve en octavos y cuartos es
+          //   consecuencia de que no hay canchas para encadenar, no una regla.
+          //   Y de semifinal a final SIEMPRE es seguido.
+          //
+          //   El descanso sigue vivo como PREFERENCIA (ver `conDescanso`):
+          //   se coge el hueco holgado cuando sale gratis y se sacrifica en
+          //   cuanto cuesta un minuto de cierre. Donde se sacrifique, se dice.
+          earliest = fin;
         }
         if (earliest > t) return null;
         const critico = (tarea.totalRondas - tarea.ronda) * (dur + desc) + dur;
@@ -423,6 +485,18 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
       if (yaAqui) yaAqui.add(tarea.categoryId);
       else enInstante.set(t, new Set([tarea.categoryId]));
 
+      // ¿Esta ronda arranca pegada a la anterior? Se anota una vez por ronda.
+      if (tarea.ronda > 1 && tarea.colocados === 0) {
+        const finPrevia = finDe(tarea.categoryId, tarea.ronda - 1);
+        if (finPrevia !== null && t - finPrevia < desc) {
+          sinDescanso.push({
+            categoryId: tarea.categoryId,
+            etapa: tarea.tercerLugar ? 'third_place' : etapaDeRonda(tarea.ronda, tarea.totalRondas),
+            minutos: t - finPrevia,
+          });
+        }
+      }
+
       for (let k = 0; k < cupo; k++) {
         const cancha = libres[k];
         ocupadaHasta.push({ cancha, desde: t, hasta: t + dur });
@@ -445,6 +519,17 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
 
   const sinProgramar = tareas.reduce((a, t) => a + t.restantes, 0);
   const cabe = sinProgramar === 0;
+
+  // Con nombres, no un contador: el organizador tiene que poder mirar a quien
+  // le toca encadenar y decidir si lo deja o mueve algo.
+  for (const d of sinDescanso) {
+    avisos.push(
+      d.minutos === 0
+        ? `${d.categoryId}: la ${etiquetaEtapa(d.etapa)} empieza justo despues de la ronda anterior, sin descanso.`
+        : `${d.categoryId}: la ${etiquetaEtapa(d.etapa)} empieza ${d.minutos} min despues de la ronda anterior, ` +
+          `menos de los ${desc} de descanso deseable.`,
+    );
+  }
 
   for (const cat of oleadasForzosas) {
     avisos.push(
@@ -625,6 +710,49 @@ export function programarEliminatorias(entrada: EntradaScheduler): Calendario {
   // El aviso se mide contra el cierre que el organizador SI configuro, no
   // contra el 23:59 de la simulacion.
   const techoReal = parseHora(entrada.hasta);
+
+  // EL AVISO QUE FALTABA, Y ES EL QUE IMPORTA.
+  //
+  //   `cabe` se mide contra `finEstimado`, que supone que ningun partido se
+  //   pasa de los 60 minutos. En el domingo de bb8e137e eso daba `cabe: true`
+  //   con cierre 20:30 dentro de una ventana que acaba a las 21:00 — y la hora
+  //   REALISTA era 21:15, quince minutos DESPUES del cierre. El organizador
+  //   leia "cabe" y se iba tranquilo.
+  //
+  //   Se avisaba de la cancha caida, que es la hipotesis, y no del caso base,
+  //   que es la certeza.
+  //
+  //   PERO ES UN ESCENARIO, NO EL VEREDICTO. El plan se hace con la duracion
+  //   NOMINAL y `cabe` se decide contra el, no contra la proyeccion: dar por
+  //   hecho que todos los partidos se alargan seria planificar el peor caso
+  //   como si fuera el unico, y ademas se comeria la ventana de todos los
+  //   torneos que van bien. Se dice lo que pasaria; no se dice que no cabe.
+  if (realMin !== null && realMin > techoReal) {
+    avisos.push(
+      `Escenario con retrasos: si todos los partidos se alargaran, el dia acabaria a las ` +
+      `${formatHora(realMin)}, pasado el cierre de las ${entrada.hasta}. ` +
+      `El plan nominal cierra a las ${plan.finEstimado} y si cabe.`
+    );
+  }
+
+  // Y SI ADEMAS EL PLAN YA ES OPTIMO, decirlo, porque cambia la accion.
+  //
+  //   Un organizador que ve huecos al final del dia vuelve a darle a
+  //   Reprogramar esperando que se compacten. No se van a compactar: la cola
+  //   fina del final es la cadena del cuadro —cada final espera a SU semifinal
+  //   mas el descanso— y no hay con que rellenarla porque ya no queda nada por
+  //   jugar en paralelo. Cuando el plan iguala la cota inferior, reprogramar no
+  //   puede dar nada mejor y las palancas son otras: mas canchas, partidos mas
+  //   cortos, o empezar el cuadro el dia anterior.
+  const finPlanMin = plan.ultimoInicio === null ? null : parseHora(plan.ultimoInicio) + dur;
+  if (plan.cabe && finPlanMin !== null && finPlanMin <= parseHora(plan.cotaInferior)) {
+    avisos.push(
+      `Este calendario ya es el mas corto posible con ${entrada.canchas} canchas y partidos de ` +
+      `${dur} minutos: reprogramar no lo va a acortar. Los huecos del final son la cadena del ` +
+      `cuadro, no tiempo desaprovechado.`
+    );
+  }
+
   if (unaMenosMin !== null && unaMenosMin > techoReal) {
     avisos.push(
       `Con una cancha menos, este formato terminaria a las ${formatHora(unaMenosMin)}.`

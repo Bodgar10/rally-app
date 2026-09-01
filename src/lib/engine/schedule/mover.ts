@@ -68,9 +68,23 @@ export interface Conflicto {
 }
 
 export interface ResultadoMovimiento {
+  /**
+   * ¿Se puede hacer el movimiento?
+   *
+   * NO es `conflictos.length === 0`. El descanso insuficiente es un AVISO, no
+   * un impedimento: en un torneo de padel se juega seguido, y el respiro entre
+   * rondas es consecuencia de que falten canchas, no una regla. Bloquear un
+   * movimiento por eso era el motor arbitrando una decisión que es del
+   * organizador, que además tiene delante a las parejas y sabe si aguantan.
+   */
   ok: boolean;
   conflictos: Conflicto[];
 }
+
+/** Motivos que solo INFORMAN. El resto impide el movimiento. */
+const SOLO_AVISAN: ReadonlySet<MotivoConflicto> = new Set<MotivoConflicto>([
+  'descanso_insuficiente',
+]);
 
 export interface EntradaMovimiento {
   /** TODOS los partidos del torneo, con su horario actual. */
@@ -206,7 +220,7 @@ export function validarMovimiento(entrada: EntradaMovimiento): ResultadoMovimien
         mensaje: hace === 0
           ? `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} justo a esa hora.`
           : `${quien}${masDeUno} termina su ${etiqueta(otro.stage)} ${duracionLegible(hace)} antes; ` +
-            `necesita ${duracionLegible(desc)} de descanso.`,
+            `son menos de los ${duracionLegible(desc)} de descanso deseable.`,
       });
       continue;
     }
@@ -235,8 +249,11 @@ export function validarMovimiento(entrada: EntradaMovimiento): ResultadoMovimien
         continue;
       }
       const pFin = previo.inicioMin + dur;
-      // Distinto día: si el previo es de un día posterior, imposible.
-      const antes = previo.dia < mov.dia || (previo.dia === mov.dia && pFin + desc <= inicio);
+      // Lo único imposible es empezar ANTES de que termine la ronda anterior.
+      // Sin `+ desc`: encadenar semifinal y final sin respiro es lo normal en
+      // un torneo real, no un movimiento ilegal. Si el descanso queda corto ya
+      // se avisa arriba, con nombre.
+      const antes = previo.dia < mov.dia || (previo.dia === mov.dia && pFin <= inicio);
       if (!antes) {
         conflictos.push({
           motivo: 'ronda_previa_despues',
@@ -247,7 +264,10 @@ export function validarMovimiento(entrada: EntradaMovimiento): ResultadoMovimien
     }
   }
 
-  return { ok: conflictos.length === 0, conflictos };
+  return {
+    ok: conflictos.every((c) => SOLO_AVISAN.has(c.motivo)),
+    conflictos,
+  };
 }
 
 /**

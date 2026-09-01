@@ -105,7 +105,8 @@ describe('validarMovimiento · los cuatro jugadores', () => {
       p('m2', 'quarter', ['ana', 'eva', 'fito', 'gabi'], H(11), 'Cancha 7'),
     ];
     const r = mover(partidos, H(12, 10), 'Cancha 4');
-    expect(r.ok).toBe(false);
+    // Se avisa con nombre y se permite: es el organizador quien decide.
+    expect(r.ok).toBe(true);
     expect(r.conflictos[0].motivo).toBe('descanso_insuficiente');
     expect(r.conflictos[0].mensaje).toContain('Ana Teresa');
     expect(r.conflictos[0].mensaje).toContain('cuarto');
@@ -117,8 +118,11 @@ describe('validarMovimiento · los cuatro jugadores', () => {
       p('m1', 'semi', ['ana', 'beto', 'caro', 'dani'], H(15), 'Cancha 1'),
       p('m2', 'quarter', ['ana', 'eva', 'fito', 'gabi'], H(11), 'Cancha 7'),
     ];
-    expect(mover(partidos, H(12, 29), 'Cancha 4').ok).toBe(false);
-    expect(mover(partidos, H(12, 30), 'Cancha 4').ok).toBe(true);
+    // AVISA, no impide: el descanso es preferencia, no regla (ver ok).
+    expect(mover(partidos, H(12, 29), 'Cancha 4').conflictos[0].motivo)
+      .toBe('descanso_insuficiente');
+    expect(mover(partidos, H(12, 29), 'Cancha 4').ok).toBe(true);
+    expect(mover(partidos, H(12, 30), 'Cancha 4').conflictos).toEqual([]);
   });
 
   it('el descanso vale hacia adelante: no dejar sin aire al siguiente', () => {
@@ -128,7 +132,9 @@ describe('validarMovimiento · los cuatro jugadores', () => {
     ];
     // Moverlo a las 13:00 lo deja terminando a las 14:00, encima de la semi.
     const r = mover(partidos, H(12, 45), 'Cancha 4');
-    expect(r.ok).toBe(false);
+    // Se avisa y se deja pasar: decide el organizador, que tiene delante a la
+    // pareja y sabe si aguanta encadenar.
+    expect(r.ok).toBe(true);
     expect(r.conflictos[0].motivo).toBe('descanso_insuficiente');
     expect(r.conflictos[0].mensaje).toContain('después');
   });
@@ -169,10 +175,13 @@ describe('validarMovimiento · la ronda anterior', () => {
     expect(r.conflictos.some((c) => c.motivo === 'ronda_previa_despues')).toBe(true);
   });
 
-  it('con el descanso de por medio, sí', () => {
-    // Cuartos 10:00-11:00, más 30 de descanso: la semi puede a las 11:30.
-    expect(mover(cuadro(), H(11, 30), 'Cancha 5', 's1').ok).toBe(true);
-    expect(mover(cuadro(), H(11, 15), 'Cancha 5', 's1').ok).toBe(false);
+  it('en cuanto terminan los cuartos, sí: encadenar es legal', () => {
+    // Cuartos 10:00-11:00. La semi puede a las 11:00 clavadas — en un torneo
+    // real se juega seguido. A las 11:15 también, con aviso de descanso corto.
+    expect(mover(cuadro(), H(11), 'Cancha 5', 's1').ok).toBe(true);
+    const justo = mover(cuadro(), H(11, 15), 'Cancha 5', 's1');
+    expect(justo.ok).toBe(true);
+    expect(justo.conflictos.some((c) => c.motivo === 'descanso_insuficiente')).toBe(true);
   });
 
   it('un cuarto sin hora bloquea, y lo dice', () => {
