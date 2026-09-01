@@ -37,6 +37,9 @@ import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-
 import { useIsOrganizerOwner } from '@/hooks/useIsOrganizerOwner';
 import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
+import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
+import MisResultados from '@/components/player/MisResultados';
+import { porQueNoHayPartido } from '@/lib/situacion-jugador';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -49,6 +52,11 @@ export default function DashboardScreen() {
   const [subscription, setSubscription] = useState<{ status: string | null; billing_cycle: string | null } | null>(null);
   const [proSheetOpen, setProSheetOpen] = useState(false);
   const [networkRank, setNetworkRank] = useState<number | null>(null); // mejor posición de red (S5-SON-02b)
+  /**
+   * La situación que resolvió `MiSituacion`, para que el bloque de "próximo
+   * partido" pueda explicar POR QUÉ no hay uno en vez de callarse.
+   */
+  const [situacion, setSituacion] = useState<SituacionResuelta | null>(null);
 
   useEffect(() => {
     async function loadUserData() {
@@ -203,6 +211,19 @@ export default function DashboardScreen() {
           )}
         </View>
 
+        {/* ── MI SITUACIÓN ────────────────────────────────────────
+             ARRIBA DEL TODO, antes que el próximo partido, porque es la
+             pregunta con la que se abre la app: "¿sigo dentro?". El horario
+             importa DESPUÉS de saber que hay horario que esperar.
+
+             El dato ya existía —`clinch_status`, calculado por el motor— y no
+             salía a ninguna pantalla del jugador. */}
+        {pairIds.length > 0 && (
+          <View style={{ marginBottom: space[4] }}>
+            <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
+          </View>
+        )}
+
         {/* ── Mi próximo partido ──────────────────────────────────
              Ya no es stub: MyNextMatch lee de matches por Realtime. Sus
              nombres de rival salen de bracket_pairs_public (migración 039)
@@ -218,7 +239,27 @@ export default function DashboardScreen() {
           // que el organizador cierra la categoría y arma el cuadro.
           <MyNextMatch
             pairIds={pairIds}
-            sinPartidoAun={torneoProximo ? <TorneoPorEmpezar torneo={torneoProximo} /> : undefined}
+            sinPartidoAun={
+              /* El torneo que aún no empieza manda: es información concreta.
+                 Pero si el torneo YA empezó y aun así no hay partido, callarse
+                 era lo peor — el jugador no distingue "la app se rompió" de
+                 "todavía no se puede saber", y lo segundo es casi siempre la
+                 respuesta. `porQueNoHayPartido` la dice a partir del estado que
+                 acaba de resolver MiSituacion. */
+              torneoProximo
+                ? <TorneoPorEmpezar torneo={torneoProximo} />
+                : situacion
+                  ? (
+                    <View style={styles.heroCard}>
+                      <View style={styles.accentBar} />
+                      <Text style={styles.heroEmpty}>Todavía sin hora</Text>
+                      <Text style={styles.heroSubtext}>
+                        {porQueNoHayPartido(situacion.estado, situacion.gruposPendientes)}
+                      </Text>
+                    </View>
+                  )
+                  : undefined
+            }
           />
         ) : (
           <View style={styles.heroCard}>
@@ -303,6 +344,24 @@ export default function DashboardScreen() {
               <Text style={{ color: color.goldBright, fontSize: 16 }}>›</Text>
             </View>
           </Pressable>
+        )}
+
+        {/* ── MIS RESULTADOS ──────────────────────────────────────
+             Debajo de la situación y del próximo partido, que es el orden en
+             que se preguntan las cosas: ¿sigo dentro? → ¿cuándo juego? → ¿cómo
+             me fue? Y para quien acaba de quedar fuera es lo único que queda
+             por mirar, así que va justo detrás de la frase que se lo dice.
+
+             El componente no pinta nada si todavía no ha jugado: una tarjeta
+             que dice "aún no hay resultados" ocupa el sitio de lo que sí
+             importa antes de empezar. Por eso la etiqueta va dentro. */}
+        {pairIds.length > 0 && (
+          <>
+            <View style={styles.sectionLabel}>
+              <Text style={styles.sectionLabelText}>MIS RESULTADOS</Text>
+            </View>
+            <MisResultados pairIds={pairIds} />
+          </>
         )}
 
         {/* ── Acceso rápido a torneos ──────────────────────────── */}

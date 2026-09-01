@@ -63,6 +63,15 @@ export interface SubscribeOptions<T extends Record<string, unknown>> {
   onData: (payload: RealtimePostgresChangesPayload<T>) => void;
   /** Callback opcional de error de canal. */
   onError?: (err: Error) => void;
+  /**
+   * El canal confirmó `SUBSCRIBED`: a partir de aquí llegan cambios de verdad.
+   *
+   * Existe para poder ENSEÑARLO. Una suscripción que no se abre no falla de
+   * forma visible: el componente se pinta igual y sencillamente no se entera de
+   * nada nunca. Con esto, la pantalla puede encender su "en vivo" solo cuando
+   * hay canal, en vez de prometerlo.
+   */
+  onSubscribed?: () => void;
 }
 
 // ───────────────────────────────────────────
@@ -89,7 +98,7 @@ export interface SubscribeOptions<T extends Record<string, unknown>> {
 export function subscribeToTable<T extends Record<string, unknown>>(
   options: SubscribeOptions<T>
 ): () => void {
-  const { channelName, table, event = '*', filter, onData, onError } = options;
+  const { channelName, table, event = '*', filter, onData, onError, onSubscribed } = options;
 
   // Guard: React Native Web expone WebSocket pero la superficie de Supabase
   // Realtime funciona igual; guard solo para entornos sin conexión real (ej. SSR).
@@ -116,6 +125,7 @@ export function subscribeToTable<T extends Record<string, unknown>>(
         }
       )
       .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') onSubscribed?.();
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           const error = err ?? new Error(`Canal ${channelName} falló: ${status}`);
           console.error('[realtime]', error);
