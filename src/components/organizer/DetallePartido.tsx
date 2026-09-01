@@ -38,6 +38,10 @@ export interface PartidoDetalle {
   parejaA: string | null;
   parejaB: string | null;
   estado: 'scheduled' | 'in_progress' | 'finished';
+  /** Pareja ganadora, con nombres. Null si aún no se capturó. */
+  ganador?: string | null;
+  /** '6-4 6-3'. Null si no hay sets guardados. */
+  marcador?: string | null;
 }
 
 const ESTADO: Record<PartidoDetalle['estado'], { texto: string; tinte: string }> = {
@@ -65,6 +69,19 @@ export default function DetallePartido({ partido, sePuedeMover, onMover }: Props
         <Text style={s.contra}>contra</Text>
         <Text style={s.pareja} numberOfLines={2}>{partido.parejaB ?? 'Por definir'}</Text>
       </View>
+
+      {/* QUIÉN GANÓ, Y CON QUÉ.
+          La celda decía "Terminado" y aquí tampoco había más: el organizador
+          tocaba un partido jugado y seguía sin saber el resultado, que es
+          exactamente lo que va a buscar. Va antes que hora y cancha, que a
+          estas alturas ya no le sirven a nadie. */}
+      {jugado && partido.ganador && (
+        <View style={s.ganador}>
+          <Text style={s.ganadorEyebrow}>GANADORES</Text>
+          <Text style={s.ganadorNombre} numberOfLines={2}>{partido.ganador}</Text>
+          {partido.marcador && <Text style={s.ganadorMarcador}>{partido.marcador}</Text>}
+        </View>
+      )}
 
       <View style={s.datos}>
         <View style={s.dato}>
@@ -118,6 +135,14 @@ const s = StyleSheet.create({
   },
   pareja: { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 20 },
   contra: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+
+  ganador: {
+    backgroundColor: color.gold, borderRadius: radius.md,
+    padding: space[3.5], gap: space[1],
+  },
+  ganadorEyebrow:  { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.onGold, letterSpacing: 1.2, opacity: 0.75 },
+  ganadorNombre:   { fontFamily: font.display, fontSize: fontSize.cardName, color: color.onGold, lineHeight: 22 },
+  ganadorMarcador: { fontFamily: font.body, fontSize: fontSize.body, color: color.onGold, opacity: 0.9 },
 
   datos: { flexDirection: 'row', gap: space[3] },
   dato:  { flex: 1, gap: space[1] },

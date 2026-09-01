@@ -321,7 +321,7 @@ export default function CalendarioScreen() {
       // más. Mientras `scheduled_at` sea NULL, este filtro los deja fuera y la
       // pantalla se comporta como hasta hoy.
       supabase.from('matches')
-        .select('id, category_id, stage, round_label, scheduled_at, court_label, pair_a_id, pair_b_id, status')
+        .select('id, category_id, stage, round_label, scheduled_at, court_label, pair_a_id, pair_b_id, status, winner_pair_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
         .eq('tournament_id', tournamentId)
         .not('scheduled_at', 'is', null),
     ]);
@@ -361,6 +361,8 @@ export default function CalendarioScreen() {
         parejaA: nombreDe(pa),
         parejaB: nombreDe(pb),
         estado: (m.status as Fila['estado']) ?? 'scheduled',
+        ganadorId: m.winner_pair_id ?? null,
+        marcador: marcadorDeSets((m as any).match_sets ?? []),
         jugadores: [pa, pb].flatMap(idsDe),
       });
     }
@@ -892,6 +894,12 @@ export default function CalendarioScreen() {
                     parejaA: detalle.parejaA,
                     parejaB: detalle.parejaB,
                     estado: detalle.estado,
+                    ganador: detalle.ganadorId === detalle.parejaAId
+                      ? detalle.parejaA
+                      : detalle.ganadorId === detalle.parejaBId
+                        ? detalle.parejaB
+                        : null,
+                    marcador: detalle.marcador ?? null,
                   }}
                   sePuedeMover={sePuedeMover(detalle)}
                   onMover={() => { setMoviendo(detalle); setDetalle(null); }}
@@ -951,6 +959,25 @@ export default function CalendarioScreen() {
 }
 
 // ── Auxiliares ──────────────────────────────────────────────────────────────
+
+/**
+ * '6-4 6-3'. El super muerte con sus PUNTOS entre corchetes, no con el 1-0 que
+ * cuenta para la tabla: quien mira un marcador quiere ver el 10-7 que se jugó.
+ * GEMELO de `marcadorDe` en grupos.tsx — mismo formato en las dos pantallas.
+ */
+function marcadorDeSets(
+  sets: { set_number: number; games_a: number; games_b: number;
+          is_super_tiebreak: boolean; tiebreak_a: number | null; tiebreak_b: number | null }[],
+): string | null {
+  if (!sets || sets.length === 0) return null;
+  return [...sets]
+    .sort((a, b) => a.set_number - b.set_number)
+    .map((st) =>
+      st.is_super_tiebreak && st.tiebreak_a != null && st.tiebreak_b != null
+        ? `[${st.tiebreak_a}-${st.tiebreak_b}]`
+        : `${st.games_a}-${st.games_b}`)
+    .join(' ');
+}
 
 const nombreDe = (p: ParejaPublica | undefined): string | null =>
   p ? `${p.player1_name} / ${p.player2_name}` : null;

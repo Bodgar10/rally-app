@@ -200,12 +200,23 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
  * justo lo que se va a mirar en un cuadro antes de que se juegue: el camino.
  */
 function CeldaFutura({
-  etapa, indice, slot,
+  etapa, indice, slot, ladoA, ladoB,
 }: {
   etapa: EtapaCuadro;
   indice: number;
   /** El hueco del plan, si lo hay. Sin él la celda queda como estaba. */
   slot?: SlotDelPlan;
+  /**
+   * Los dos lados del cruce, ya resueltos si se pueden.
+   *
+   * CADA LADO POR SEPARADO, y ese es el punto. La celda esperaba a que las DOS
+   * semifinales terminaran para decir algo: en 6ª Varonil acabó la primera,
+   * ganaron Víctor Martínez / Andrés Torres, y la final seguía anunciando
+   * "Ganador de semifinal 1" con el nombre ya sabido. Media verdad conocida se
+   * dice; no se guarda hasta tener la otra mitad.
+   */
+  ladoA: string | null;
+  ladoB: string | null;
 }) {
   const viene = ORIGEN_DE_LA_RONDA[etapa];
   return (
@@ -223,14 +234,33 @@ function CeldaFutura({
         gap: 2,
       }}
     >
-      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
-        {viene ? `${viene} ${indice * 2 + 1}` : 'Por definir'}
+      <Text
+        style={{
+          fontFamily: font.body,
+          fontSize: 11,
+          // El nombre real se lee como dato; el hueco, como espera.
+          color: ladoA ? color.text : color.muted,
+          fontWeight: ladoA ? '600' : '400',
+          textAlign: 'center',
+        }}
+        numberOfLines={2}
+      >
+        {ladoA ?? (viene ? `${viene} ${indice * 2 + 1}` : 'Por definir')}
       </Text>
       <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
         vs
       </Text>
-      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
-        {viene ? `${viene} ${indice * 2 + 2}` : 'Por definir'}
+      <Text
+        style={{
+          fontFamily: font.body,
+          fontSize: 11,
+          color: ladoB ? color.text : color.muted,
+          fontWeight: ladoB ? '600' : '400',
+          textAlign: 'center',
+        }}
+        numberOfLines={2}
+      >
+        {ladoB ?? (viene ? `${viene} ${indice * 2 + 2}` : 'Por definir')}
       </Text>
 
       {/* LA HORA YA SE SABE, AUNQUE LAS PAREJAS NO.
@@ -253,6 +283,39 @@ function CeldaFutura({
       )}
     </View>
   );
+}
+
+/**
+ * Quién sale de un partido de la ronda anterior, si ya se sabe.
+ *
+ * `null` mientras no haya ganador. Un bye cuenta: si solo hay una pareja
+ * apuntada, esa pasa aunque nadie haya capturado nada.
+ */
+function saleDe(m: BracketMatch | undefined, quiero: 'ganador' | 'perdedor'): string | null {
+  if (!m) return null;
+  const ganador = m.winnerPairId
+    ?? (m.pairAId && !m.pairBId ? m.pairAId : null)
+    ?? (m.pairBId && !m.pairAId ? m.pairBId : null);
+  if (!ganador) return null;
+  if (quiero === 'ganador') {
+    return ganador === m.pairAId ? m.pairAName : m.pairBName;
+  }
+  // El perdedor solo existe si jugaron los dos: un bye no deja perdedor.
+  if (!m.pairAId || !m.pairBId) return null;
+  return ganador === m.pairAId ? m.pairBName : m.pairAName;
+}
+
+/**
+ * La ronda anterior ORDENADA POR SU ETIQUETA, no por id.
+ *
+ * `fetchBracketMatches` pide `order by id`, que dentro de una ronda no
+ * significa nada. Las etiquetas —'semi-01', 'quarter-00-01'— sí: llevan el
+ * número con cero delante justo para que el orden lexicográfico sea el
+ * numérico (ver `etiquetaDeRonda`). Emparejar por posición con el orden
+ * equivocado pondría al ganador de una semifinal en el lado de la otra.
+ */
+function porEtiqueta(partidos: BracketMatch[]): BracketMatch[] {
+  return [...partidos].sort((a, b) => (a.roundLabel ?? '').localeCompare(b.roundLabel ?? ''));
 }
 
 /** De qué ronda sale quien juega la siguiente. */
@@ -569,7 +632,19 @@ export default function LiveBracket({
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', gap: 24, padding: 16, alignItems: 'flex-start' }}>
-        {columnas.map(({ etapa: stage, partidos, huecos }) => (
+        {columnas.map(({ etapa: stage, partidos, huecos }, col) => {
+          /**
+           * La ronda de la que salen los cruces de ESTA columna.
+           *
+           * El 3.er lugar no cuelga de la columna anterior: sale de los dos
+           * perdedores de semifinales, así que se busca su ronda por nombre.
+           */
+          const previa = stage === 'third_place'
+            ? porEtiqueta(columnas.find((c) => c.etapa === 'semi')?.partidos ?? [])
+            : porEtiqueta(col > 0 ? columnas[col - 1].partidos : []);
+          const quiero = stage === 'third_place' ? 'perdedor' as const : 'ganador' as const;
+
+          return (
           <View key={stage} style={{ alignItems: 'center' }}>
             {/* Label de ronda */}
             <Text
@@ -603,18 +678,24 @@ export default function LiveBracket({
                 // la ronda entera sin materializar —lo normal, porque se crea
                 // de golpe— esto es 0, 1, 2…
                 const slotIndex = partidos.length + i;
+                // Un cruce sale de dos partidos consecutivos de la ronda
+                // anterior: el 2n y el 2n+1. El 3.er lugar sale de las dos
+                // semifinales, que son justo esos dos con n = 0.
                 return (
                   <CeldaFutura
                     key={`hueco-${stage}-${i}`}
                     etapa={stage}
                     indice={i}
                     slot={plan.get(`${stage}#${slotIndex}`)}
+                    ladoA={saleDe(previa[slotIndex * 2], quiero)}
+                    ladoB={saleDe(previa[slotIndex * 2 + 1], quiero)}
                   />
                 );
               })}
             </View>
           </View>
-        ))}
+          );
+        })}
       </View>
     </ScrollView>
   );

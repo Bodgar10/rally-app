@@ -115,6 +115,8 @@ interface Categoria {
   conHorario: boolean;
   /** True si ya existen partidos de eliminatorias: el cuadro está sembrado. */
   cuadroSembrado: boolean;
+  /** La pareja campeona, con nombres, si la final ya se jugó. */
+  campeon: string | null;
 }
 
 /** Id reservado de la pestaña "Todos". No colisiona: los demás son uuid. */
@@ -243,9 +245,18 @@ export default function GruposScreen() {
     // Partidos de fase final: su sola existencia dice que el cuadro ya se
     // sembró, y eso desactiva el botón de sembrar.
     const { data: cuadro } = await supabase
-      .from('matches').select('category_id')
+      .from('matches').select('category_id, stage, status, winner_pair_id')
       .eq('tournament_id', tournamentId).neq('stage', 'group');
     const catsConCuadro = new Set((cuadro ?? []).map((m) => m.category_id));
+
+    // La final terminada de cada categoría. Es el desenlace del torneo para
+    // esa categoría: hasta ahora no se decía en ninguna parte de esta pantalla.
+    const campeonPorCat = new Map<string, string>();
+    for (const m of cuadro ?? []) {
+      if (m.stage === 'final' && m.status === 'finished' && m.winner_pair_id) {
+        campeonPorCat.set(m.category_id, m.winner_pair_id);
+      }
+    }
 
     const grupoIds = (grupos ?? []).map((g) => g.id);
     const matchIds = (partidos ?? []).map((m) => m.id);
@@ -402,6 +413,10 @@ export default function GruposScreen() {
         gruposCompletos: gs.filter((g) => g.completo).length,
         conHorario: (partidos ?? []).some((m) => m.category_id === c.id && m.scheduled_at),
         cuadroSembrado: catsConCuadro.has(c.id),
+        campeon: (() => {
+          const id = campeonPorCat.get(c.id);
+          return id ? nombreDePareja(mapaParejas.get(id)) : null;
+        })(),
       });
     }
 
@@ -557,6 +572,19 @@ export default function GruposScreen() {
 
             {activa && (
               <>
+                {/* EL CAMPEÓN, ARRIBA DE TODO.
+                    Cuando la final termina, esa categoría tiene un desenlace y
+                    esta pantalla no lo decía en ninguna parte: había que
+                    deducirlo del cuadro. Va primero y en oro sólido —no el
+                    atenuado de las acciones bloqueadas— porque es el resultado
+                    del torneo, no un estado más de la lista. */}
+                {activa.campeon && (
+                  <View style={s.campeon}>
+                    <Text style={s.campeonEyebrow}>CAMPEONES · {activa.nombre.toUpperCase()}</Text>
+                    <Text style={s.campeonNombre}>{activa.campeon}</Text>
+                  </View>
+                )}
+
                 {/* Resumen de la categoría */}
                 <View style={s.resumen}>
                   {/* UNA línea. Eran cuatro explicando el formato, y el
@@ -861,6 +889,18 @@ const s = StyleSheet.create({
   progreso:       { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne, marginTop: space[2] },
 
   // Habilitado: oro sólido, texto negro. Es la acción que cierra la fase.
+  campeon: {
+    backgroundColor: color.gold, borderRadius: radius.lg,
+    paddingVertical: space[4], paddingHorizontal: space[4],
+    marginTop: space[2], gap: space[1],
+  },
+  campeonEyebrow: {
+    fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.onGold,
+    letterSpacing: 1.2, opacity: 0.75,
+  },
+  campeonNombre: {
+    fontFamily: font.display, fontSize: fontSize.metric, color: color.onGold, lineHeight: 30,
+  },
   botonSembrar:      { backgroundColor: color.gold, borderWidth: 1, borderColor: color.gold, borderRadius: radius.sm, paddingVertical: space[3], paddingHorizontal: space[3], alignItems: 'center', marginTop: space[2] },
   // Deshabilitado: contorno de oro al 40% sobre el fondo. Se lee como botón.
   botonSembrarOff:   { backgroundColor: 'transparent', borderColor: color.goldMuted },

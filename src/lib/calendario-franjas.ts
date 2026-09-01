@@ -29,6 +29,10 @@ export interface FilaCalendario {
   parejaA: string | null;
   parejaB: string | null;
   estado: 'scheduled' | 'in_progress' | 'finished';
+  /** Pareja ganadora. Null mientras no se haya capturado. */
+  ganadorId?: string | null;
+  /** '6-4 6-3'. Null si no hay sets guardados. */
+  marcador?: string | null;
   /** Ids, para detectar choques reales. */
   jugadores: string[];
 }
