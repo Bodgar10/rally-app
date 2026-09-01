@@ -8,7 +8,7 @@ export { computeFormat } from './format';
 export { generateRoundRobin } from './fixtures';
 
 // Captura de resultado -> tabla + clasificación
-export { validateScore } from './score';
+export { validateScore, clasificarSet } from './score';
 export { computeStandings } from './standings';
 export { computeClinch } from './clinch';
 
@@ -74,7 +74,7 @@ export type { RankingRules, PlayerTournamentResult, RoundReached } from './ranki
 // (igual que el shim de close-registration/engine.ts). El resto sí está en ./types.
 export type { FormatPlan } from './format';
 export type { Fixture } from './fixtures';
-export type { ValidatedScore, ScoreConfig } from './score';
+export type { ValidatedScore, ScoreConfig, FormatoDeSet } from './score';
 export type { StandingsConfig } from './standings';
 export type { ClinchResult } from './clinch';
 export type { SeedInput, BracketMatch, SeedingResult } from './seeding';

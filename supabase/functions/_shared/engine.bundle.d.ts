@@ -86,6 +86,24 @@ interface ValidatedScore {
     setsA: number;
     setsB: number;
 }
+/** Qué formato tiene un par de números, si es que tiene alguno. */
+type FormatoDeSet = 'normal' | 'super' | null;
+/**
+ * Clasifica un marcador de set POR SUS NÚMEROS.
+ *
+ * NO HACE FALTA PREGUNTAR SI ES SUPER MUERTE: los dos formatos no se solapan.
+ *   · Set normal: termina en 6 con 4 o menos enfrente (6-0 … 6-4), o en 7 con
+ *     5 o 6 (7-5, 7-6). El máximo posible es 7.
+ *   · Super muerte: llega a 10 o más con dos de diferencia (10-0, 10-8, 12-10).
+ *     El mínimo posible del ganador es 10.
+ *
+ * Entre 7 y 10 no hay nada, así que ningún marcador puede ser las dos cosas.
+ * El interruptor "super muerte" de la pantalla del juez preguntaba un dato que
+ * ya estaba escrito en los números — y que se podía contestar mal.
+ *
+ * Devuelve null si no cabe en ninguno de los dos.
+ */
+declare function clasificarSet(a: number, b: number, cfg?: ScoreConfig): FormatoDeSet;
 /**
  * Valida un marcador completo y deriva el ganador.
  * No persiste nada; solo dice si el marcador es legal y quién ganó.
@@ -931,4 +949,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };

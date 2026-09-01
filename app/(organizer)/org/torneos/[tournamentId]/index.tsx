@@ -3,7 +3,8 @@
  *
  * PRINCIPIO DE DISEÑO (rediseño fase 1):
  *   · UNA sola acción dorada por pantalla: el siguiente paso según el estado.
- *   · Lo que NAVEGA es una fila de ajuste (ícono, título, valor, chevron).
+ *   · Lo que NAVEGA es una tarjeta de ajuste (ícono, título, valor, chevron),
+ *     colocada en rejilla: una columna en móvil, dos o tres en escritorio.
  *   · Lo secundario, gris perfilado. Lo irreversible, en danger y con confirmación.
  *
  * Antes había tres bloques dorados compitiendo (abrir, cerrar y asignar juez) y
@@ -15,9 +16,15 @@
  * quitar categoría. Cerrar inscripciones no destruye nada — genera los grupos y
  * los partidos — así que pintarlo de rojo desalentaba el camino feliz.
  *
- * FASE 1: las filas cuya pantalla de destino aún no existe quedan visibles pero
- * deshabilitadas, mostrando su valor real. Se ve el diseño entero y se lee la
- * configuración; editar llega en la fase 2.
+ * FASE 1: las tarjetas cuya pantalla de destino aún no existe quedan visibles
+ * pero deshabilitadas, mostrando su valor real. Se ve el diseño entero y se lee
+ * la configuración; editar llega en la fase 2.
+ *
+ * TRES GRUPOS, NO UNO
+ *   "Configuración del torneo" se prepara con semanas de margen. "Durante el
+ *   torneo" se abre el sábado con gente delante. "Parejas" es el censo. Eran
+ *   doce filas seguidas bajo un solo rótulo, y encontrar una obligaba a leerlas
+ *   todas.
  */
 
 import { useCallback, useState } from 'react';
@@ -28,12 +35,12 @@ import {
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase }               from '@/lib/supabase/client';
-import SettingRow                 from '@/components/organizer/SettingRow';
+import TarjetaAjuste              from '@/components/organizer/TarjetaAjuste';
 import ChecklistApertura, { type ItemChecklist } from '@/components/organizer/ChecklistApertura';
 import { formatearRango }     from '@/lib/fechas';
 import { generarBloques }     from '@/lib/engine/schedule/bloques';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
-import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
@@ -390,15 +397,15 @@ export default function OrgTournamentScreen() {
         )}
 
         {/* ── Configuración ────────────────────────────────────── */}
-        <Text style={s.seccion}>CONFIGURACIÓN</Text>
-        <View style={s.grupo}>
-          <SettingRow
+        <Text style={s.seccion}>CONFIGURACIÓN DEL TORNEO</Text>
+        <View style={s.rejilla}>
+          <TarjetaAjuste
             icon="calendar"
             title="Fechas"
             value={formatearRango(tournament.start_date, tournament.end_date)}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/fechas`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="pin"
             title="Sede"
             value={tournament.venues
@@ -407,7 +414,7 @@ export default function OrgTournamentScreen() {
             iconColor={tieneSede ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sede`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="grid"
             title="Categorías"
             value={resumenCategorias(categories)}
@@ -415,7 +422,7 @@ export default function OrgTournamentScreen() {
             iconColor={tieneCategorias ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/categorias`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="money"
             title="Cuota de inscripción"
             value={valorCuota}
@@ -424,7 +431,7 @@ export default function OrgTournamentScreen() {
           {/* Canchas y horarios son las dos mitades de la capacidad: con las
               dos, el planificador dice si el torneo cabe; sin alguna, cae a
               decidir categoría por categoría mirando solo las parejas. */}
-          <SettingRow
+          <TarjetaAjuste
             icon="grid"
             title="Canchas"
             value={tournament.courts
@@ -433,7 +440,7 @@ export default function OrgTournamentScreen() {
             iconColor={tournament.courts ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/canchas`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="clock"
             title="Horarios"
             value={resumenHorarios}
@@ -444,7 +451,7 @@ export default function OrgTournamentScreen() {
               3.er lugar son ocho partidos que caen todos a la vez, entre
               semifinales y finales. Va aquí, junto a la capacidad, porque es
               donde se decide cuánto cabe. */}
-          <SettingRow
+          <TarjetaAjuste
             icon="flag"
             title="Formato"
             value={tercerLugar ? 'Con 3.er lugar' : 'Sin 3.er lugar'}
@@ -452,28 +459,37 @@ export default function OrgTournamentScreen() {
           />
           {/* Va pegada a Canchas y Horarios porque es su consecuencia: aquí se
               ve si lo capturado alcanza para la gente que se está inscribiendo. */}
-          <SettingRow
+          <TarjetaAjuste
             icon="grid"
             title="Horarios de la fase de grupos"
             value={resumenBloques}
             iconColor={bloquesApretados || !capacidadBloques ? color.alive : undefined}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/bloques`)}
           />
+        </View>
+
+        {/* ── Durante el torneo ────────────────────────────────────────
+            Se separan de la configuración porque se usan en otro momento y
+            por otra razón: lo de arriba se prepara una vez, con semanas de
+            margen; esto se abre el sábado, con gente delante. Mezclarlas
+            obligaba a leer las doce para encontrar una. */}
+        <Text style={s.seccion}>DURANTE EL TORNEO</Text>
+        <View style={s.rejilla}>
           {/* El calendario cuelga de la capacidad: sin canchas ni horarios no
               hay nada que programar, y la propia pantalla lo dice. */}
-          <SettingRow
+          <TarjetaAjuste
             icon="calendar"
             title="Calendario"
             value="Horas y canchas del último día"
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="users"
             title="Grupos"
             value="Tablas y partidos de la fase de grupos"
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/grupos`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="whistle"
             title="Jueces"
             value={judgeCount > 0
@@ -487,8 +503,8 @@ export default function OrgTournamentScreen() {
 
         {/* ── Parejas ──────────────────────────────────────────── */}
         <Text style={s.seccion}>PAREJAS</Text>
-        <View style={s.grupo}>
-          <SettingRow
+        <View style={s.rejilla}>
+          <TarjetaAjuste
             icon="users"
             title="Inscritas"
             value={pairCount === 0
@@ -497,7 +513,7 @@ export default function OrgTournamentScreen() {
             badge={pairCount > 0 ? String(pairCount) : undefined}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/parejas`)}
           />
-          <SettingRow
+          <TarjetaAjuste
             icon="userPlus"
             title="Registrar pareja a mano"
             value="Para quien te pagó por fuera"
@@ -635,7 +651,9 @@ export default function OrgTournamentScreen() {
 const s = StyleSheet.create({
   safe:             { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
-  content:          { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
+  // Columna ancha: con los 720 de lectura la rejilla solo llega a dos
+  // columnas y el panel se sigue leyendo como una lista. Ver web-layout.
+  content:          { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumnAncha },
 
   eyebrow: { fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.gold, letterSpacing: 3 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text },
@@ -660,6 +678,24 @@ const s = StyleSheet.create({
     letterSpacing: 2,
     marginTop:     space[3],
   },
+  /**
+   * LA REJILLA DEL PANEL.
+   *
+   * Doce destinos apilados a una columna pasaban de una pantalla y media, y en
+   * un monitor de 1300px sobraba sitio a los lados. Con `flexWrap` y el
+   * `flexBasis` que trae cada tarjeta, caben las que quepan: una en un
+   * teléfono, dos o tres en escritorio. Sin breakpoints y sin saltos al
+   * redimensionar.
+   */
+  rejilla: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+
+  /**
+   * La zona de riesgo NO va en rejilla, a propósito.
+   *
+   * Son botones que terminan o borran el torneo. Ponerlos lado a lado los
+   * acerca al pulgar y los pone a competir entre ellos; apilados y a lo ancho
+   * se leen de uno en uno, que es como hay que leer algo irreversible.
+   */
   grupo: { gap: space[2] },
 
   // Única acción dorada de la pantalla

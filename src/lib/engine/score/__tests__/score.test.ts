@@ -1,5 +1,5 @@
 // src/lib/engine/score/__tests__/score.test.ts
-import { validateScore } from '../index';
+import { clasificarSet, validateScore } from '../index';
 import type { SetScore } from '../../types';
 
 const set = (a: number, b: number): SetScore => ({
@@ -105,7 +105,8 @@ describe('validateScore — contrato de super muerte', () => {
     for (const [a, b] of casos) {
       const r = validateScore([set(6, 4), set(4, 6), superSet(a, b)]);
       expect(r.valid).toBe(false);
-      expect(r.errors.join(' ')).toMatch(/[Ss]uper muerte/);
+      // El error dice qué SÍ vale, no solo que está mal.
+      expect(r.errors.join(' ')).toMatch(/súper muerte a 10/);
     }
     // 12-10 sí: pasa de 10 con margen de 2.
     expect(validateScore([set(6, 4), set(4, 6), superSet(12, 10)]).valid).toBe(true);
@@ -117,6 +118,99 @@ describe('validateScore — contrato de super muerte', () => {
     };
     // 1-0 no llega a 10: se rechaza en vez de colar un super muerte falso.
     expect(validateScore([set(6, 4), set(4, 6), st]).valid).toBe(false);
+  });
+});
+
+/**
+ * EL FORMATO SE DEDUCE DE LOS NÚMEROS
+ *
+ * El interruptor "super muerte" de la pantalla del juez preguntaba un dato que
+ * ya estaba escrito en el marcador. Estos tests fijan que no hace falta: los
+ * dos formatos no se solapan, porque un set normal no pasa de 7 y una súper
+ * muerte no baja de 10.
+ */
+describe('clasificarSet — los dos formatos y sus límites', () => {
+  it('sets normales: 6-0 a 6-4, 7-5 y 7-6', () => {
+    const validos: [number, number][] = [
+      [6, 0], [6, 1], [6, 2], [6, 3], [6, 4],
+      [7, 5], [7, 6],
+      [0, 6], [4, 6], [5, 7], [6, 7],   // y al revés
+    ];
+    for (const [a, b] of validos) expect(clasificarSet(a, b)).toBe('normal');
+  });
+
+  it('6-5 NO es un set: falta el juego de cierre', () => {
+    expect(clasificarSet(6, 5)).toBeNull();
+  });
+
+  it('7-4 y 8-6 NO son sets: el 7 solo vale contra 5 o 6, y no hay 8', () => {
+    expect(clasificarSet(7, 4)).toBeNull();
+    expect(clasificarSet(8, 6)).toBeNull();
+  });
+
+  it('súper muertes: 10 o más con dos de diferencia', () => {
+    const validos: [number, number][] = [[10, 0], [10, 8], [12, 10], [15, 13], [8, 10]];
+    for (const [a, b] of validos) expect(clasificarSet(a, b)).toBe('super');
+  });
+
+  it('10-9 NO es súper muerte: falta el margen de dos', () => {
+    expect(clasificarSet(10, 9)).toBeNull();
+  });
+
+  it('9-7 NO es nada: ni llega a 10 ni es un set', () => {
+    expect(clasificarSet(9, 7)).toBeNull();
+  });
+
+  it('la tierra de nadie entre 7 y 10 no es de nadie: por eso no hay ambigüedad', () => {
+    for (const [a, b] of [[8, 0], [9, 0], [8, 6], [9, 7]] as [number, number][]) {
+      expect(clasificarSet(a, b)).toBeNull();
+    }
+  });
+
+  it('empate y números imposibles', () => {
+    expect(clasificarSet(6, 6)).toBeNull();
+    expect(clasificarSet(10, 10)).toBeNull();
+    expect(clasificarSet(NaN, 4)).toBeNull();
+    expect(clasificarSet(-1, 6)).toBeNull();
+  });
+});
+
+describe('validateScore — tercer set sin interruptor', () => {
+  it('acepta un 10-8 en el tercer set aunque nadie lo marque como súper muerte', () => {
+    // Así llega ahora del formulario: dos números y nada más.
+    const r = validateScore([set(6, 4), set(4, 6), set(10, 8)]);
+    expect(r.valid).toBe(true);
+    expect(r.winnerSide).toBe('A');
+    expect([r.setsA, r.setsB]).toEqual([2, 1]);
+  });
+
+  it('acepta un tercer set normal, 7-5, en el mismo hueco', () => {
+    const r = validateScore([set(6, 4), set(4, 6), set(5, 7)]);
+    expect(r.valid).toBe(true);
+    expect(r.winnerSide).toBe('B');
+  });
+
+  it('el error del tercer set ofrece LOS DOS formatos', () => {
+    const r = validateScore([set(6, 4), set(4, 6), set(7, 3)]);
+    expect(r.valid).toBe(false);
+    const msg = r.errors.join(' ');
+    expect(msg).toMatch(/7-3/);                          // qué se capturó
+    expect(msg).toMatch(/set normal \(6-4, 7-5, 7-6\)/); // qué sí vale
+    expect(msg).toMatch(/súper muerte a 10 \(10-8, 12-10\)/);
+  });
+
+  it('en un set que NO es el decisivo, el error ofrece solo el formato normal', () => {
+    const r = validateScore([set(7, 3), set(6, 2)]);
+    expect(r.valid).toBe(false);
+    const msg = r.errors.join(' ');
+    expect(msg).toMatch(/set normal/);
+    expect(msg).not.toMatch(/o una súper muerte/);
+  });
+
+  it('un 10-8 en el PRIMER set se rechaza diciendo por qué, no como marcador ilegible', () => {
+    const r = validateScore([set(10, 8), set(6, 2)]);
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/solo se juega en el set decisivo/);
   });
 });
 

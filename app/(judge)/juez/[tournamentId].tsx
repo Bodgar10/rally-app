@@ -34,12 +34,12 @@ import {
   ScrollView,
   Text,
   View,
-  Modal,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
+import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { horaDeTorneo } from '@/lib/fechas';
@@ -253,8 +253,15 @@ export default function JudgeTournamentScreen() {
       {/* Cabecera fuera del FlatList: no hereda la columna centrada del
           contentContainerStyle, así que la aporta ella misma. */}
       <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 12, ...webContentColumn }}>
+        {/* `canGoBack` y no `router.back()` a secas: a esta pantalla se llega
+            por `replace` desde la puerta del juez cuando solo arbitra un
+            torneo, y ahí no hay historial que deshacer — el botón se pintaba
+            igual y no hacía nada. Mismo criterio que BotonVolver. */}
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/(judge)/juez');
+          }}
           style={{ padding: 8 }}
           accessibilityRole="button"
           accessibilityLabel="Volver"
@@ -418,71 +425,48 @@ export default function JudgeTournamentScreen() {
         </>
       )}
 
-      {/* Modal de captura */}
-      <Modal
-        visible={!!selectedMatch}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setSelectedMatch(null)}
-      >
-        {selectedMatch && (
-          <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
-            <View
-              style={{
-                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                paddingHorizontal: 18, paddingVertical: 14,
-                borderBottomWidth: 1, borderBottomColor: color.lineSoft,
-              }}
-            >
-              <Text style={{ fontFamily: font.display, fontSize: 17, fontWeight: '600', color: color.text }}>
-                {selectedMatch.status === 'finished' ? 'Corregir resultado' : 'Capturar resultado'}
-              </Text>
-              <Pressable
-                onPress={() => setSelectedMatch(null)}
-                style={{ padding: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Cerrar"
-              >
-                <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 15 }}>✕</Text>
-              </Pressable>
-            </View>
-
-            <View style={{ paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: color.lineSoft }}>
-              <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted, marginBottom: 6 }}>
-                {selectedMatch.categoryName}
-                {selectedMatch.groupName ? ` · Grupo ${selectedMatch.groupName}` : ''}
-                {' · '}
-                {STAGE_LABEL[selectedMatch.stage] ?? selectedMatch.stage}
-              </Text>
-              <Text style={{ fontFamily: font.display, fontSize: 15, fontWeight: '600', color: color.text }}>
-                {selectedMatch.pairAName}
-              </Text>
-              <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, marginVertical: 2 }}>vs</Text>
-              <Text style={{ fontFamily: font.display, fontSize: 15, fontWeight: '600', color: color.text }}>
-                {selectedMatch.pairBName}
+      {/* La hoja de captura.
+          Era un `<Modal presentationStyle="pageSheet">`: esa prop solo hace
+          algo en iOS nativo, así que en web —y la web móvil es donde captura
+          el juez— salía a pantalla completa y el contenido se perdía por
+          debajo del pliegue. `Hoja` acota la altura y mete el cuerpo en un
+          scroller que llega hasta el botón de confirmar. */}
+      {selectedMatch && (
+        <Hoja
+          visible
+          onClose={() => setSelectedMatch(null)}
+          eyebrow={
+            `${selectedMatch.categoryName}` +
+            `${selectedMatch.groupName ? ` · Grupo ${selectedMatch.groupName}` : ''}` +
+            ` · ${STAGE_LABEL[selectedMatch.stage] ?? selectedMatch.stage}`
+          }
+          titulo={selectedMatch.status === 'finished' ? 'Corregir resultado' : 'Capturar resultado'}
+          ancho={HOJA_FORMULARIO}
+          subtitulo={
+            <>
+              <Text style={{ fontFamily: font.body, fontSize: 14, color: color.text, lineHeight: 21 }}>
+                {selectedMatch.pairAName} vs {selectedMatch.pairBName}
               </Text>
               {selectedMatch.marcador && (
-                <Text style={{ fontFamily: font.body, fontSize: 12, color: color.champagne, marginTop: 6 }}>
+                <Text style={{ fontFamily: font.body, fontSize: 12, color: color.champagne, marginTop: 4 }}>
                   Guardado: {selectedMatch.marcador}
                 </Text>
               )}
-            </View>
-
-            <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: bottomInset }}>
-              <ScoreCapture
-                matchId={selectedMatch.id}
-                pairAId={selectedMatch.pairAId}
-                pairBId={selectedMatch.pairBId}
-                pairAName={selectedMatch.pairAName}
-                pairBName={selectedMatch.pairBName}
-                setsIniciales={selectedMatch.sets}
-                ganadorInicial={selectedMatch.winnerPairId}
-                onSuccess={handleSuccess}
-              />
-            </ScrollView>
-          </SafeAreaView>
-        )}
-      </Modal>
+            </>
+          }
+        >
+          <ScoreCapture
+            matchId={selectedMatch.id}
+            pairAId={selectedMatch.pairAId}
+            pairBId={selectedMatch.pairBId}
+            pairAName={selectedMatch.pairAName}
+            pairBName={selectedMatch.pairBName}
+            setsIniciales={selectedMatch.sets}
+            ganadorInicial={selectedMatch.winnerPairId}
+            onSuccess={handleSuccess}
+          />
+        </Hoja>
+      )}
     </SafeAreaView>
   );
 }

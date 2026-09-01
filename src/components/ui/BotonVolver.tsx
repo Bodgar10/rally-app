@@ -24,26 +24,53 @@
  */
 
 import { Pressable, Text, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 
 import { color, font, fontSize, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn } from '@/lib/web-layout';
+import { rutaPadre } from '@/lib/navegacion';
 
 interface Props {
   /** Sin la flecha. "Mis torneos" → "← Mis torneos". */
   texto: string;
   /** Por defecto `router.back()`. Pasar solo si hay que ir a otro sitio. */
   onPress?: () => void;
+  /**
+   * A dónde ir cuando NO hay historial. Por defecto, el padre de la ruta
+   * actual (ver `rutaPadre`), que acierta en casi todas. Pasar solo cuando el
+   * padre de la URL no es el sitio del que se viene.
+   */
+  destino?: string;
   /** true si el botón vive DENTRO del contentContainer del scroller. */
   enScroller?: boolean;
 }
 
-export default function BotonVolver({ texto, onPress, enScroller = false }: Props) {
+export default function BotonVolver({ texto, onPress, destino, enScroller = false }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+
+  /**
+   * Atrás si se puede; si no, al padre.
+   *
+   * `router.back()` a secas era un no-op siempre que no hubiera historial:
+   * entrando por `replace` (la puerta del juez), por URL directa o tras un F5
+   * en web. El botón se veía igual y no pasaba nada al tocarlo.
+   *
+   * `replace` y no `push` para el fallback: si no había historial, apilar una
+   * entrada nueva dejaría un "atrás" del navegador que devuelve justo a la
+   * pantalla de la que el usuario acaba de salir.
+   */
+  function volver() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace(destino ?? rutaPadre(pathname));
+  }
 
   return (
     <Pressable
-      onPress={onPress ?? (() => router.back())}
+      onPress={onPress ?? volver}
       style={({ pressed }) => [
         s.base,
         enScroller ? s.dentro : s.fuera,

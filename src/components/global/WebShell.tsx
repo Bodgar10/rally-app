@@ -56,10 +56,11 @@ const NAV_ITEMS: NavItem[] = [
 
 /**
  * Solo para quien es juez de algún torneo dentro de la ventana de fechas.
- * Va detrás de "Torneos" —el trabajo antes del expediente— y `segment: 'juez'`
- * lo deja marcado también en /juez/<id>, que es donde se pasa el rato.
+ * Va detrás de "Torneos" —el trabajo antes del expediente—. El href es
+ * `/arbitrar` (la puerta) pero el segmento marcado es `juez`, que es donde se
+ * acaba: /juez y /juez/<id>. La puerta solo se atraviesa.
  */
-const NAV_JUEZ: NavItem = { label: 'Juez', href: '/(protected)/juez', segment: 'juez' };
+const NAV_JUEZ: NavItem = { label: 'Juez', href: '/(protected)/arbitrar', segment: 'juez' };
 
 /**
  * Marca activo el item cuyo segmento abre la ruta actual.

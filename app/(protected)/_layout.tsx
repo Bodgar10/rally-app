@@ -96,7 +96,7 @@ export default function ProtectedLayout() {
       {/* Tab 3 — Juez. Antes de Ranking a propósito: durante un torneo es lo
           único que esta persona viene a hacer, y va donde cae el pulgar. */}
       <Tabs.Screen
-        name="juez"
+        name="arbitrar"
         options={{
           title: 'Juez',
           href: esJuez ? undefined : null,

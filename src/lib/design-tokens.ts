@@ -122,6 +122,16 @@ export const layout = {
   // Ancho máximo de la columna de contenido en web.
   // En móvil (nativo y web) no aplica: el contenido ocupa todo el ancho.
   contentMaxWidth: 720,
+  /**
+   * Ancho máximo para pantallas de REJILLA (fase de grupos).
+   *
+   * 720 es una medida de LECTURA: una columna de texto o de filas apiladas, a
+   * unos 75 caracteres por línea. Una rejilla de tarjetas no lee, ESCANEA — y
+   * con 720 solo caben dos columnas mientras el resto del monitor se queda en
+   * negro. 1200 deja entrar cuatro tarjetas de ~260 y sigue sin estirarse de
+   * borde a borde en un monitor ancho, que es lo que 720 venía a evitar.
+   */
+  gridMaxWidth: 1200,
   // A partir de este ancho de ventana, web usa nav horizontal.
   // Por debajo, usa menú hamburguesa. Solo aplica en web.
   desktopBreakpoint: 900,

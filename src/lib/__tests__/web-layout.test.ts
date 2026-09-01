@@ -16,6 +16,7 @@
 import {
   resolveWebLayout,
   webContentColumn,
+  webContentColumnAncha,
   bottomInset,
   inputFontSize,
 } from '../web-layout';
@@ -37,6 +38,27 @@ describe('web-layout · nativo — debe ser inerte', () => {
     // spreadear {} en un StyleSheet no añade ninguna clave.
     expect(col).toEqual({});
     expect(Object.keys(col)).toHaveLength(0);
+  });
+
+  // La columna ancha (pantallas de rejilla) tiene que ser inerte por la MISMA
+  // razón: app.json declara ios.supportsTablet, y un maxWidth caparía el
+  // contenido en iPad.
+  it.each(['ios', 'android'])('en %s, webContentColumnAncha es un objeto vacío', (os) => {
+    const { webContentColumnAncha: col } = resolveWebLayout(os);
+    expect(col).toEqual({});
+    expect(Object.keys(col)).toHaveLength(0);
+  });
+
+  it('la constante exportada también es inerte bajo la plataforma real (ios)', () => {
+    expect(webContentColumnAncha).toEqual({});
+  });
+
+  it('en web, la ancha es MÁS ancha que la de lectura', () => {
+    const { webContentColumn: lectura, webContentColumnAncha: ancha } = resolveWebLayout('web');
+    expect(Number(ancha.maxWidth)).toBeGreaterThan(Number(lectura.maxWidth));
+    // Y las dos siguen centrando igual: la única diferencia es la medida.
+    expect(ancha.alignSelf).toBe('center');
+    expect(ancha.width).toBe('100%');
   });
 
   it.each(['ios', 'android'])('en %s, NO se filtra ningún maxWidth (iPad)', (os) => {

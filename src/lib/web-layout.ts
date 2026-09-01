@@ -63,6 +63,15 @@ export interface WebLayoutValues {
    */
   webContentColumn: ViewStyle;
   /**
+   * Igual que `webContentColumn` pero con la medida de rejilla
+   * (`layout.gridMaxWidth`), para las pantallas que colocan tarjetas en varias
+   * columnas en vez de apilar filas.
+   *
+   * En nativo vale `{}`, exactamente igual que su hermana: la promesa de "iOS y
+   * Android no cambian ni un píxel" vale para las dos, y el test la fija.
+   */
+  webContentColumnAncha: ViewStyle;
+  /**
    * Relleno inferior al final de un scroll.
    *
    * Nativo: 48 (space[6] * 2) — el hueco que reserva el tab bar de 86px.
@@ -118,6 +127,9 @@ export function resolveWebLayout(os: string): WebLayoutValues {
     webContentColumn: isWeb
       ? { maxWidth: layout.contentMaxWidth, alignSelf: 'center', width: '100%' }
       : {},
+    webContentColumnAncha: isWeb
+      ? { maxWidth: layout.gridMaxWidth, alignSelf: 'center', width: '100%' }
+      : {},
     bottomInset: isWeb ? space[6] : space[6] * 2,
     inputFontSize: isWeb
       ? (nativeSize: number): number => Math.max(nativeSize, NO_ZOOM_MIN_FONT_SIZE)
@@ -130,6 +142,9 @@ const resolved = resolveWebLayout(Platform.OS);
 
 /** Ver WebLayoutValues.webContentColumn */
 export const webContentColumn: ViewStyle = resolved.webContentColumn;
+
+/** Ver WebLayoutValues.webContentColumnAncha */
+export const webContentColumnAncha: ViewStyle = resolved.webContentColumnAncha;
 
 /** Ver WebLayoutValues.bottomInset */
 export const bottomInset: number = resolved.bottomInset;

@@ -33,7 +33,16 @@
  *   set está mal si lo está. Debajo, la línea de resultado. Y el error, que
  *   era el texto más chico de la pantalla y ahora es un bloque que se lee.
  *
- * EL CONTRATO DE LA SUPER MUERTE no cambia — ver `payloadDeSets`.
+ * TAMPOCO SE PREGUNTA SI EL TERCER SET FUE SÚPER MUERTE
+ *   Por lo mismo: está en los números. Un set normal termina en 6 o en 7; una
+ *   súper muerte, en 10 o más con dos de diferencia. Entre 7 y 10 no hay nada,
+ *   así que `clasificarSet` (en el motor) decide sin ambigüedad y el formulario
+ *   se queda con DOS CASILLAS por set y ningún interruptor.
+ *
+ *   Cuando el motor lee un set como súper muerte, la pantalla lo dice debajo.
+ *   No es una pregunta: es acuse de recibo.
+ *
+ * EL CONTRATO DE LA SUPER MUERTE en la base no cambia — ver `payloadDeSets`.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -41,28 +50,27 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
-import { validateScore } from '@/lib/engine/score';
+import { clasificarSet, validateScore } from '@/lib/engine/score';
 import type { SetScore as SetDelMotor } from '@/lib/engine/types';
 
 // ───────────────────────────────────────────
 // Tipos
 // ───────────────────────────────────────────
 
+/**
+ * Un set en el formulario: DOS NÚMEROS. No hay más.
+ *
+ * Ya no se guarda `isSuperTiebreak`: el formato lo deduce `clasificarSet` a
+ * partir de los propios números, porque un set normal no pasa de 7 y una súper
+ * muerte no baja de 10. El interruptor pedía un dato que estaba escrito en el
+ * marcador, y que se podía contestar mal.
+ */
 interface SetScore {
-  gamesA: string;
-  gamesB: string;
-  isSuperTiebreak: boolean;
-  tiebreakA: string;
-  tiebreakB: string;
+  a: string;
+  b: string;
 }
 
-const emptySet = (): SetScore => ({
-  gamesA: '',
-  gamesB: '',
-  isSuperTiebreak: false,
-  tiebreakA: '',
-  tiebreakB: '',
-});
+const emptySet = (): SetScore => ({ a: '', b: '' });
 
 /** Set ya guardado, tal como viene de `match_sets`. */
 export interface SetGuardado {
@@ -95,19 +103,19 @@ export interface ScoreCaptureProps {
   onSuccess: () => void;
 }
 
-/** `match_sets` (snake, números) -> estado del formulario (strings). */
+/**
+ * `match_sets` (snake, números) -> estado del formulario (strings).
+ *
+ * De un super muerte guardado se sacan los PUNTOS, no los games: en la base ese
+ * set lleva 1-0 en games y el marcador real en tiebreak_a/b. Al reabrirlo para
+ * corregir tiene que verse "10-8", que es lo que el juez escribió.
+ */
 function aFormulario(guardados: SetGuardado[]): SetScore[] {
   return [...guardados]
-    .sort((a, b) => a.set_number - b.set_number)
-    .map((g) => ({
-      // En un super muerte los games son el marcador 1-0 y no se muestran:
-      // el formulario pide PUNTOS. Ver el contrato en payloadDeSets.
-      gamesA: g.is_super_tiebreak ? '' : String(g.games_a),
-      gamesB: g.is_super_tiebreak ? '' : String(g.games_b),
-      isSuperTiebreak: g.is_super_tiebreak,
-      tiebreakA: g.tiebreak_a != null ? String(g.tiebreak_a) : '',
-      tiebreakB: g.tiebreak_b != null ? String(g.tiebreak_b) : '',
-    }));
+    .sort((x, y) => x.set_number - y.set_number)
+    .map((g) => (g.is_super_tiebreak
+      ? { a: String(g.tiebreak_a ?? ''), b: String(g.tiebreak_b ?? '') }
+      : { a: String(g.games_a), b: String(g.games_b) }));
 }
 
 /**
@@ -127,23 +135,24 @@ function aFormulario(guardados: SetGuardado[]): SetScore[] {
  */
 function payloadDeSets(sets: SetScore[]) {
   return sets.map((s, i) => {
-    if (s.isSuperTiebreak) {
-      const tA = parseInt(s.tiebreakA, 10);
-      const tB = parseInt(s.tiebreakB, 10);
-      const validos = !isNaN(tA) && !isNaN(tB);
+    const a = parseInt(s.a, 10);
+    const b = parseInt(s.b, 10);
+
+    // El motor dice qué es esto. La pantalla ya no opina.
+    if (clasificarSet(a, b) === 'super') {
       return {
         set_number: i + 1,
-        games_a: validos && tA > tB ? 1 : 0,
-        games_b: validos && tB > tA ? 1 : 0,
+        games_a: a > b ? 1 : 0,
+        games_b: b > a ? 1 : 0,
         is_super_tiebreak: true,
-        tiebreak_a: isNaN(tA) ? null : tA,
-        tiebreak_b: isNaN(tB) ? null : tB,
+        tiebreak_a: a,
+        tiebreak_b: b,
       };
     }
     return {
       set_number: i + 1,
-      games_a: parseInt(s.gamesA, 10),
-      games_b: parseInt(s.gamesB, 10),
+      games_a: a,
+      games_b: b,
       is_super_tiebreak: false,
       tiebreak_a: null,
       tiebreak_b: null,
@@ -153,31 +162,23 @@ function payloadDeSets(sets: SetScore[]) {
 
 /** ¿Están los dos números de este set? Vacío ≠ inválido: es "todavía no". */
 function completo(s: SetScore): boolean {
-  const a = s.isSuperTiebreak ? s.tiebreakA : s.gamesA;
-  const b = s.isSuperTiebreak ? s.tiebreakB : s.gamesB;
-  return a.trim() !== '' && b.trim() !== '';
+  return s.a.trim() !== '' && s.b.trim() !== '';
 }
 
-/** Estado del formulario -> entrada del motor, solo con los sets completos. */
+/**
+ * Estado del formulario -> entrada del motor, solo con los sets completos.
+ *
+ * Se mandan los números crudos con `isSuperTiebreak: false`: es la señal de
+ * "dedúcelo tú". `validateScore` los clasifica solo, y así la pantalla y el
+ * servidor llegan a la misma conclusión sin que ninguno de los dos la escriba
+ * por su cuenta.
+ */
 function aMotor(sets: SetScore[]): SetDelMotor[] {
-  return sets.filter(completo).map((s) => {
-    if (s.isSuperTiebreak) {
-      const tA = parseInt(s.tiebreakA, 10);
-      const tB = parseInt(s.tiebreakB, 10);
-      return {
-        gamesA: tA > tB ? 1 : 0,
-        gamesB: tB > tA ? 1 : 0,
-        isSuperTiebreak: true,
-        tiebreakA: tA,
-        tiebreakB: tB,
-      };
-    }
-    return {
-      gamesA: parseInt(s.gamesA, 10),
-      gamesB: parseInt(s.gamesB, 10),
-      isSuperTiebreak: false,
-    };
-  });
+  return sets.filter(completo).map((s) => ({
+    gamesA: parseInt(s.a, 10),
+    gamesB: parseInt(s.b, 10),
+    isSuperTiebreak: false,
+  }));
 }
 
 // ───────────────────────────────────────────
@@ -237,6 +238,13 @@ export default function ScoreCapture({
     }
     return m;
   }, [veredicto]);
+
+  /** ¿Este set se está leyendo como súper muerte? Solo para decirlo en pantalla. */
+  const esSuperMuerte = (idx: number): boolean => {
+    const st = sets[idx];
+    if (!st || !completo(st)) return false;
+    return clasificarSet(parseInt(st.a, 10), parseInt(st.b, 10)) === 'super';
+  };
 
   /** Lo que no es de un set concreto. Vacío si el marcador está bien. */
   const errorGeneral = useMemo(() => {
@@ -335,49 +343,35 @@ export default function ScoreCapture({
       </View>
 
       {/* Una fila por set */}
-      <View style={{ gap: 8 }}>
-        {sets.map((s, idx) => {
+      <View style={{ gap: 10 }}>
+        {sets.map((st, idx) => {
           const malo = errorPorSet.get(idx);
           return (
-            <View key={idx} style={{ gap: 4 }}>
+            <View key={idx} style={{ gap: 5 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <Text style={estilos.numeroSet}>{idx + 1}</Text>
 
                 <ScoreInput
-                  value={s.isSuperTiebreak ? s.tiebreakA : s.gamesA}
-                  onChangeText={(v) => updateSet(idx, s.isSuperTiebreak ? 'tiebreakA' : 'gamesA', v)}
+                  value={st.a}
+                  onChangeText={(v) => updateSet(idx, 'a', v)}
                   malo={!!malo}
-                  maxLength={s.isSuperTiebreak ? 3 : 2}
-                  accessibilityLabel={`Set ${idx + 1}, ${s.isSuperTiebreak ? 'puntos' : 'games'} de ${pairAName}`}
+                  accessibilityLabel={`Set ${idx + 1}, marcador de ${pairAName}`}
                 />
                 <Text style={estilos.guion}>–</Text>
                 <ScoreInput
-                  value={s.isSuperTiebreak ? s.tiebreakB : s.gamesB}
-                  onChangeText={(v) => updateSet(idx, s.isSuperTiebreak ? 'tiebreakB' : 'gamesB', v)}
+                  value={st.b}
+                  onChangeText={(v) => updateSet(idx, 'b', v)}
                   malo={!!malo}
-                  maxLength={s.isSuperTiebreak ? 3 : 2}
-                  accessibilityLabel={`Set ${idx + 1}, ${s.isSuperTiebreak ? 'puntos' : 'games'} de ${pairBName}`}
+                  accessibilityLabel={`Set ${idx + 1}, marcador de ${pairBName}`}
                 />
-
-                {/* La super muerte solo cabe en el tercer set y solo se ofrece
-                    ahí: en el primero no es una opción, es un error. */}
-                {idx === 2 ? (
-                  <Pressable
-                    onPress={() => updateSet(idx, 'isSuperTiebreak', !s.isSuperTiebreak)}
-                    style={[estilos.chipSuper, s.isSuperTiebreak && estilos.chipSuperOn]}
-                    accessibilityRole="checkbox"
-                    accessibilityLabel="El tercer set fue super muerte"
-                    accessibilityState={{ checked: s.isSuperTiebreak }}
-                  >
-                    <Text style={[estilos.chipSuperTexto, s.isSuperTiebreak && estilos.chipSuperTextoOn]}>
-                      {s.isSuperTiebreak ? '✓ SM' : 'SM'}
-                    </Text>
-                  </Pressable>
-                ) : (
-                  <View style={{ width: 34 }} />
-                )}
               </View>
 
+              {/* Sin interruptor de súper muerte: si el tercer set se capturó
+                  10-8, el motor ya sabe que eso es una súper muerte. Se avisa
+                  cuando pasa, para que el juez vea que se entendió. */}
+              {!malo && esSuperMuerte(idx) && (
+                <Text style={estilos.notaSet}>Súper muerte</Text>
+              )}
               {malo && <Text style={estilos.errorSet}>{malo}</Text>}
             </View>
           );
@@ -475,13 +469,11 @@ function ScoreInput({
   value,
   onChangeText,
   malo,
-  maxLength,
   accessibilityLabel,
 }: {
   value: string;
   onChangeText: (v: string) => void;
   malo: boolean;
-  maxLength: number;
   accessibilityLabel: string;
 }) {
   return (
@@ -489,7 +481,9 @@ function ScoreInput({
       value={value}
       onChangeText={onChangeText}
       keyboardType="number-pad"
-      maxLength={maxLength}
+      // Dos cifras no bastan desde que la misma casilla acepta súper muertes:
+      // un 12-10 necesita tres. Antes el límite dependía del interruptor.
+      maxLength={3}
       style={[estilos.casilla, malo && estilos.casillaMala]}
       placeholderTextColor={color.muted}
       placeholder="–"
@@ -537,13 +531,12 @@ const estilos = {
 
   guion: { width: 14, textAlign: 'center' as const, color: color.muted, fontFamily: font.display as string, fontSize: 16 },
 
-  chipSuper: {
-    width: 34, minHeight: 34, alignItems: 'center' as const, justifyContent: 'center' as const,
-    borderRadius: radius.pill, backgroundColor: color.surface2,
+  notaSet: {
+    marginLeft: 36,
+    fontFamily: font.body as string,
+    fontSize: 11,
+    color: color.champagne,
   },
-  chipSuperOn: { backgroundColor: 'rgba(212,175,55,0.16)' },
-  chipSuperTexto: { fontFamily: font.body as string, fontSize: 10, color: color.muted },
-  chipSuperTextoOn: { color: color.gold, fontWeight: '600' as const },
 
   errorSet: {
     marginLeft: 36,

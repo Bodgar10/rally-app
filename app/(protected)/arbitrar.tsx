@@ -1,5 +1,11 @@
 /**
- * RALLY · La puerta del juez
+ * RALLY · La puerta del juez  (URL: /arbitrar)
+ *
+ * SE LLAMA `arbitrar` Y NO `juez` POR UNA COLISIÓN DE RUTAS
+ *   Los grupos entre paréntesis no salen en la URL, así que
+ *   `app/(protected)/juez.tsx` y `app/(judge)/juez/index.tsx` competirían por
+ *   el mismo `/juez`. La lista de torneos del juez ya vive en la segunda y es
+ *   la que tiene que quedarse con ese path; esta es solo el trampolín del tab.
  *
  * POR QUÉ EXISTE ESTA PANTALLA SI YA HAY UNA EN `(judge)`
  *   El tab bar del jugador lo monta `app/(protected)/_layout.tsx`, y `<Tabs>`

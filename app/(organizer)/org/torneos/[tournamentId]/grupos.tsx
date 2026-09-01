@@ -26,19 +26,20 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable, Modal,
+  View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
-import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStandings';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { horaDeTorneo } from '@/lib/fechas';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
+import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
@@ -394,7 +395,10 @@ export default function GruposScreen() {
           <>
             <SelectorPestanas
               pestanas={cats.map((c) => ({
-                id: c.id, etiqueta: c.nombre, cuenta: c.grupos.length,
+                // Sin `cuenta` suelta, por la misma razón que las de grupo: un
+                // "10" pegado al nombre no dice si son grupos o parejas.
+                id: c.id,
+                etiqueta: `${c.nombre} · ${c.grupos.length} ${c.grupos.length === 1 ? 'grupo' : 'grupos'}`,
               }))}
               activa={tab}
               onCambiar={(id) => { setTab(id); setGrupoTab(''); }}
@@ -470,18 +474,23 @@ export default function GruposScreen() {
                 </View>
 
                 {/* Pestañas de grupo. Solo con más de uno: con un único grupo
-                    la pestaña no elige nada y es ruido. La cuenta es el
-                    progreso —2 de 3 capturados—, que es lo que se viene a
-                    mirar. */}
+                    la pestaña no elige nada y es ruido.
+
+                    EL NÚMERO SUELTO NO SE ENTENDÍA. Decía "Grupo A 3 · Grupo B
+                    0" y ese 3 podía ser parejas, partidos o capturados: son
+                    tres cosas que en un grupo de 3 valen 3, 3 y 0. Ahora se
+                    dice entero —"1 de 3"— y el grupo terminado lleva un check,
+                    que es lo que se busca de un vistazo. */}
                 {activa.grupos.length > 1 && (
                   <SelectorPestanas
                     pestanas={[
                       ...activa.grupos.map((g) => ({
                         id: g.id,
-                        etiqueta: `Grupo ${g.nombre}`,
-                        cuenta: g.finalizados,
+                        etiqueta: g.completo
+                          ? `Grupo ${g.nombre} ✓`
+                          : `Grupo ${g.nombre} · ${g.finalizados} de ${g.partidos.length}`,
                       })),
-                      { id: TODOS, etiqueta: 'Todos', cuenta: activa.grupos.length },
+                      { id: TODOS, etiqueta: `Todos (${activa.grupos.length})` },
                     ]}
                     activa={grupoActivo}
                     onCambiar={setGrupoTab}
@@ -505,28 +514,36 @@ export default function GruposScreen() {
                       advanceCount={activa.pasanPorGrupo}
                     />
 
-                    <View style={s.partidos}>
+                    <View style={s.rejilla}>
                       {g.partidos.map((p) => (
                         <Pressable
                           key={p.id}
                           onPress={() => setCapturando(p)}
-                          style={({ pressed }) => [s.partido, pressed && { opacity: 0.7 }]}
+                          style={({ pressed }) => [s.tarjetaPartido, pressed && { opacity: 0.7 }]}
                           accessibilityRole="button"
                           accessibilityLabel={`${p.capturado ? 'Ver o corregir' : 'Capturar'}: ${p.parejaA} contra ${p.parejaB}`}
                         >
-                          <View style={s.partidoIzq}>
-                            <Text style={s.partidoParejas} numberOfLines={2}>
-                              {p.parejaA}  vs  {p.parejaB}
-                            </Text>
-                            <View style={s.partidoMeta}>
-                              {p.hora && <Text style={s.partidoHora}>{p.hora}</Text>}
-                              {p.cancha && <Text style={s.partidoCancha}>{p.cancha}</Text>}
-                              {p.marcador && <Text style={s.partidoMarcador}>{p.marcador}</Text>}
-                            </View>
+                          {/* Hora y cancha ARRIBA, en su propia línea: son lo
+                              que se busca cuando alguien pregunta "¿cuándo
+                              juego?", y antes iban al final de una fila de
+                              texto corrido. */}
+                          <View style={s.tarjetaMeta}>
+                            <Text style={s.tarjetaHora}>{p.hora ?? 'Sin hora'}</Text>
+                            {p.cancha && <Text style={s.tarjetaCancha}>{p.cancha}</Text>}
                           </View>
-                          <Text style={p.capturado ? s.accionHecha : s.accion}>
-                            {p.capturado ? 'Corregir' : 'Capturar'}
-                          </Text>
+
+                          <Text style={s.tarjetaPareja} numberOfLines={2}>{p.parejaA}</Text>
+                          <Text style={s.tarjetaVs}>vs</Text>
+                          <Text style={s.tarjetaPareja} numberOfLines={2}>{p.parejaB}</Text>
+
+                          <View style={s.tarjetaPie}>
+                            {p.marcador
+                              ? <Text style={s.tarjetaMarcador}>{p.marcador}</Text>
+                              : <Text style={s.tarjetaSinMarcador}>Sin resultado</Text>}
+                            <Text style={p.capturado ? s.accionHecha : s.accion}>
+                              {p.capturado ? 'Corregir' : 'Capturar'}
+                            </Text>
+                          </View>
                         </Pressable>
                       ))}
                     </View>
@@ -541,43 +558,39 @@ export default function GruposScreen() {
       </ScrollView>
 
       {/* MISMO flujo que el juez, no una copia. La validación del marcador, el
-          contraste del ganador y la corrección son los de ScoreCapture. */}
-      <Modal
-        visible={!!capturando}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setCapturando(null)}
-      >
-        {capturando && (
-          <SafeAreaView style={s.pantalla}>
-            <View style={s.modalCabecera}>
-              <Text style={s.modalTitulo}>
-                {capturando.capturado ? 'Corregir resultado' : 'Capturar resultado'}
-              </Text>
-              <Pressable
-                onPress={() => setCapturando(null)}
-                style={{ padding: space[2] }}
-                accessibilityRole="button"
-                accessibilityLabel="Cerrar"
-              >
-                <Text style={s.modalCerrar}>✕</Text>
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: space[4], paddingBottom: bottomInset }}>
-              <ScoreCapture
-                matchId={capturando.id}
-                pairAId={capturando.parejaAId ?? ''}
-                pairBId={capturando.parejaBId ?? ''}
-                pairAName={capturando.parejaA}
-                pairBName={capturando.parejaB}
-                setsIniciales={capturando.sets}
-                ganadorInicial={capturando.ganadorId}
-                onSuccess={() => { setCapturando(null); void cargar(); }}
-              />
-            </ScrollView>
-          </SafeAreaView>
-        )}
-      </Modal>
+          contraste del ganador y la corrección son los de ScoreCapture.
+
+          Y la MISMA hoja: era un `<Modal presentationStyle="pageSheet">` a
+          pantalla completa, que en web se comía la ventana entera. `Hoja` es
+          tarjeta centrada en escritorio y hoja acotada en móvil, como el resto
+          del proyecto. */}
+      {capturando && (
+        <Hoja
+          visible
+          onClose={() => setCapturando(null)}
+          eyebrow={activa ? activa.nombre : undefined}
+          titulo={capturando.capturado ? 'Corregir resultado' : 'Capturar resultado'}
+          ancho={HOJA_FORMULARIO}
+          subtitulo={
+            <Text style={s.hojaParejas}>
+              {capturando.parejaA} vs {capturando.parejaB}
+              {capturando.hora ? `  ·  ${capturando.hora}` : ''}
+              {capturando.cancha ? `  ·  ${capturando.cancha}` : ''}
+            </Text>
+          }
+        >
+          <ScoreCapture
+            matchId={capturando.id}
+            pairAId={capturando.parejaAId ?? ''}
+            pairBId={capturando.parejaBId ?? ''}
+            pairAName={capturando.parejaA}
+            pairBName={capturando.parejaB}
+            setsIniciales={capturando.sets}
+            ganadorInicial={capturando.ganadorId}
+            onSuccess={() => { setCapturando(null); void cargar(); }}
+          />
+        </Hoja>
+      )}
     </SafeAreaView>
   );
 }
@@ -614,7 +627,9 @@ function marcadorDe(sets: SetDeMatch[]): string | null {
 const s = StyleSheet.create({
   pantalla: { flex: 1, backgroundColor: color.bg },
   centro:   { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
+  // `webContentColumnAncha` y no la de siempre: con 720px la rejilla solo cabe
+  // a dos columnas y se desperdicia media ventana. Ver web-layout.
+  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumnAncha },
 
   eyebrow: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, letterSpacing: 1 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[2] },
@@ -640,23 +655,48 @@ const s = StyleSheet.create({
   grupoPasan:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
   grupoCompleto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.live },
 
-  partidos:        { gap: space[2] },
-  // Sube de `caption` a `body`: la tabla era ilegible a un brazo de distancia,
-  // que es como se mira un teléfono en la orilla de una cancha.
-  partido:         { backgroundColor: color.surface, borderRadius: radius.md, paddingHorizontal: space[3], paddingVertical: space[3], flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  partidoIzq:      { flex: 1, gap: space[1] },
-  partidoParejas:  { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
-  partidoMeta:     { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  partidoHora:     { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne },
-  partidoCancha:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
-  partidoMarcador: { fontFamily: font.display, fontSize: fontSize.body, color: color.text },
-  accion:          { fontFamily: font.body, fontSize: fontSize.body, color: color.gold, fontWeight: '600' },
-  accionHecha:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  /**
+   * LOS PARTIDOS, EN REJILLA.
+   *
+   * Cada partido ocupaba una fila entera para tres datos —parejas, hora,
+   * marcador— y un grupo de 3 partidos gastaba media pantalla. Con 10 grupos
+   * eso era scroll y más scroll, y encima la letra se había ido achicando para
+   * que cupiera algo.
+   *
+   * `flexWrap` con un ancho MÍNIMO por tarjeta, no un número fijo de columnas:
+   * las tarjetas caben las que quepan. En un teléfono entra una y la rejilla se
+   * comporta como la lista de antes; en 1300px de escritorio entran tres o
+   * cuatro y un grupo completo se ve sin mover la página. Una sola regla para
+   * los dos casos, sin `useWindowDimensions` ni saltos bruscos al redimensionar.
+   */
+  rejilla: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  tarjetaPartido: {
+    flexGrow: 1, flexBasis: 260, minWidth: 0,
+    backgroundColor: color.surface,
+    borderRadius: radius.md,
+    borderWidth: 1, borderColor: color.lineSoft,
+    padding: space[3],
+    gap: space[1],
+  },
+  tarjetaMeta:   { flexDirection: 'row', alignItems: 'baseline', gap: space[2], marginBottom: space[1] },
+  tarjetaHora:   { fontFamily: font.display, fontSize: fontSize.body, color: color.champagne },
+  tarjetaCancha: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  // `body` y no `caption`: se mira a un brazo de distancia, en la orilla de
+  // una cancha y con sol. La rejilla es justo lo que da sitio para subirla.
+  tarjetaPareja: { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
+  tarjetaVs:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  tarjetaPie: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: space[2], marginTop: space[2],
+    borderTopWidth: 1, borderTopColor: color.lineSoft, paddingTop: space[2],
+  },
+  tarjetaMarcador:    { fontFamily: font.display, fontSize: fontSize.body, color: color.text },
+  tarjetaSinMarcador: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  accion:             { fontFamily: font.body, fontSize: fontSize.body, color: color.gold, fontWeight: '600' },
+  accionHecha:        { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
 
   vacio: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, lineHeight: 21, paddingVertical: space[3] },
-  modalCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space[4], paddingVertical: space[3], borderBottomWidth: 1, borderBottomColor: color.lineSoft },
-  modalTitulo:   { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  modalCerrar:   { fontFamily: font.body, fontSize: 15, color: color.muted },
+  hojaParejas: { fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 },
 
   error: { fontFamily: font.body, fontSize: fontSize.body, color: color.danger, lineHeight: 21, marginTop: space[2] },
 });
