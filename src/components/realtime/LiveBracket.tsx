@@ -101,6 +101,44 @@ const STAGE_LABEL = ETIQUETA_ETAPA;
 // Fetch
 // ───────────────────────────────────────────
 
+/**
+ * El hueco reservado de una ronda que todavía no existe.
+ *
+ * `match_schedule` guarda el plan del día para TODAS las rondas desde que se
+ * programa, incluidas las que aún no tienen fila en `matches` porque el cuadro
+ * se materializa ronda a ronda. Se identifica por (categoría, etapa,
+ * slot_index) — la posición dentro de la ronda, que es lo único que existe
+ * antes que el partido. Es el mismo plan que lee la RPC para que el partido
+ * nazca con hora (migración 061).
+ */
+interface SlotDelPlan {
+  stage: string;
+  slotIndex: number;
+  scheduledAt: string;
+  courtLabel: string;
+}
+
+/** El plan de la categoría, indexado por `etapa#slot`. */
+async function fetchPlanDelCuadro(categoryId: string): Promise<Map<string, SlotDelPlan>> {
+  const { data, error } = await supabase
+    .from('match_schedule')
+    .select('stage, slot_index, scheduled_at, court_label')
+    .eq('category_id', categoryId);
+  // Un plan que no se puede leer no es motivo para no pintar el cuadro: las
+  // celdas futuras se quedan sin hora, que es exactamente como estaban antes.
+  if (error) { console.warn('[LiveBracket] plan no leído:', error.message); return new Map(); }
+  const m = new Map<string, SlotDelPlan>();
+  for (const r of data ?? []) {
+    m.set(`${r.stage}#${r.slot_index}`, {
+      stage: r.stage,
+      slotIndex: r.slot_index,
+      scheduledAt: r.scheduled_at,
+      courtLabel: r.court_label,
+    });
+  }
+  return m;
+}
+
 async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> {
   const { data, error } = await supabase
     .from('matches')
@@ -161,7 +199,14 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
  * Dice de dónde saldrá quien lo juegue —"Ganador de cuartos 1"— porque eso es
  * justo lo que se va a mirar en un cuadro antes de que se juegue: el camino.
  */
-function CeldaFutura({ etapa, indice }: { etapa: EtapaCuadro; indice: number }) {
+function CeldaFutura({
+  etapa, indice, slot,
+}: {
+  etapa: EtapaCuadro;
+  indice: number;
+  /** El hueco del plan, si lo hay. Sin él la celda queda como estaba. */
+  slot?: SlotDelPlan;
+}) {
   const viene = ORIGEN_DE_LA_RONDA[etapa];
   return (
     <View
@@ -187,6 +232,25 @@ function CeldaFutura({ etapa, indice }: { etapa: EtapaCuadro; indice: number }) 
       <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
         {viene ? `${viene} ${indice * 2 + 2}` : 'Por definir'}
       </Text>
+
+      {/* LA HORA YA SE SABE, AUNQUE LAS PAREJAS NO.
+          La celda sigue punteada —quién juega está por decidir— pero cuándo y
+          dónde no: el plan del día reserva el hueco de todas las rondas desde
+          que se programa. Callarlo obligaba al organizador a irse al
+          calendario para leer un dato que esta celda ya tenía al alcance. */}
+      {slot && (
+        <Text
+          style={{
+            fontFamily: font.body,
+            fontSize: 11,
+            color: color.champagne,
+            textAlign: 'center',
+            marginTop: 4,
+          }}
+        >
+          {horaDeTorneo(slot.scheduledAt)} · {slot.courtLabel}
+        </Text>
+      )}
     </View>
   );
 }
@@ -404,6 +468,15 @@ export default function LiveBracket({
   >({});
   const [loading, setLoading] = useState(!inyectado);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * El plan del día, indexado por `etapa#slot`.
+   *
+   * Se pide SIEMPRE, también con partidos inyectados. Los partidos los puede
+   * traer quien llama —una consulta por categoría en vez de diez—, pero el
+   * plan es de este componente: es lo único que hace falta para que las celdas
+   * futuras digan su hora, y es una tabla diminuta con una fila por hueco.
+   */
+  const [plan, setPlan] = useState<Map<string, SlotDelPlan>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -416,6 +489,12 @@ export default function LiveBracket({
     } finally {
       setLoading(false);
     }
+  }, [categoryId]);
+
+  useEffect(() => {
+    let vivo = true;
+    void fetchPlanDelCuadro(categoryId).then((p) => { if (vivo) setPlan(p); });
+    return () => { vivo = false; };
   }, [categoryId]);
 
   useEffect(() => {
@@ -518,9 +597,21 @@ export default function LiveBracket({
                   onCapturar={onCapturar}
                 />
               ))}
-              {Array.from({ length: huecos }, (_, i) => (
-                <CeldaFutura key={`hueco-${stage}-${i}`} etapa={stage} indice={i} />
-              ))}
+              {Array.from({ length: huecos }, (_, i) => {
+                // Los huecos van DETRÁS de los partidos ya materializados, así
+                // que el primer hueco es el slot que sigue al último real. Con
+                // la ronda entera sin materializar —lo normal, porque se crea
+                // de golpe— esto es 0, 1, 2…
+                const slotIndex = partidos.length + i;
+                return (
+                  <CeldaFutura
+                    key={`hueco-${stage}-${i}`}
+                    etapa={stage}
+                    indice={i}
+                    slot={plan.get(`${stage}#${slotIndex}`)}
+                  />
+                );
+              })}
             </View>
           </View>
         ))}
