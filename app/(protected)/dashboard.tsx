@@ -39,6 +39,7 @@ import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
 import MisResultados from '@/components/player/MisResultados';
+import EnMiCancha from '@/components/player/EnMiCancha';
 import { porQueNoHayPartido } from '@/lib/situacion-jugador';
 
 export default function DashboardScreen() {
@@ -344,6 +345,25 @@ export default function DashboardScreen() {
               <Text style={{ color: color.goldBright, fontSize: 16 }}>›</Text>
             </View>
           </Pressable>
+        )}
+
+        {/* ── QUÉ PASA EN MI CANCHA ───────────────────────────────
+             Justo debajo del próximo partido, porque es su continuación: la
+             hora publicada dice cuándo TENDRÍA que jugar, y esto dice cuándo va
+             a jugar de verdad.
+
+             El caso que lo motivó: un jugador con partido a las 10:00 se
+             levantó a las 8:30 y jugó a las 10:40, porque su cancha estaba
+             ocupada con una categoría que no era la suya. La información no
+             estaba en su categoría — estaba en la cancha, y en la cancha no la
+             miraba nadie.
+
+             El componente no pinta nada si su próximo partido no tiene cancha
+             asignada: sin cancha no hay cola que mirar. */}
+        {pairIds.length > 0 && (
+          <View style={{ marginTop: space[3] }}>
+            <EnMiCancha pairIds={pairIds} />
+          </View>
         )}
 
         {/* ── MIS RESULTADOS ──────────────────────────────────────
