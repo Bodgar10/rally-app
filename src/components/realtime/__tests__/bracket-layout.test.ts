@@ -7,6 +7,7 @@ import {
   textoPendiente,
   type EtapaCuadro,
   type PartidoDeCuadro,
+  columnasDelCuadro,
 } from '../bracket-layout';
 
 const p = (stage: EtapaCuadro, a: string | null = 'a', b: string | null = 'b'): PartidoDeCuadro =>
@@ -77,5 +78,69 @@ describe('huecos pendientes', () => {
     expect(textoPendiente('round_of_16', true)).toBe('Se define en la fase de grupos');
     expect(textoPendiente('quarter', false)).toBe('Se define en la ronda anterior');
     expect(textoPendiente('third_place', false)).toBe('Se define en semifinales');
+  });
+});
+
+// ───────────────────────────────────────────
+// El cuadro entero, no solo lo ya jugado
+// ───────────────────────────────────────────
+//
+// EL CASO REAL: la 6.ª Varonil se pintaba con una sola columna, CUARTOS.
+// `generate-bracket` materializa ronda a ronda —hasta que no se juegan los
+// cuartos no se sabe quién juega las semis—, y `etapasActivas` filtraba las
+// rondas sin partidos. Un cuadro que no enseña hacia dónde va no sirve.
+
+describe('columnasDelCuadro', () => {
+  const p = (stage: EtapaCuadro, n: number) =>
+    Array.from({ length: n }, () => ({ stage, pairAId: 'a', pairBId: 'b' }));
+
+  it('con solo cuartos materializados, deduce semis y final', () => {
+    const cols = columnasDelCuadro({ quarter: p('quarter', 4) });
+    expect(cols.map((c) => c.etapa)).toEqual(['quarter', 'semi', 'final']);
+    expect(cols.map((c) => c.partidos.length)).toEqual([4, 0, 0]);
+    // 4 cuartos → 2 semis → 1 final. Se divide por dos, no se consulta.
+    expect(cols.map((c) => c.huecos)).toEqual([0, 2, 1]);
+  });
+
+  it('arranca donde arranca el cuadro: octavos da cuatro columnas', () => {
+    const cols = columnasDelCuadro({ round_of_16: p('round_of_16', 8) });
+    expect(cols.map((c) => c.etapa)).toEqual(['round_of_16', 'quarter', 'semi', 'final']);
+    expect(cols.map((c) => c.huecos)).toEqual([0, 4, 2, 1]);
+  });
+
+  it('una ronda a medias solo cuenta los huecos que faltan', () => {
+    const cols = columnasDelCuadro({ quarter: p('quarter', 4), semi: p('semi', 1) });
+    const semi = cols.find((c) => c.etapa === 'semi')!;
+    expect(semi.partidos).toHaveLength(1);
+    expect(semi.huecos).toBe(1);
+  });
+
+  it('el cuadro completo no tiene huecos', () => {
+    const cols = columnasDelCuadro({
+      quarter: p('quarter', 4), semi: p('semi', 2), final: p('final', 1),
+    });
+    expect(cols.every((c) => c.huecos === 0)).toBe(true);
+  });
+
+  it('una final directa es una sola columna', () => {
+    const cols = columnasDelCuadro({ final: p('final', 1) });
+    expect(cols.map((c) => c.etapa)).toEqual(['final']);
+    expect(cols[0].huecos).toBe(0);
+  });
+
+  // Es opcional por torneo: un cuadro sin 3.er lugar no debe mostrarlo, y uno
+  // con él lo enseña al final, como en el papel.
+  it('el 3.er lugar no se inventa, pero se respeta si existe', () => {
+    expect(columnasDelCuadro({ quarter: p('quarter', 4) })
+      .some((c) => c.etapa === 'third_place')).toBe(false);
+
+    const conTercero = columnasDelCuadro({
+      quarter: p('quarter', 4), third_place: p('third_place', 1),
+    });
+    expect(conTercero[conTercero.length - 1].etapa).toBe('third_place');
+  });
+
+  it('sin partidos no hay cuadro que pintar', () => {
+    expect(columnasDelCuadro({})).toEqual([]);
   });
 });

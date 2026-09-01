@@ -24,7 +24,7 @@
  *   categoría entera de una vez y se reparten en memoria.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator, StyleSheet, SafeAreaView, Pressable,
 } from 'react-native';
@@ -36,6 +36,7 @@ import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStandings';
+import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracket';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { computeStandingsDetalle } from '@/lib/engine/standings';
 import type { MatchResultInput } from '@/lib/engine/types';
@@ -153,6 +154,66 @@ export default function GruposScreen() {
    * mensajes y la corrección son exactamente los mismos.
    */
   const [capturando, setCapturando] = useState<PartidoGrupo | null>(null);
+
+  /**
+   * ¿Este usuario puede capturar en este torneo?
+   *
+   * SE PREGUNTA POR EL CAMINO REAL, no se deduce del rol. `can_capture_tournament`
+   * (migración 013) es la MISMA función que usan la RLS de `matches` y la Edge
+   * Function `match-result`, y contempla tres puertas: admin de RALLY, owner del
+   * organizador, o juez en `tournament_judges`. Mirar `organizer_members` desde
+   * aquí daría una cuarta respuesta —el rol 'judge' de organización NO permite
+   * capturar— y la pantalla enseñaría un botón que el servidor rechaza.
+   *
+   * `undefined` mientras se resuelve: hasta saberlo el cuadro va en solo
+   * lectura, que es el lado seguro.
+   */
+  const [puedeCapturar, setPuedeCapturar] = useState<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    if (!tournamentId) return;
+    let vivo = true;
+    void (async () => {
+      const { data, error: e } = await supabase
+        .rpc('can_capture_tournament', { p_tournament_id: tournamentId });
+      if (!vivo) return;
+      // Si la comprobación falla NO se asume que sí: el cuadro se queda en
+      // lectura y el organizador captura por la pantalla del juez.
+      if (e) console.warn('[grupos] can_capture_tournament:', e.message);
+      setPuedeCapturar(e ? false : data === true);
+    })();
+    return () => { vivo = false; };
+  }, [tournamentId]);
+
+  /**
+   * Un cruce del cuadro -> la misma hoja que usan los partidos de grupo.
+   *
+   * Los sets se traen AQUÍ y no en `LiveBracket`: solo hacen falta al abrir uno
+   * concreto para corregirlo, y pedirlos para los 15 cruces del cuadro en cada
+   * carga sería traer datos que casi nunca se miran. Sin ellos, reabrir un
+   * partido jugado saldría en blanco y parecería que se perdió el marcador.
+   */
+  async function abrirCapturaDeCuadro(m: BracketMatch) {
+    const { data } = await supabase
+      .from('match_sets')
+      .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
+      .eq('match_id', m.id);
+
+    setCapturando({
+      id: m.id,
+      parejaA: m.pairAName ?? '—',
+      parejaB: m.pairBName ?? '—',
+      parejaAId: m.pairAId,
+      parejaBId: m.pairBId,
+      ganadorId: m.winnerPairId,
+      horaMin: Infinity,
+      capturado: m.status === 'finished',
+      sets: (data ?? []) as SetGuardado[],
+      marcador: null,
+      hora: m.scheduledAt ? horaDeTorneo(m.scheduledAt) : null,
+      cancha: m.courtLabel ?? null,
+    });
+  }
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -510,29 +571,15 @@ export default function GruposScreen() {
 
                   {/* Siembra del cuadro. */}
                   {activa.cuadroSembrado ? (
-                    /* EL AVISO ERA UN CALLEJÓN SIN SALIDA.
-                       Decía que el cuadro estaba sembrado y ahí se quedaba: la
-                       única forma de VERLO era salir del panel y buscar la
-                       categoría por el camino del jugador. Un estado que se
-                       anuncia y no se puede mirar es peor que no anunciarlo.
-
-                       Lleva a la pantalla de cuadro DEL PANEL, no a la
-                       pública del jugador. Aquella deja el cuadro debajo de
-                       todas las tablas de grupos y, por vivir en `(protected)`,
-                       monta el nav del jugador: el organizador salía de su
-                       panel para mirar un dato de su panel.
-
-                       Con `push` y no `replace`: el "Volver" de esa pantalla
-                       tiene que devolver AQUÍ, no al torneo. */
-                    <Pressable
-                      onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cuadro/${activa.id}`)}
-                      style={({ pressed }) => [s.siembraHechaCaja, pressed && { opacity: 0.7 }]}
-                      accessibilityRole="link"
-                      accessibilityLabel={`Ver el cuadro de ${activa.nombre}`}
-                    >
-                      <Text style={s.siembraHecha}>✓ El cuadro de esta categoría ya está sembrado.</Text>
-                      <Text style={s.siembraHechaEnlace}>Ver el cuadro →</Text>
-                    </Pressable>
+                    /* Sin enlace: el cuadro se pinta ABAJO, en esta misma
+                       pantalla. Antes esto llevaba a otra —primero a la vista
+                       del jugador, luego a una de organizador— y las dos
+                       partían en dos lo que es un solo momento del torneo:
+                       terminó la fase de grupos, se sembró el cuadro, aquí se
+                       ve quién juega contra quién. */
+                    <Text style={s.siembraHecha}>
+                      ✓ El cuadro de esta categoría ya está sembrado: se ve abajo.
+                    </Text>
                   ) : (
                     <>
                       {/* EL BOTÓN MÁS IMPORTANTE DE LA PANTALLA, Y NO SE VEÍA.
@@ -671,6 +718,27 @@ export default function GruposScreen() {
                     </View>
                   </View>
                 ))}
+
+                {/* ── EL CUADRO, AQUÍ MISMO ────────────────────────────────
+                    Debajo de las tablas y sin navegar a ningún lado, porque es
+                    la continuación de lo que hay arriba: terminó la fase de
+                    grupos, se sembró el cuadro, y esto es a dónde fue a parar
+                    cada quien. Partirlo en dos pantallas obligaba a recordar la
+                    tabla mientras se miraba el cruce.
+
+                    `onCapturar` solo si `can_capture_tournament` dijo que sí
+                    —preguntado al servidor, no deducido del rol—: con permiso
+                    las tarjetas se tocan y abren la MISMA hoja que las de
+                    grupos; sin él, el cuadro es de lectura. */}
+                {activa.cuadroSembrado && (
+                  <View style={s.bloqueCuadro}>
+                    <Text style={s.bloqueCuadroTitulo}>ELIMINATORIAS</Text>
+                    <LiveBracket
+                      categoryId={activa.id}
+                      onCapturar={puedeCapturar ? abrirCapturaDeCuadro : undefined}
+                    />
+                  </View>
+                )}
               </>
             )}
           </>
@@ -772,11 +840,10 @@ const s = StyleSheet.create({
   botonSembrarTexto: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.onGold },
   botonSembrarTextoOff: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.goldMuted, textAlign: 'center' },
   siembraBloqueada:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18, marginTop: space[1] },
-  /* El aviso y su enlace, apilados: en 390px "Ver el cuadro →" al lado del
-     texto dejaría las dos cosas en una columna de cuatro palabras. */
-  siembraHechaCaja:  { marginTop: space[2], gap: space[1], alignSelf: 'flex-start' },
-  siembraHecha:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, lineHeight: 18 },
-  siembraHechaEnlace:{ fontFamily: font.body, fontSize: fontSize.caption, color: color.gold, fontWeight: '600', lineHeight: 18 },
+  bloqueCuadro:       { marginTop: space[4], gap: space[2] },
+  bloqueCuadroTitulo: { fontFamily: font.display, fontSize: 12, color: color.muted, letterSpacing: 1.8, textTransform: 'uppercase' },
+
+  siembraHecha:      { fontFamily: font.body, fontSize: fontSize.caption, color: color.live, lineHeight: 18, marginTop: space[2] },
   aviso:             { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18, marginTop: space[2] },
   enlace:            { marginTop: space[3], paddingVertical: space[2] },
   enlaceTexto:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },

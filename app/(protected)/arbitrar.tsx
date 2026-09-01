@@ -18,12 +18,24 @@
  *   tab anterior y no a un trampolín que lo relanza en bucle.
  *
  * A DÓNDE MANDA
- *   · Un torneo   → directo a capturar. El caso normal en un fin de semana, y
- *                   una lista de un solo elemento es un toque de peaje.
- *   · Varios      → a la lista, ya ordenada por fecha.
+ *   · Con torneos → SIEMPRE a la lista, aunque solo haya uno.
  *   · Ninguno     → al dashboard. No debería llegar nadie: la pestaña no se
  *                   pinta sin torneos. Pasa si te quitan de juez con la app
  *                   abierta, y entonces esto es la red, no el camino.
+ *
+ * POR QUÉ SE DEJÓ DE SALTAR LA LISTA CON UN SOLO TORNEO
+ *   Antes, con un torneo asignado, el tab entraba directo a sus partidos: una
+ *   lista de un elemento parecía un toque de peaje. Pero eso rompía el paso
+ *   anterior, no lo ahorraba:
+ *
+ *     · El juez NUNCA elegía torneo, así que la pantalla de partidos no tenía
+ *       a dónde volver. Su "Volver" acababa sacándolo del panel entero.
+ *     · Y el modelo mental dependía de un dato que cambia: con un torneo el tab
+ *       llevaba a los partidos, con dos a la lista. La misma pestaña hacía dos
+ *       cosas distintas según el fin de semana.
+ *
+ *   Home → Juez → Mis torneos → Partidos, siempre. El toque de más compra que
+ *   "atrás" signifique lo mismo todas las veces.
  */
 
 import { useEffect } from 'react';
@@ -40,10 +52,6 @@ export default function PuertaDelJuez() {
     if (torneos === undefined) return;           // todavía resolviendo
     if (torneos.length === 0) {
       router.replace('/(protected)/dashboard');
-      return;
-    }
-    if (torneos.length === 1) {
-      router.replace(`/(judge)/juez/${torneos[0].id}`);
       return;
     }
     router.replace('/(judge)/juez');

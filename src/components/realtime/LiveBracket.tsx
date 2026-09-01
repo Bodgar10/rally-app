@@ -14,6 +14,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   ScrollView,
   View,
   Text,
@@ -27,7 +28,7 @@ import {
   ORDEN_ETAPAS,
   ETIQUETA_ETAPA,
   agruparPorEtapa,
-  etapasActivas,
+  columnasDelCuadro,
   estaPendiente,
   textoPendiente,
   type EtapaCuadro,
@@ -75,6 +76,15 @@ interface LiveBracketProps {
   partidos?: BracketMatch[];
   /** Mensaje cuando no hay nada que pintar. */
   vacio?: string;
+  /**
+   * Tocar un partido jugable lo entrega aquí, para capturar su resultado.
+   *
+   * Sin la prop el cuadro es de solo lectura, que es como lo ve el jugador. La
+   * decide quien monta el componente DESPUÉS de comprobar el permiso por el
+   * camino real (`can_capture_tournament`), no por el rol: ver la pantalla de
+   * grupos del organizador.
+   */
+  onCapturar?: (match: BracketMatch) => void;
 }
 
 // ───────────────────────────────────────────
@@ -137,6 +147,60 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
 }
 
 // ───────────────────────────────────────────
+// La celda de una ronda que todavía no existe
+// ───────────────────────────────────────────
+
+/**
+ * El hueco de un partido que aún no tiene fila en `matches`.
+ *
+ * NO es lo mismo que un cruce pendiente: aquel ya existe y espera a saber quién
+ * lo juega; esto no existe todavía. Se pinta con el borde punteado y sin
+ * relleno para que se lea como "aquí irá algo", no como un partido con los
+ * nombres en blanco.
+ *
+ * Dice de dónde saldrá quien lo juegue —"Ganador de cuartos 1"— porque eso es
+ * justo lo que se va a mirar en un cuadro antes de que se juegue: el camino.
+ */
+function CeldaFutura({ etapa, indice }: { etapa: EtapaCuadro; indice: number }) {
+  const viene = ORIGEN_DE_LA_RONDA[etapa];
+  return (
+    <View
+      style={{
+        width: 180,
+        minHeight: 84,
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderStyle: 'dashed',
+        borderColor: color.lineSoft,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 10,
+        gap: 2,
+      }}
+    >
+      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
+        {viene ? `${viene} ${indice * 2 + 1}` : 'Por definir'}
+      </Text>
+      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
+        vs
+      </Text>
+      <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
+        {viene ? `${viene} ${indice * 2 + 2}` : 'Por definir'}
+      </Text>
+    </View>
+  );
+}
+
+/** De qué ronda sale quien juega la siguiente. */
+const ORIGEN_DE_LA_RONDA: Partial<Record<EtapaCuadro, string>> = {
+  round_of_16: 'Ganador de R32',
+  quarter: 'Ganador de octavos',
+  semi: 'Ganador de cuartos',
+  final: 'Ganador de semifinal',
+  third_place: 'Perdedor de semifinal',
+};
+
+// ───────────────────────────────────────────
 // Cuándo y dónde
 // ───────────────────────────────────────────
 
@@ -176,10 +240,12 @@ function MatchCard({
   match,
   currentUserId,
   primeraRonda = false,
+  onCapturar,
 }: {
   primeraRonda?: boolean;
   match: BracketMatch;
   currentUserId?: string;
+  onCapturar?: (match: BracketMatch) => void;
 }) {
   const isLive = match.status === 'in_progress';
   const isDone = match.status === 'finished';
@@ -191,17 +257,17 @@ function MatchCard({
   const pairAWon = isDone && match.winnerPairId === match.pairAId;
   const pairBWon = isDone && match.winnerPairId === match.pairBId;
 
-  return (
-    <View
-      style={{
-        backgroundColor: color.surface,
-        borderRadius: radius.lg,
-        borderWidth: 1,
-        borderColor: isLive ? color.gold : color.lineSoft,
-        width: 180,
-        overflow: 'hidden',
-      }}
-    >
+  /**
+   * Solo se captura un cruce con LAS DOS parejas.
+   *
+   * Un hueco pendiente todavía no es un partido: no hay a quién dar por ganador
+   * y `match-result` lo rechazaría. Un partido ya jugado SÍ se toca — reabrirlo
+   * es corregirlo, igual que en la pantalla del juez.
+   */
+  const capturable = !!onCapturar && !isPending;
+
+  const cuerpo = (
+    <>
       {/* Barra de acento si está en vivo */}
       {isLive && (
         <View style={{ height: 2.5, backgroundColor: color.gold }} />
@@ -251,13 +317,13 @@ function MatchCard({
         </Text>
       </View>
 
-      {/* Footer: hora o estado, y la cancha si se sabe */}
+      {/* Footer: hora, cancha y —si se puede— la invitación a capturar.
+          APILADO, no en fila: "14:00 · Cancha 3" y "Capturar →" no caben en los
+          160px útiles de la tarjeta, y en fila la hora se partía en dos líneas
+          justo por el medio ("14:00 · CANCHA" / "3"). */}
       <View
         style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 6,
+          gap: 2,
           paddingHorizontal: 10,
           paddingVertical: 6,
           borderTopWidth: 1,
@@ -276,8 +342,51 @@ function MatchCard({
         >
           {cuandoYDonde(match, isLive, isDone)}
         </Text>
+
+        {/* La invitación a capturar, solo cuando se puede. En el cuadro del
+            jugador esta línea no existe, así que la tarjeta se ve igual que
+            siempre. */}
+        {capturable && (
+          <Text
+            style={{
+              fontFamily: font.body,
+              fontSize: 9,
+              fontWeight: '600',
+              color: color.gold,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+            }}
+          >
+            {isDone ? 'Corregir →' : 'Capturar →'}
+          </Text>
+        )}
       </View>
-    </View>
+    </>
+  );
+
+  const caja = {
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: isLive ? color.gold : color.lineSoft,
+    width: 180,
+    overflow: 'hidden' as const,
+  };
+
+  if (!capturable) return <View style={caja}>{cuerpo}</View>;
+
+  return (
+    <Pressable
+      onPress={() => onCapturar!(match)}
+      style={({ pressed }) => [caja, pressed && { opacity: 0.75 }]}
+      accessibilityRole="button"
+      accessibilityLabel={
+        `${isDone ? 'Corregir' : 'Capturar'} resultado: ` +
+        `${match.pairAName ?? '?'} contra ${match.pairBName ?? '?'}`
+      }
+    >
+      {cuerpo}
+    </Pressable>
   );
 }
 
@@ -286,7 +395,7 @@ function MatchCard({
 // ───────────────────────────────────────────
 
 export default function LiveBracket({
-  categoryId, currentUserId, partidos, vacio,
+  categoryId, currentUserId, partidos, vacio, onCapturar,
 }: LiveBracketProps) {
   const inyectado = partidos !== undefined;
 
@@ -346,12 +455,15 @@ export default function LiveBracket({
     );
   }
 
-  const activeStages = etapasActivas(porEtapa);
+  // No solo las rondas con partidos: TODAS las que quedan hasta la final. El
+  // cuadro se materializa ronda a ronda, así que sin esto la 6.ª Varonil se
+  // pintaba con una sola columna —CUARTOS— y no se veía hacia dónde iba.
+  const columnas = columnasDelCuadro(porEtapa);
   // La primera columna del cuadro es la que se alimenta de los grupos; las
   // demás salen de la ronda anterior. Lo necesita el texto de los pendientes.
-  const primeraEtapa = activeStages[0];
+  const primeraEtapa = columnas[0]?.etapa;
 
-  if (activeStages.length === 0) {
+  if (columnas.length === 0) {
     return (
       <View
         style={{
@@ -378,7 +490,7 @@ export default function LiveBracket({
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', gap: 24, padding: 16, alignItems: 'flex-start' }}>
-        {activeStages.map((stage) => (
+        {columnas.map(({ etapa: stage, partidos, huecos }) => (
           <View key={stage} style={{ alignItems: 'center' }}>
             {/* Label de ronda */}
             <Text
@@ -395,15 +507,19 @@ export default function LiveBracket({
               {STAGE_LABEL[stage]}
             </Text>
 
-            {/* Tarjetas de la ronda */}
+            {/* Tarjetas de la ronda, y los huecos de las que faltan */}
             <View style={{ gap: 12 }}>
-              {(porEtapa[stage] ?? []).map((m) => (
+              {partidos.map((m) => (
                 <MatchCard
                   key={m.id}
                   match={m}
                   currentUserId={currentUserId}
                   primeraRonda={stage === primeraEtapa}
+                  onCapturar={onCapturar}
                 />
+              ))}
+              {Array.from({ length: huecos }, (_, i) => (
+                <CeldaFutura key={`hueco-${stage}-${i}`} etapa={stage} indice={i} />
               ))}
             </View>
           </View>
