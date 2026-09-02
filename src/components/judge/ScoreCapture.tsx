@@ -51,6 +51,9 @@ import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
 import { clasificarSet, validateParcial, validateScore } from '@/lib/engine/score';
+// La conversión formulario -> payload vive fuera para poder probarla: el fallo
+// del set vacío que llegaba como 0-0 era de conversión, no de pantalla.
+import { aMotor, capturado, payloadDeSets } from '@/lib/captura-sets';
 import type { SetScore as SetDelMotor } from '@/lib/engine/types';
 
 // ───────────────────────────────────────────
@@ -118,69 +121,6 @@ function aFormulario(guardados: SetGuardado[]): SetScore[] {
       : { a: String(g.games_a), b: String(g.games_b) }));
 }
 
-/**
- * Estado del formulario -> payload de `match-result` (snake, números).
- *
- * FORMATO DE LA SUPER MUERTE — el contrato con el engine:
- *   Los PUNTOS van en tiebreak_a/tiebreak_b. `games_a/games_b` llevan el
- *   marcador 1-0 del lado que ganó, nunca los puntos.
- *
- *   `computeStandings` con superTiebreakGames:'one' (el default) ignora
- *   games_a/b en un super muerte y deriva 1-0 de los tiebreaks, y
- *   `superSetWinner` lee `tiebreakA ?? gamesA`. Mandar los puntos en games
- *   inflaría la diferencia de games que desempata la tabla.
- *
- *   Los tests del engine (score.test.ts, 'contrato de super muerte') fijan
- *   este formato.
- */
-function payloadDeSets(sets: SetScore[]) {
-  return sets.map((s, i) => {
-    const a = parseInt(s.a, 10);
-    const b = parseInt(s.b, 10);
-
-    // El motor dice qué es esto. La pantalla ya no opina.
-    if (clasificarSet(a, b) === 'super') {
-      return {
-        set_number: i + 1,
-        games_a: a > b ? 1 : 0,
-        games_b: b > a ? 1 : 0,
-        is_super_tiebreak: true,
-        tiebreak_a: a,
-        tiebreak_b: b,
-      };
-    }
-    return {
-      set_number: i + 1,
-      games_a: a,
-      games_b: b,
-      is_super_tiebreak: false,
-      tiebreak_a: null,
-      tiebreak_b: null,
-    };
-  });
-}
-
-/** ¿Están los dos números de este set? Vacío ≠ inválido: es "todavía no". */
-function completo(s: SetScore): boolean {
-  return s.a.trim() !== '' && s.b.trim() !== '';
-}
-
-/**
- * Estado del formulario -> entrada del motor, solo con los sets completos.
- *
- * Se mandan los números crudos con `isSuperTiebreak: false`: es la señal de
- * "dedúcelo tú". `validateScore` los clasifica solo, y así la pantalla y el
- * servidor llegan a la misma conclusión sin que ninguno de los dos la escriba
- * por su cuenta.
- */
-function aMotor(sets: SetScore[]): SetDelMotor[] {
-  return sets.filter(completo).map((s) => ({
-    gamesA: parseInt(s.a, 10),
-    gamesB: parseInt(s.b, 10),
-    isSuperTiebreak: false,
-  }));
-}
-
 // ───────────────────────────────────────────
 // Componente
 // ───────────────────────────────────────────
@@ -206,7 +146,7 @@ export default function ScoreCapture({
   /**
    * EL VEREDICTO, recalculado en cada tecla.
    *
-   * `sets.filter(completo)` y no `sets`: mientras el juez teclea el primer
+   * `sets.filter(capturado)` y no `sets`: mientras el juez teclea el primer
    * número, el set está a medias y el motor lo llamaría inválido. Un formulario
    * que grita antes de que termines de escribir no se lee, se ignora.
    */
@@ -269,7 +209,7 @@ export default function ScoreCapture({
   /** ¿Este set se está leyendo como súper muerte? Solo para decirlo en pantalla. */
   const esSuperMuerte = (idx: number): boolean => {
     const st = sets[idx];
-    if (!st || !completo(st)) return false;
+    if (!st || !capturado(st)) return false;
     return clasificarSet(parseInt(st.a, 10), parseInt(st.b, 10)) === 'super';
   };
 

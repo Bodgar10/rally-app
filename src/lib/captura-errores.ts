@@ -26,6 +26,9 @@ const MENSAJES: Record<string, string> = {
   // Anteponerla producía «El marcador no es válido. Set 2: 6-5 no es un
   // marcador válido…»: la primera mitad no añade nada y retrasa la útil.
   invalid_score:            'El marcador no es válido.',
+  // Un set sin números no es un 0-0: es un set que no se ha jugado. El
+  // servidor lo distingue a propósito (ver match-result/toSetScore).
+  set_sin_numeros:          'Hay un set sin marcador. Deja vacíos los sets que todavía no se juegan.',
   winner_mismatch:          'El ganador que marcaste no coincide con el marcador.',
   group_busy:               'Otro juez está capturando en este grupo. Espera unos segundos y reintenta.',
   bracket_busy:             'Otro juez está capturando en este cuadro. Espera unos segundos y reintenta.',

@@ -23,6 +23,25 @@ const toSetScore = (s: any) => ({
 });
 
 /**
+ * UN SET SIN NÚMEROS NO ES UN 0-0.
+ *
+ *   `Number(null)` y `Number(undefined)` valen 0 y NaN, y por ahí se coló un
+ *   set que nadie había jugado: la pantalla mandaba la fila vacía, llegaba
+ *   como null, se leía 0-0 y el motor lo rechazaba con "Set 2: 0-0 no es un
+ *   marcador válido". El juez no podía guardar un solo set.
+ *
+ *   Arreglado en el cliente (ver src/lib/captura-sets.ts), pero el servidor no
+ *   puede confiar en eso: un cliente viejo, o una app de otro sitio, mandaría
+ *   lo mismo. Aquí se distingue explícitamente FALTA EL DATO de HAY UN DATO
+ *   IMPOSIBLE, porque el 0-0 tecleado a mano tiene que seguir rechazándose por
+ *   lo que es — un marcador que no existe— y no confundirse con un hueco.
+ */
+const setSinNumeros = (s: any): boolean =>
+  s == null
+  || s.games_a == null || s.games_b == null
+  || !Number.isFinite(Number(s.games_a)) || !Number.isFinite(Number(s.games_b));
+
+/**
  * Huella del estado del grupo tal y como lo leyó ESTA invocación.
  *
  * La RPC bloquea los partidos del grupo y compara esta huella contra lo que hay
@@ -118,6 +137,15 @@ Deno.serve(async (req) => {
 
     // 2) Validar marcador y derivar ganador (ENGINE — no reimplementar).
     //    validateScore espera SetScore[] (camelCase) y devuelve winnerSide 'A'|'B'.
+    const huecos = sets.filter(setSinNumeros).length;
+    if (huecos > 0) {
+      return json({
+        error: 'set_sin_numeros',
+        detail: `${huecos} ${huecos === 1 ? 'set llega' : 'sets llegan'} sin marcador. ` +
+          `Un set que no se ha jugado no se manda; no es un 0-0.`,
+      }, 400);
+    }
+
     const reqSets = sets.map(toSetScore);
     // `validateParcial` en la captura set a set: hace la MISMA comprobación de
     // cada set y solo perdona la de "falta un set". Un 3-1 sigue siendo un
