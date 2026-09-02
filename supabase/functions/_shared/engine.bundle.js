@@ -253,6 +253,11 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
   const winnerSide = valid ? setsA > setsB ? "A" : "B" : null;
   return { valid, errors, winnerSide, setsA, setsB, completo: decided };
 }
+function validateParcial(sets, config = DEFAULT_SCORE_CONFIG) {
+  const r = validateScore(sets, config);
+  const errors = r.errors.filter((e) => !/^Falta el |^Partido incompleto:/.test(e));
+  return { ...r, errors, valid: errors.length === 0 };
+}
 
 // src/lib/engine/standings/index.ts
 var DEFAULT_STANDINGS_CONFIG = {
@@ -1948,4 +1953,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };
+export { PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };

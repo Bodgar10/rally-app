@@ -8,7 +8,7 @@ export { computeFormat } from './format';
 export { generateRoundRobin } from './fixtures';
 
 // Captura de resultado -> tabla + clasificación
-export { validateScore, clasificarSet } from './score';
+export { validateScore, validateParcial, clasificarSet } from './score';
 export { computeStandings, computeStandingsDetalle } from './standings';
 export { computeClinch } from './clinch';
 

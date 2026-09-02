@@ -140,6 +140,23 @@ declare function clasificarSet(a: number, b: number, cfg?: ScoreConfig): Formato
  * No persiste nada; solo dice si el marcador es legal y quién ganó.
  */
 declare function validateScore(sets: SetScore[], config?: ScoreConfig): ValidatedScore;
+/**
+ * ¿Es LEGAL lo capturado hasta ahora, aunque el partido siga?
+ *
+ * EL SUPUESTO QUE HACÍA FALTA ROMPER
+ *   `validateScore` responde a "¿es esto un partido completo y legal?", y a un
+ *   6-4 suelto le contesta "Falta el segundo set." Correcto para cerrar un
+ *   partido; inservible para el juez que anota set a set y quiere guardar el
+ *   primero en cuanto termina.
+ *
+ *   Esta función hace la MISMA validación de cada set —formato, súper muerte
+ *   solo en el decisivo, sets de más, sets después de estar decidido— y se
+ *   salta la única regla que sobra: exigir que haya ganador.
+ *
+ *   No se toca `validateScore`: su `valid` sigue significando lo de siempre y
+ *   es lo que decide si el partido se cierra. Esto es aditivo.
+ */
+declare function validateParcial(sets: SetScore[], config?: ScoreConfig): ValidatedScore;
 
 interface StandingsConfig {
     pointsWin: number;
@@ -1087,4 +1104,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type CriterioDesempate, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type CriterioDesempate, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };
