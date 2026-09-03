@@ -7,12 +7,18 @@
  *   que no era la suya. La información que necesitaba no estaba en su
  *   categoría: estaba en la cancha.
  *
- * `matches.status` NO SIRVE PARA SABER QUÉ SE ESTÁ JUGANDO
- *   El enum tiene 'in_progress', pero nadie lo escribe nunca: un partido pasa de
- *   'scheduled' a 'finished' cuando el juez captura, sin estado intermedio. Así
- *   que "qué partido está en juego" no está guardado en ninguna columna.
+ * DOS SEÑALES, Y LA BUENA ES NUEVA
+ *   `matches.status = 'in_progress'` es la respuesta directa a "qué se está
+ *   jugando". Cuando se escribió este módulo NADIE la escribía —un partido iba
+ *   de 'scheduled' a 'finished' de golpe al capturar—, así que había que
+ *   deducirlo. Con la captura set a set el estado sí se escribe, y se usa
+ *   cuando está: `enJuego`.
  *
- * LA CANCHA ES UNA COLA, Y ESO ES TODO LO QUE HACE FALTA
+ *   La deducción por cola se queda porque sigue haciendo falta. Un partido al
+ *   que aún no le han capturado el primer set está en 'scheduled' aunque la
+ *   gente esté en la pista, y ahí la cola es lo único que hay.
+ *
+ * LA CANCHA ES UNA COLA, Y CON ESO BASTA CUANDO NO HAY SEÑAL
  *   Una cancha juega sus partidos en orden de horario, uno detrás de otro. El
  *   que la ocupa es EL PRIMERO SIN TERMINAR. No hay que adivinar duraciones: un
  *   partido que lleva 75 minutos sigue siendo el primero sin terminar, así que
@@ -30,9 +36,11 @@
  * LO QUE ESTO ASUME, Y CUÁNDO FALLA
  *   Que el juez captura al terminar. Si captura media hora tarde, esta función
  *   cree que el partido anterior sigue en la cancha y sobrestima el retraso.
- *   Es el error seguro: hace llegar antes, no después. Cuando exista la captura
- *   incremental —el otro chat la está haciendo— habrá una señal mejor de "esto
- *   está en juego", y solo cambia `ocupanteDe`.
+ *   Es el error seguro: hace llegar antes, no después.
+ *
+ *   Con la captura set a set eso se corrige solo: en cuanto el juez anota el
+ *   primer set, el partido pasa a 'in_progress' y `enJuego` manda sobre
+ *   cualquier deducción.
  */
 
 /** Un partido de la cancha, con lo mínimo para ordenarlo y cronometrarlo. */
@@ -43,6 +51,21 @@ export interface PartidoEnCancha {
   /** Cuándo se capturó ≈ cuándo terminó. Null si sigue sin terminar. */
   playedAt: string | null;
   finished: boolean;
+  /**
+   * El partido está EN JUEGO ahora mismo (`matches.status = 'in_progress'`).
+   *
+   * CUANDO SE ESCRIBIÓ ESTE MÓDULO NADIE ESCRIBÍA ESE ESTADO: un partido iba de
+   * 'scheduled' a 'finished' de golpe, así que la única forma de saber qué
+   * ocupaba la cancha era deducirlo de la cola. Con la captura set a set el
+   * estado SÍ se escribe, y es una señal mucho mejor que cualquier deducción:
+   * no hay que suponer que empezó a su hora.
+   *
+   * Un partido en juego ocupa la cancha SIN MIRAR EL RELOJ. La deducción por
+   * cola exige que su hora ya haya llegado —si no, la cancha está libre
+   * esperándolo—, pero un partido que arrancó antes de lo previsto está
+   * ocupando la pista igualmente, y decir "libre" ahí sería falso.
+   */
+  enJuego?: boolean;
 }
 
 export interface EstadoDeCancha {
@@ -125,11 +148,14 @@ export function estadoDeCancha(args: {
       continue;
     }
 
-    // El primero sin terminar. Ocupa la cancha si su hora real ya llegó; si no,
-    // la cancha está libre esperándolo.
-    if (ocupanteId === null && ahora >= inicioReal) {
+    // El primero sin terminar. Ocupa la cancha si su hora real ya llegó — o si
+    // está EN JUEGO, que es una señal directa y no una deducción: un partido
+    // que arrancó antes de su hora ocupa la pista igual.
+    if (ocupanteId === null && (p.enJuego || ahora >= inicioReal)) {
       ocupanteId = p.id;
-      ocupanteDesde = inicioReal;
+      // Si arrancó antes de lo previsto, lleva jugándose desde antes de su
+      // hora; contarlo desde `inicioReal` daría un "lleva -10 min".
+      ocupanteDesde = p.enJuego ? Math.min(inicioReal, ahora) : inicioReal;
     }
 
     // Para lo que viene detrás: si está en juego, lo antes que puede acabar es

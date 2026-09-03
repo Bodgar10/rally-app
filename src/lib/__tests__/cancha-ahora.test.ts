@@ -133,3 +133,48 @@ describe('cómo se dice el retraso', () => {
     expect(fraseDeRetraso(120)).toBe('Tu cancha lleva 2 horas de retraso.');
   });
 });
+
+describe('un partido EN JUEGO ocupa la cancha', () => {
+  // `in_progress` no lo escribía nadie cuando se hizo este módulo: un partido
+  // iba de 'scheduled' a 'finished' de golpe. Con la captura set a set sí se
+  // escribe, y es una señal directa en vez de una deducción.
+  it('ocupa aunque su hora todavía no haya llegado', () => {
+    const r = estadoDeCancha({
+      ...base,
+      partidos: [
+        { id: 'a', scheduledAt: T('09:00'), playedAt: T('09:50'), finished: true },
+        // Arrancó antes de las 10:00 porque el de delante acabó pronto.
+        { id: 'b', scheduledAt: T('10:00'), playedAt: null, finished: false, enJuego: true },
+      ],
+      ahora: en('09:55'),
+    });
+    expect(r.ocupanteId).toBe('b');
+    // Y no dice "lleva -5 min": cuenta desde que de verdad se está jugando.
+    expect(r.ocupanteLleva).toBeGreaterThanOrEqual(0);
+  });
+
+  it('el caso del bug: 15:00 en juego, a las 15:30 la cancha NO está libre', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'enJuego',
+      partidos: [
+        { id: 'enJuego', scheduledAt: T('15:00'), playedAt: null, finished: false, enJuego: true },
+      ],
+      ahora: en('15:30'),
+    });
+    expect(r.ocupanteId).toBe('enJuego');
+    expect(r.ocupanteLleva).toBe(30);
+  });
+
+  it('un partido en juego empuja a los de detrás', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'b',
+      partidos: [
+        { id: 'a', scheduledAt: T('09:00'), playedAt: null, finished: false, enJuego: true },
+        { id: 'b', scheduledAt: T('10:00'), playedAt: null, finished: false },
+      ],
+      ahora: en('10:30'),
+    });
+    expect(r.ocupanteId).toBe('a');
+    expect(r.miRetraso).toBeGreaterThanOrEqual(30);
+  });
+});

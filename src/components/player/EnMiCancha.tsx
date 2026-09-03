@@ -13,10 +13,17 @@
  *   cosa, y por eso no aparecía en ninguna pantalla suya.
  *
  * CÓMO SE SABE QUÉ ESTÁ EN JUEGO — ver `@/lib/cancha-ahora`
- *   `matches.status` no sirve: el enum tiene 'in_progress' y nadie lo escribe
- *   nunca. La cancha es una cola y el ocupante es el primero sin terminar, así
- *   que un partido que lleva 75 minutos sigue ocupando — que es exactamente el
- *   caso que rompe cualquier regla basada en la duración nominal.
+ *   `matches.status = 'in_progress'` manda cuando está: es la señal directa, y
+ *   la escribe la captura set a set. Cuando no está —el juez todavía no ha
+ *   anotado el primer set aunque la gente esté en la pista— la cancha se lee
+ *   como una cola y el ocupante es el primero sin terminar, así que un partido
+ *   que lleva 75 minutos sigue ocupando.
+ *
+ * Y SI EL QUE OCUPA LA CANCHA ES ÉL MISMO, ESTA TARJETA SE CALLA
+ *   Decirle "tu cancha está ocupada" a alguien que está jugando en ella no
+ *   tiene sentido, y de su propio partido ya habla "Mi próximo partido". El
+ *   guard que evitaba anunciarlo como ajeno lo confundía con "no hay ocupante",
+ *   y salía "tu cancha está libre" con él dentro.
  *
  * SE CONSULTA Y SE SUSCRIBE AQUÍ, como MiSituacion y por lo mismo: los datos
  * inyectados apagan la suscripción y dejan un componente que se ve bien y no se
@@ -63,6 +70,15 @@ interface Ocupante {
 interface Vista {
   cancha: string;
   ocupante: Ocupante | null;
+  /**
+   * El que ocupa la cancha es EL PARTIDO DEL PROPIO JUGADOR.
+   *
+   * Es el caso que hacía decir "tu cancha está libre" con él dentro jugando: el
+   * guard que evitaba anunciar tu propio partido como ajeno lo colapsaba con
+   * "no hay ocupante". Son dos cosas distintas y ahora se distinguen — de tu
+   * propio partido ya habla "Mi próximo partido", así que aquí no se repite.
+   */
+  ocupanteEsMio: boolean;
   miHoraPublicada: string | null;
   miRetraso: number;
   miInicioEstimado: string | null;
@@ -123,6 +139,9 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     scheduledAt: m.scheduled_at,
     playedAt: m.played_at,
     finished: m.status === 'finished',
+    // La señal directa. Antes no se pasaba porque nadie escribía este estado;
+    // con la captura set a set sí, y decide sin tener que deducir nada.
+    enJuego: m.status === 'in_progress',
   }));
 
   const estado = estadoDeCancha({
@@ -134,8 +153,10 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     minutosPorPartido: 60,
   });
 
+  const ocupanteEsMio = estado.ocupanteId === mio.id;
+
   let ocupante: Ocupante | null = null;
-  if (estado.ocupanteId && estado.ocupanteId !== mio.id) {
+  if (estado.ocupanteId && !ocupanteEsMio) {
     const fila = filas.find((m) => m.id === estado.ocupanteId);
     if (fila) {
       const [parejas, { data: sets }] = await Promise.all([
@@ -160,6 +181,7 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
   return {
     cancha: mio.court_label,
     ocupante,
+    ocupanteEsMio,
     miHoraPublicada: mio.scheduled_at,
     miRetraso: estado.miRetraso,
     miInicioEstimado: estado.miInicioEstimado,
@@ -272,7 +294,14 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
         )}
       </View>
 
-      {vista.ocupante ? (
+      {vista.ocupanteEsMio ? (
+        /* Es SU partido el que está en la cancha. No se repite lo que ya dice
+           "Mi próximo partido" —ahí está el marcador—; solo se confirma, que es
+           lo que evita la duda de "¿me habré equivocado de pista?". */
+        <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.live }}>
+          Es tu partido el que se está jugando aquí.
+        </Text>
+      ) : vista.ocupante ? (
         <>
           <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
             {vista.ocupante.categoria} · {vista.ocupante.ronda}

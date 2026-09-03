@@ -37,6 +37,14 @@ interface NextMatch {
   /** Sede del torneo, para el botón "Cómo llegar". Null si el torneo no tiene. */
   venue: { name: string; address: string | null; city: string | null } | null;
   status: 'scheduled' | 'in_progress' | 'finished';
+  /**
+   * Lo que va del partido: '6-2', '6-2 3-1'. Null si no hay sets capturados.
+   *
+   * EL JUGADOR QUE ESTÁ JUGANDO NO VEÍA SU PROPIO MARCADOR. La tarjeta decía
+   * "En curso" y nada más, con el 6-2 ya guardado en `match_sets` — el dato
+   * estaba y no salía. Es de lo primero que se mira al salir de la pista.
+   */
+  marcador: string | null;
 }
 
 interface MyNextMatchProps {
@@ -122,7 +130,9 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   }
 
   // Elegir el más próximo entre los dos resultados
-  const candidates: NextMatch[] = [];
+  /** `soyA` es de trabajo: de qué lado juega el usuario, para orientar el
+      marcador. No sale a la interfaz. */
+  const candidates: Array<Omit<NextMatch, 'marcador'> & { soyA: boolean }> = [];
 
   // Los dos rivales posibles se resuelven de una vez, antes de decidir cuál
   // de los dos partidos es el más próximo.
@@ -141,6 +151,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     };
     const rival = row.pair_b_id ? rivales.get(row.pair_b_id) : undefined;
     candidates.push({
+      soyA: true,
       matchId: row.id,
       tournamentName: row.tournaments?.name ?? '—',
       categoryName: row.categories?.display_name ?? '—',
@@ -165,6 +176,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     };
     const rival = row.pair_a_id ? rivales.get(row.pair_a_id) : undefined;
     candidates.push({
+      soyA: false,
       matchId: row.id,
       tournamentName: row.tournaments?.name ?? '—',
       categoryName: row.categories?.display_name ?? '—',
@@ -188,7 +200,45 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
   });
 
-  return candidates[0];
+  const elegido = candidates[0];
+
+  // Los sets, solo del partido que se va a pintar: una consulta más, y solo
+  // cuando hay algo que pintar. Se piden SIEMPRE y no solo si está 'in_progress'
+  // porque un partido con sets y todavía en 'scheduled' —el juez anotó el
+  // primer set y el estado va un paso por detrás— también tiene marcador.
+  const { data: sets } = await supabase
+    .from('match_sets')
+    .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
+    .eq('match_id', elegido.matchId);
+
+  return { ...elegido, marcador: marcadorParcial(sets ?? [], elegido.soyA) };
+}
+
+/**
+ * '6-2' · '6-2 3-1' — lo que va del partido, no un resultado final.
+ *
+ * Desde el punto de vista de quien mira: su marcador primero, aunque en la base
+ * su pareja sea `pair_b`. Leer "2-6" cuando vas ganando 6-2 es peor que no ver
+ * nada.
+ */
+function marcadorParcial(
+  sets: Array<{
+    set_number: number; games_a: number; games_b: number;
+    is_super_tiebreak: boolean; tiebreak_a: number | null; tiebreak_b: number | null;
+  }>,
+  soyA: boolean,
+): string | null {
+  if (sets.length === 0) return null;
+  return [...sets]
+    .sort((a, b) => a.set_number - b.set_number)
+    .map((st) => {
+      const [x, y] = st.is_super_tiebreak && st.tiebreak_a != null && st.tiebreak_b != null
+        ? [st.tiebreak_a, st.tiebreak_b]
+        : [st.games_a, st.games_b];
+      const par = soyA ? `${x}-${y}` : `${y}-${x}`;
+      return st.is_super_tiebreak ? `[${par}]` : par;
+    })
+    .join(' ');
 }
 
 // ───────────────────────────────────────────
@@ -232,6 +282,28 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
 
     return combineUnsubs(...unsubs, ...unsubsB);
   }, [pairIds, load]);
+
+  /**
+   * Y a los SETS del partido que se está pintando.
+   *
+   * Los canales de arriba escuchan `matches`, y anotar un set no toca esa tabla:
+   * escribe en `match_sets`. Sin esto, el 6-2 aparecía al abrir la app pero el
+   * segundo set no llegaba nunca — el jugador tendría que recargar justo cuando
+   * está mirando el teléfono entre juegos.
+   *
+   * Va en su propio efecto y depende del `matchId`: montarlo con los otros
+   * obligaría a cerrar y reabrir los tres canales cada vez que cambia el
+   * marcador.
+   */
+  useEffect(() => {
+    if (!match?.matchId) return;
+    return subscribeToTable<Record<string, unknown>>({
+      channelName: `match:${match.matchId}:sets`,
+      table: 'match_sets',
+      filter: `match_id=eq.${match.matchId}`,
+      onData: () => load(),
+    });
+  }, [match?.matchId, load]);
 
   if (loading) {
     return (
@@ -304,6 +376,26 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
       >
         {isLive ? '🟢 En curso' : 'Próximo partido'}
       </Text>
+
+      {/* EL MARCADOR DE TU PROPIO PARTIDO.
+          Estaba en `match_sets` y no salía a ninguna pantalla del jugador: la
+          tarjeta decía "En curso" y se callaba el 6-2. Va aquí arriba, en
+          grande, porque es lo primero que se mira al salir de la pista — y
+          orientado a su favor: "6-2" si va ganando, no "2-6" porque en la base
+          su pareja sea `pair_b`. */}
+      {match.marcador && (
+        <Text
+          style={{
+            fontFamily: font.display,
+            fontSize: 24,
+            fontWeight: '600',
+            color: color.goldBright,
+            marginBottom: 6,
+          }}
+        >
+          {match.marcador}
+        </Text>
+      )}
 
       {/* Torneo + categoría */}
       <Text
