@@ -35,3 +35,6 @@ export * from './bracket';
 
 // Plan de avance al capturar un resultado de eliminatorias
 export * from './bracket/avance-captura';
+
+// De qué partidos depende una pareja (motor puro)
+export * from './futuro';
