@@ -34,6 +34,10 @@ import {
   type ClinchStatus, type TonoSituacion,
 } from '@/lib/situacion-jugador';
 import { avisosPorCambio, type EstadoDelJugador } from '@/lib/avisos-jugador';
+import { analizarFuturo, type GrupoDeCategoria } from '@/lib/engine/futuro';
+import { futuroEnPalabras, type FuturoEnPalabras } from '@/lib/futuro-en-palabras';
+import { cuadroDe } from '@/lib/cuadro-tamano';
+import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import {
   notificarCanchaPorLiberarse, notificarPasasteDeFase,
   notificarResultadoCapturado, notificarYaHayHorario,
@@ -63,6 +67,14 @@ export interface SituacionResuelta {
    * altavoz del club.
    */
   canchaOcupadaAhora: string | null;
+  /**
+   * De qué depende su clasificación, ya en palabras.
+   *
+   * `null` cuando no se pudo analizar —sin grupos, sin formato, o el motor
+   * lanzó—: entonces manda el texto genérico de `situacionDe`, que es lo que
+   * había antes de que existiera este análisis.
+   */
+  futuro: FuturoEnPalabras | null;
 }
 
 interface Props {
@@ -78,6 +90,19 @@ const TINTE: Record<TonoSituacion, string> = {
   vivo: color.champagne,
   // Gris, no rojo: quedarse fuera no es un error del sistema.
   fuera: color.muted,
+};
+
+/** El tono del análisis del motor, con los mismos colores que el de clinch. */
+const TINTE_FUTURO: Record<'tranquilo' | 'espera' | 'fuera', string> = {
+  tranquilo: color.live,
+  espera: color.alive,
+  fuera: color.muted,
+};
+
+const FONDO_FUTURO: Record<'tranquilo' | 'espera' | 'fuera', string> = {
+  tranquilo: 'rgba(66,214,164,0.10)',
+  espera: 'rgba(230,180,80,0.10)',
+  fuera: 'transparent',
 };
 
 const FONDO: Record<TonoSituacion, string> = {
@@ -101,6 +126,101 @@ const URGENCIA: Record<ClinchStatus, number> = {
   clinched: 2,
   eliminated: 3,
 };
+
+/** Una fila de `matches` con lo que el motor necesita. */
+interface PartidoDeCategoria {
+  id: string;
+  group_id: string | null;
+  status: string;
+  scheduled_at: string | null;
+  court_label: string | null;
+  pair_a_id: string | null;
+  pair_b_id: string | null;
+  winner_pair_id: string | null;
+  match_sets: Array<{
+    set_number: number; games_a: number; games_b: number;
+    is_super_tiebreak: boolean; tiebreak_a: number | null; tiebreak_b: number | null;
+  }> | null;
+}
+
+/**
+ * El análisis del motor, traducido — o `null` si no se puede.
+ *
+ * EL COSTE ESTÁ ACOTADO POR EL PROPIO MOTOR: `analizarFuturo` lleva un
+ * presupuesto de operaciones y, en cuanto los pendientes no caben, devuelve
+ * `demasiado_pronto` sin enumerar nada. Medido en este proyecto: el peor caso
+ * ronda los 90 ms (una categoría de 8 grupos con 12 partidos por jugar) y por
+ * encima de ahí se corta en 0 ms. Corre una vez por carga, no por render.
+ *
+ * Se envuelve en try/catch porque el motor LANZA con entradas incoherentes
+ * —una pareja que no está en ningún grupo, por ejemplo, que es lo que pasa
+ * mientras el reparto se está guardando—. Ahí la tarjeta cae al texto genérico
+ * en vez de romper el dashboard entero.
+ */
+async function analizarConElMotor(args: {
+  categoryId: string;
+  pairId: string;
+  grupos: Array<{ id: string; name: string }>;
+  partidos: PartidoDeCategoria[];
+  advancePerGroup: number;
+  bestExtraQualifiers: number;
+}): Promise<FuturoEnPalabras | null> {
+  const { grupos, partidos, pairId, advancePerGroup, bestExtraQualifiers } = args;
+  if (grupos.length === 0 || advancePerGroup <= 0) return null;
+
+  // Las parejas de cada grupo salen de los propios partidos: `pairs.group_id`
+  // no se puede leer para parejas ajenas, pero `matches` sí es público.
+  const porGrupo = new Map<string, Set<string>>();
+  for (const m of partidos) {
+    if (!m.group_id) continue;
+    const set = porGrupo.get(m.group_id) ?? new Set<string>();
+    if (m.pair_a_id) set.add(m.pair_a_id);
+    if (m.pair_b_id) set.add(m.pair_b_id);
+    porGrupo.set(m.group_id, set);
+  }
+
+  const entrada: GrupoDeCategoria[] = grupos.map((g) => ({
+    groupId: g.id,
+    nombre: g.name,
+    pairIds: [...(porGrupo.get(g.id) ?? [])],
+    matches: partidos
+      .filter((m) => m.group_id === g.id && m.pair_a_id && m.pair_b_id)
+      .map((m) => ({
+        matchId: m.id,
+        pairAId: m.pair_a_id as string,
+        pairBId: m.pair_b_id as string,
+        winnerPairId: m.winner_pair_id,
+        played: m.status === 'finished',
+        sets: (m.match_sets ?? []).map((st) => ({
+          gamesA: st.games_a, gamesB: st.games_b,
+          isSuperTiebreak: st.is_super_tiebreak,
+          tiebreakA: st.tiebreak_a, tiebreakB: st.tiebreak_b,
+        })),
+      })),
+  }));
+
+  if (!entrada.some((g) => g.pairIds.includes(pairId))) return null;
+
+  // Los nombres, que son lo que sale en las frases.
+  const parejas = await fetchParejasPublicas(entrada.flatMap((g) => g.pairIds));
+  const nombres: Record<string, string> = {};
+  for (const g of entrada) {
+    for (const p of g.pairIds) nombres[p] = nombreDePareja(parejas.get(p));
+  }
+
+  try {
+    const analisis = analizarFuturo({
+      grupos: entrada, advancePerGroup, bestExtraQualifiers, pairId, nombres,
+    });
+    // El nombre de la ronda que se salta quien tiene bye. Sale del tamaño del
+    // cuadro, que ya calcula `cuadro-tamano` a partir de las mismas perillas.
+    const { nombreRonda } = cuadroDe(entrada.length, advancePerGroup, bestExtraQualifiers);
+    return futuroEnPalabras(analisis, nombreRonda);
+  } catch (e) {
+    console.warn('[MiSituacion] analizarFuturo:', e);
+    return null;
+  }
+}
 
 async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | null> {
   if (pairIds.length === 0) return null;
@@ -128,20 +248,26 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
   if (!categoryId) return null;
 
   // El contexto: nombre de categoría y torneo, y cuántos grupos siguen abiertos.
-  const [{ data: cat }, { data: partidos }] = await Promise.all([
+  const [{ data: cat }, { data: partidos }, { data: gruposCat }] = await Promise.all([
     supabase
       .from('categories')
-      .select('display_name, tournament_id, tournaments:tournament_id ( name )')
+      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name )')
       .eq('id', categoryId)
       .maybeSingle(),
+    // `match_sets` para el motor: sin los games no puede resolver los empates,
+    // que es justo donde se juegan los mejores segundos.
     supabase
       .from('matches')
-      .select('group_id, status, scheduled_at, court_label, pair_a_id, pair_b_id')
+      .select(`id, group_id, status, scheduled_at, court_label, pair_a_id, pair_b_id, winner_pair_id,
+               match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`)
       .eq('category_id', categoryId),
+    supabase.from('groups').select('id, name').eq('category_id', categoryId),
   ]);
 
   const c = cat as unknown as {
-    display_name: string; tournament_id: string; tournaments: { name: string } | null;
+    display_name: string; tournament_id: string;
+    advance_per_group: number | null; best_extra_qualifiers: number | null;
+    tournaments: { name: string } | null;
   } | null;
 
   /** Los partidos DEL USUARIO dentro de esta categoría. */
@@ -171,6 +297,14 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
       .map((m) => m.scheduled_at as string)
       .sort()[0] ?? null,
     terminados: mios.filter((m) => m.status === 'finished').length,
+    futuro: await analizarConElMotor({
+      categoryId,
+      pairId: elegida.pair_id,
+      grupos: (gruposCat ?? []) as Array<{ id: string; name: string }>,
+      partidos: (partidos ?? []) as PartidoDeCategoria[],
+      advancePerGroup: c?.advance_per_group ?? 0,
+      bestExtraQualifiers: c?.best_extra_qualifiers ?? 0,
+    }),
     canchaOcupadaAhora: (() => {
       const miProximo = mios
         .filter((m) => m.status !== 'finished' && m.scheduled_at && m.court_label)
@@ -302,14 +436,23 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
   if (!situacion) return null;
 
   const s = situacionDe(situacion.estado, situacion.gruposPendientes);
-  const tinte = TINTE[s.tono];
+  /**
+   * El análisis del motor manda sobre el texto de clinch cuando existe.
+   *
+   * `clinch_status` dice SI sigue vivo; `analizarFuturo` dice DE QUÉ depende.
+   * Es la misma pregunta con más resolución, así que cuando hay respuesta fina
+   * se enseña esa y no las dos — dos textos sobre lo mismo se leen como una
+   * contradicción aunque coincidan.
+   */
+  const f = situacion.futuro;
+  const tinte = f ? TINTE_FUTURO[f.tono] : TINTE[s.tono];
 
   return (
     <View
       style={{
-        backgroundColor: FONDO[s.tono],
+        backgroundColor: f ? FONDO_FUTURO[f.tono] : FONDO[s.tono],
         borderWidth: 1,
-        borderColor: s.tono === 'fuera' ? color.lineSoft : tinte,
+        borderColor: (f ? f.tono === 'fuera' : s.tono === 'fuera') ? color.lineSoft : tinte,
         borderRadius: radius.xl,
         padding: space[4],
         gap: space[1],
@@ -337,37 +480,48 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
       </View>
 
       <Text style={{ fontFamily: font.display, fontSize: fontSize.h1Inline, color: tinte }}>
-        {s.titulo}
+        {f ? f.titular : s.titulo}
       </Text>
-      <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 }}>
-        {s.detalle}
-      </Text>
+      {(f ? f.detalle : s.detalle) ? (
+        <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 }}>
+          {f ? f.detalle : s.detalle}
+        </Text>
+      ) : null}
 
-      {/* DE QUÉ PARTIDOS DEPENDE.
-          Hoy esta lista llega SIEMPRE vacía y no se pinta nada: el motor de
-          clinch dice si sigues vivo, no de qué resultados concretos depende que
-          lo sigas estando. El sitio está hecho para que ese día solo haya que
-          llenar el array — y para que no se cuele un "0 partidos" mientras. */}
-      {s.dependeDe.map((d) => (
+      {/* LOS PARTIDOS DE LOS QUE DEPENDE.
+          Son los únicos que pueden cambiar su suerte: el motor ya filtró los
+          que no mueven nada. Cada uno con quién juega, en qué grupo y qué
+          resultado le conviene — que es lo que convierte "depende" en algo que
+          se puede mirar. */}
+      {f?.partidos.map((p) => (
         <View
-          key={`${d.partido}-${d.queTeConviene}`}
+          key={p.matchId}
           style={{
-            borderLeftWidth: 2,
-            borderLeftColor: tinte,
-            paddingLeft: space[3],
-            marginTop: space[2],
-            gap: 2,
+            borderLeftWidth: 2, borderLeftColor: tinte,
+            paddingLeft: space[3], marginTop: space[2], gap: 2,
           }}
         >
+          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
+            {p.grupo}
+          </Text>
           <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text }} numberOfLines={2}>
-            {d.partido}
+            {p.partido}
           </Text>
-          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: tinte }}>
-            {d.queTeConviene}
-            {d.cuando ? ` · ${d.cuando}` : ''}
-          </Text>
+          {p.meConviene && (
+            <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: tinte }}>
+              {p.meConviene}
+            </Text>
+          )}
         </View>
       ))}
+
+      {/* La diferencia de games, sin porcentajes: el motor no los calcula. */}
+      {f?.games && (
+        <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, marginTop: space[2], lineHeight: 18 }}>
+          {f.games}
+        </Text>
+      )}
+
 
       {situacion.jugados > 0 && (
         <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: space[1] }}>
