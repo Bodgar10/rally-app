@@ -155,3 +155,50 @@ describe('el clinch sigue esperando al cierre del partido', () => {
     expect(ya.size).toBeGreaterThan(0);
   });
 });
+
+/**
+ * LO QUE LA HOJA PINTA EN ROJO sale de `validateParcial`, no de
+ * `validateScore`. La segunda responde "¿es esto un partido terminado?" y a un
+ * partido en juego le contesta que no — con razón, y sin que nadie se haya
+ * equivocado. Pintar esa respuesta como error decía que algo se rompió cuando
+ * lo único que pasaba es que el partido seguía.
+ */
+describe('un partido en curso no enseña ni un mensaje rojo', () => {
+  it('el ÚLTIMO set en curso no genera ningún error', () => {
+    // El caso del reporte: set 3 en 2-1, súper muerte en marcha.
+    const r = validateParcial([set(6, 4), set(4, 6), set(2, 1)]);
+    expect(r.errors).toEqual([]);
+    expect(r.valid).toBe(true);
+  });
+
+  it('tampoco lo genera en el primer set, ni en el segundo', () => {
+    expect(validateParcial([set(3, 1)]).errors).toEqual([]);
+    expect(validateParcial([set(6, 2), set(4, 3)]).errors).toEqual([]);
+  });
+
+  it('no aparece "Partido incompleto": el juez no está intentando cerrar', () => {
+    const r = validateParcial([set(6, 2), set(3, 1)]);
+    expect(r.errors.join(' ')).not.toMatch(/Partido incompleto|Falta el/);
+  });
+
+  it('no aparece lo del set siguiente cuando no hay set siguiente', () => {
+    const r = validateParcial([set(6, 4), set(4, 6), set(2, 1)]);
+    expect(r.errors.join(' ')).not.toMatch(/No se puede empezar el siguiente set/);
+  });
+
+  it('pero un set abierto que NO es el último SÍ es un error del juez', () => {
+    const r = validateParcial([set(3, 1), set(2, 0)]);
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/Set 1: 3-1 todavía no ha terminado/);
+    expect(r.errors.join(' ')).toMatch(/No se puede empezar el siguiente set/);
+  });
+
+  it('y un marcador imposible sigue en rojo', () => {
+    expect(validateParcial([set(8, 3)]).valid).toBe(false);
+  });
+
+  it('cerrar el partido sigue exigiendo lo de siempre', () => {
+    // `validateScore` no cambia: es la que decide si se cierra.
+    expect(validateScore([set(6, 4), set(4, 6), set(2, 1)]).valid).toBe(false);
+  });
+});

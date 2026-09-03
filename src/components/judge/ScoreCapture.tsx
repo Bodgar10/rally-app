@@ -202,20 +202,41 @@ export default function ScoreCapture({
   const listo = !submitting && (parcial?.valid ?? false) && aMotor(sets).length > 0;
 
   /**
+   * QUÉ VALIDACIÓN SE ENSEÑA MIENTRAS SE CAPTURA.
+   *
+   *   La de CERRAR el partido (`veredicto`) responde "¿esto es un partido
+   *   terminado?", y a un partido que se está jugando le contesta que no —con
+   *   razón, y sin que eso sea un fallo de nadie. Pintar esa respuesta en rojo
+   *   mientras el juez anota el set en curso dice que algo se rompió cuando no
+   *   se ha roto nada: el set 3 en 2-1 salía con borde de error y el texto
+   *   "no se puede empezar el siguiente set con este abierto" — un mensaje
+   *   sobre un set siguiente que no existe— y justo debajo, en verde, "Set 2
+   *   guardado. El partido sigue en juego". Las dos cosas del mismo envío.
+   *
+   *   Así que los errores en pantalla salen de `parcial`, que es la pregunta
+   *   que el juez está haciendo de verdad: "¿es legal lo que llevo?". El
+   *   veredicto de cierre solo se usa para saber a quién dar por ganador.
+   *
+   *   Sigue habiendo rojo cuando toca: un 8-3, o un set abierto que NO es el
+   *   último, siguen siendo errores del juez y `validateParcial` los reporta.
+   */
+  const aEnsenar = parcial;
+
+  /**
    * El error de un SET concreto, para ponerlo en su fila.
    *
    * Los mensajes del motor empiezan por "Set N…", así que se reparten por
-   * número. Lo que no case con un set (partido incompleto, sets de más) queda
-   * para el pie, que es donde se lee el estado global.
+   * número. Lo que no case con un set (sets de más) queda para el pie, que es
+   * donde se lee el estado global.
    */
   const errorPorSet = useMemo(() => {
     const m = new Map<number, string>();
-    for (const e of veredicto?.errors ?? []) {
+    for (const e of aEnsenar?.errors ?? []) {
       const n = /^Set (\d+)/.exec(e) ?? /^Super muerte del set (\d+)/.exec(e);
       if (n) m.set(Number(n[1]) - 1, e);
     }
     return m;
-  }, [veredicto]);
+  }, [aEnsenar]);
 
   /**
    * En qué punto está cada set, deducido de sus números.
@@ -242,11 +263,11 @@ export default function ScoreCapture({
 
   /** Lo que no es de un set concreto. Vacío si el marcador está bien. */
   const errorGeneral = useMemo(() => {
-    const sueltos = (veredicto?.errors ?? []).filter(
+    const sueltos = (aEnsenar?.errors ?? []).filter(
       (e) => !/^Set \d+/.test(e) && !/^Super muerte del set \d+/.test(e),
     );
     return sueltos.length ? sueltos.join(' · ') : null;
-  }, [veredicto]);
+  }, [aEnsenar]);
 
   // ───────────────────────────────────────────
   // Manipulación de sets
