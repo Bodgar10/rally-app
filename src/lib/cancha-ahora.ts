@@ -25,6 +25,23 @@
  *   sigue ocupando — que es justo el caso que rompe "el que empezó hace menos de
  *   una hora".
  *
+ * UN PARTIDO EMPIEZA CUANDO SE LIBERA LA CANCHA
+ *   No cuando alguien lo apunta. `in_progress` se escribe al capturar el primer
+ *   set —cuarenta minutos después de que la gente entrara— y `played_at` es la
+ *   hora de la captura, no la del último punto. La única señal fiable de que un
+ *   partido arrancó es que el ANTERIOR de esa cancha se cerró:
+ *
+ *       inicioReal = max(hora prevista, played_at del anterior en esa cancha)
+ *
+ *   El primero de la cola no tiene anterior y cuenta desde su hora prevista. Si
+ *   el anterior acabó tarde, manda el anterior —contar desde la hora prevista
+ *   exageraría el tiempo jugado—; si acabó pronto, manda la hora prevista,
+ *   porque nadie entra a la cancha media hora antes.
+ *
+ *   Las tres cifras de la tarjeta —cuánto lleva, cuánto va de retraso y a qué
+ *   hora entro— salen de ese mismo `inicioReal`, para que cuenten la misma
+ *   historia.
+ *
  * EL RETRASO SE PROPAGA POR LA COLA, COMO EN EL CLUB
  *   El inicio real de cada partido es `max(su hora prevista, cuándo acabó el
  *   anterior)`. De un partido terminado sabemos cuándo acabó: `played_at`, que
@@ -64,6 +81,10 @@ export interface PartidoEnCancha {
    * cola exige que su hora ya haya llegado —si no, la cancha está libre
    * esperándolo—, pero un partido que arrancó antes de lo previsto está
    * ocupando la pista igualmente, y decir "libre" ahí sería falso.
+   *
+   * Decide QUIÉN ocupa, no DESDE CUÁNDO: el momento en que se escribe este
+   * estado es el de la primera captura, que llega bastante después del primer
+   * punto. Para el reloj manda `inicioReal`.
    */
   enJuego?: boolean;
 }
@@ -177,14 +198,27 @@ export function estadoDeCancha(args: {
     // que arrancó antes de su hora ocupa la pista igual.
     if (ocupanteId === null && (p.enJuego || ahora >= inicioReal)) {
       ocupanteId = p.id;
-      // Si arrancó antes de lo previsto, lleva jugándose desde antes de su
-      // hora; contarlo desde `inicioReal` daría un "lleva -10 min".
-      ocupanteDesde = p.enJuego ? Math.min(inicioReal, ahora) : inicioReal;
+      // `inicioReal` Y NADA MÁS.
+      //
+      // Aquí había un `Math.min(inicioReal, ahora)` para los partidos en juego,
+      // y era el bug: `in_progress` se escribe cuando el juez captura el PRIMER
+      // SET, o sea unos cuarenta minutos después de que la gente entrara a la
+      // pista. Con ese `min`, el reloj arrancaba en ese instante y la tarjeta
+      // decía "lleva 0 min" de un partido que llevaba media hora larga. Cierto
+      // y sin ningún valor.
+      //
+      // El único instante que la app conoce de verdad es cuándo se liberó la
+      // cancha —el `played_at` del anterior—, y eso ya está dentro de
+      // `inicioReal`. Un negativo (partido en juego antes de su hora, sin nadie
+      // delante) lo absorbe el clamp del `return`.
+      ocupanteDesde = inicioReal;
     }
 
-    // Para lo que viene detrás: si está en juego, lo antes que puede acabar es
-    // su duración nominal, pero nunca antes de ahora — lleva 75 minutos y sigue.
-    libreDesde = Math.max(inicioReal + dur, ocupanteId === p.id ? ahora : inicioReal + dur);
+    // Para lo que viene detrás: lo antes que puede acabar es su duración
+    // nominal, pero si está EN JUEGO tampoco antes de ahora — lleva 75 minutos
+    // y sigue en la pista.
+    const finPrevisto = inicioReal + dur;
+    libreDesde = ocupanteId === p.id ? Math.max(finPrevisto, ahora) : finPrevisto;
   }
 
   return {

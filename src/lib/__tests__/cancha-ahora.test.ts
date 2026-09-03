@@ -265,3 +265,121 @@ describe('cómo se dice la cola', () => {
     expect(fraseDeTurno(2, true)).toBeNull();
   });
 });
+
+// ───────────────────────────────────────────
+// Desde cuándo lleva jugándose
+// ───────────────────────────────────────────
+//
+// EL BUG: el contador arrancaba cuando el juez capturaba el primer set, o sea
+// unos cuarenta minutos después de que la gente entrara a la pista. La tarjeta
+// decía "lleva 0 min" de un partido que llevaba media hora larga.
+//
+// LA REGLA: un partido empieza cuando se libera la cancha, y la cancha se libera
+// cuando el juez cierra el anterior. Es el único instante que la app conoce.
+//
+//     inicioReal = max(hora prevista, played_at del anterior)
+
+describe('desde cuándo lleva jugándose el ocupante', () => {
+  it('el primero de la cola cuenta desde su hora prevista', () => {
+    // Nadie delante: no hay `played_at` anterior que mande.
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'b',
+      partidos: [
+        { id: 'a', scheduledAt: T('09:00'), playedAt: null, finished: false, enJuego: true },
+        { id: 'b', scheduledAt: T('10:00'), playedAt: null, finished: false },
+      ],
+      ahora: en('09:40'),
+    });
+    expect(r.ocupanteId).toBe('a');
+    expect(r.ocupanteDesde).toBe(new Date(en('09:00')).toISOString());
+    expect(r.ocupanteLleva).toBe(40);
+  });
+
+  // EL CASO DEL BUG, con el ejemplo de la Cancha 1: cuando el juez da por
+  // concluido el de 3.ª Fuerza, a partir de ESE momento corre el de 5.ª.
+  it('cuando el anterior acaba tarde, manda el fin del anterior', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'mio',
+      partidos: [
+        // 3.ª Fuerza: era a las 9, el juez lo cerró a las 10:20.
+        { id: 'tercera', scheduledAt: T('09:00'), playedAt: T('10:20'), finished: true },
+        // 5.ª Fuerza: era a las 10, pero no pudo entrar hasta las 10:20.
+        { id: 'quinta', scheduledAt: T('10:00'), playedAt: null, finished: false, enJuego: true },
+        { id: 'mio', scheduledAt: T('11:00'), playedAt: null, finished: false },
+      ],
+      ahora: en('11:00'),
+    });
+    expect(r.ocupanteId).toBe('quinta');
+    // No desde las 10:00 —exageraría el tiempo jugado— sino desde las 10:20.
+    expect(r.ocupanteDesde).toBe(new Date(en('10:20')).toISOString());
+    expect(r.ocupanteLleva).toBe(40);
+  });
+
+  it('cuando el anterior acaba pronto, manda la hora prevista', () => {
+    // La gente no entra a la cancha media hora antes.
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'mio',
+      partidos: [
+        { id: 'antes', scheduledAt: T('09:00'), playedAt: T('09:30'), finished: true },
+        { id: 'ocupa', scheduledAt: T('10:00'), playedAt: null, finished: false, enJuego: true },
+        { id: 'mio', scheduledAt: T('11:00'), playedAt: null, finished: false },
+      ],
+      ahora: en('10:25'),
+    });
+    expect(r.ocupanteDesde).toBe(new Date(en('10:00')).toISOString());
+    expect(r.ocupanteLleva).toBe(25);
+  });
+
+  // El bug tal como se veía: el juez captura el primer set y el contador se
+  // reinicia. Ahora `in_progress` decide QUIÉN ocupa, no desde cuándo.
+  it('capturar el primer set NO reinicia el reloj', () => {
+    const partidos: PartidoEnCancha[] = [
+      { id: 'antes', scheduledAt: T('09:00'), playedAt: T('10:00'), finished: true },
+      { id: 'ocupa', scheduledAt: T('10:00'), playedAt: null, finished: false },
+    ];
+    const ahora = en('10:40');
+
+    // Antes de capturar nada: 'scheduled', deducido por la cola.
+    const sinCaptura = estadoDeCancha({ ...base, miMatchId: 'x', partidos, ahora });
+    // Justo después de capturar el primer set: pasa a 'in_progress'.
+    const conCaptura = estadoDeCancha({
+      ...base, miMatchId: 'x', ahora,
+      partidos: [partidos[0], { ...partidos[1], enJuego: true }],
+    });
+
+    expect(sinCaptura.ocupanteLleva).toBe(40);
+    // La misma cifra: capturar no cambia cuándo empezó el partido.
+    expect(conCaptura.ocupanteLleva).toBe(40);
+    expect(conCaptura.ocupanteDesde).toBe(sinCaptura.ocupanteDesde);
+  });
+
+  it('nunca un número negativo', () => {
+    // En juego antes de su hora y sin nadie delante: el clamp lo deja en 0.
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'x',
+      partidos: [{ id: 'ocupa', scheduledAt: T('11:00'), playedAt: null, finished: false, enJuego: true }],
+      ahora: en('10:50'),
+    });
+    expect(r.ocupanteId).toBe('ocupa');
+    expect(r.ocupanteLleva).toBe(0);
+    expect(r.ocupanteLleva).toBeGreaterThanOrEqual(0);
+  });
+
+  // Las tres cifras de la tarjeta salen del mismo `inicioReal`.
+  it('el reloj, el retraso y la hora de entrada cuentan la misma historia', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'mio',
+      partidos: [
+        { id: 'antes', scheduledAt: T('09:00'), playedAt: T('10:20'), finished: true },
+        { id: 'mio', scheduledAt: T('10:00'), playedAt: null, finished: false, enJuego: true },
+      ],
+      ahora: en('11:00'),
+    });
+    // Empezó a las 10:20 (cuando se liberó la cancha), no a las 10:00.
+    expect(r.ocupanteDesde).toBe(new Date(en('10:20')).toISOString());
+    expect(r.ocupanteLleva).toBe(40);
+    // Y mi entrada estimada y mi retraso salen del MISMO instante.
+    expect(r.miInicioEstimado).toBe(new Date(en('10:20')).toISOString());
+    expect(r.miRetraso).toBe(20);
+  });
+});
