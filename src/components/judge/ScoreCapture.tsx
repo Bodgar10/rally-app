@@ -50,7 +50,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
-import { clasificarSet, estadoDeSet, validateParcial, validateScore } from '@/lib/engine/score';
+import { clasificarSet, estadoDeSet, validateParcial, validateScore, type ScoreConfig } from '@/lib/engine/score';
 // La conversión formulario -> payload vive fuera para poder probarla: el fallo
 // del set vacío que llegaba como 0-0 era de conversión, no de pantalla.
 import { aMotor, capturado, payloadDeSets } from '@/lib/captura-sets';
@@ -102,6 +102,16 @@ export interface ScoreCaptureProps {
    * ganador sale del marcador. Si se cargan unos sets, sale el mismo.
    */
   ganadorInicial?: string | null;
+  /**
+   * Cómo juega ESTE torneo el set decisivo. OBLIGATORIA.
+   *
+   * Sin ella la pantalla validaría con una regla que puede no ser la del
+   * torneo: un 7-5 en el tercero cierra un set completo y no cierra una súper
+   * muerte, y el juez vería un error donde no lo hay o al revés. Es un dato,
+   * no un default — sale de `tournaments.tercer_set_formato` vía
+   * `scoreConfigDelTorneo`, que revienta si no llega.
+   */
+  scoreConfig: ScoreConfig;
   /** Callback cuando el resultado fue aceptado exitosamente. */
   onSuccess: () => void;
 }
@@ -132,6 +142,7 @@ export default function ScoreCapture({
   pairAName,
   pairBName,
   setsIniciales,
+  scoreConfig,
   onSuccess,
 }: ScoreCaptureProps) {
   const corrigiendo = !!setsIniciales && setsIniciales.length > 0;
@@ -153,8 +164,8 @@ export default function ScoreCapture({
   const veredicto = useMemo(() => {
     const completos = aMotor(sets);
     if (completos.length === 0) return null;
-    return validateScore(completos);
-  }, [sets]);
+    return validateScore(completos, scoreConfig);
+  }, [sets, scoreConfig]);
 
   /**
    * EL VEREDICTO DE LO CAPTURADO HASTA AHORA.
@@ -168,8 +179,8 @@ export default function ScoreCapture({
   const parcial = useMemo(() => {
     const completos = aMotor(sets);
     if (completos.length === 0) return null;
-    return validateParcial(completos);
-  }, [sets]);
+    return validateParcial(completos, scoreConfig);
+  }, [sets, scoreConfig]);
 
   const ganadorId = veredicto?.winnerSide
     ? (veredicto.winnerSide === 'A' ? pairAId : pairBId)
@@ -216,14 +227,17 @@ export default function ScoreCapture({
   const estadoFila = (idx: number): 'terminado' | 'en_curso' | null => {
     const st = sets[idx];
     if (!st || !capturado(st)) return null;
-    return estadoDeSet(parseInt(st.a, 10), parseInt(st.b, 10));
+    return estadoDeSet(
+      parseInt(st.a, 10), parseInt(st.b, 10), scoreConfig,
+      idx === scoreConfig.bestOf - 1,
+    );
   };
 
   /** ¿Este set se está leyendo como súper muerte? Solo para decirlo en pantalla. */
   const esSuperMuerte = (idx: number): boolean => {
     const st = sets[idx];
     if (!st || !capturado(st)) return false;
-    return clasificarSet(parseInt(st.a, 10), parseInt(st.b, 10)) === 'super';
+    return clasificarSet(parseInt(st.a, 10), parseInt(st.b, 10), scoreConfig) === 'super';
   };
 
   /** Lo que no es de un set concreto. Vacío si el marcador está bien. */

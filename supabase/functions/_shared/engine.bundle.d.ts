@@ -98,7 +98,19 @@ interface ScoreConfig {
     setTiebreakCap: number;
     superTiebreakTarget: number;
     superTiebreakWinBy: number;
+    /**
+     * Cómo se juega el SET DECISIVO. Decisión del torneo, no del motor.
+     *
+     * En el set decisivo un 5-4 es legal de dos formas: camino de un set
+     * completo o camino de una súper muerte. Nada en los números lo distingue,
+     * así que el motor no puede deducirlo — y mientras lo intentaba, rechazaba
+     * los marcadores en curso del tercer set como si fueran imposibles.
+     *
+     * Sale de `tournaments.tercer_set_formato` (migración 063).
+     */
+    deciderFormat: 'super' | 'full';
 }
+declare const DEFAULT_SCORE_CONFIG: ScoreConfig;
 interface ValidatedScore {
     /** El marcador es un partido COMPLETO y legal. Lo que decide si se cierra. */
     valid: boolean;
@@ -135,6 +147,29 @@ type FormatoDeSet = 'normal' | 'super' | null;
  * Devuelve null si no cabe en ninguno de los dos.
  */
 declare function clasificarSet(a: number, b: number, cfg?: ScoreConfig): FormatoDeSet;
+/**
+ * En qué punto está un set, deducido de sus DOS NÚMEROS y de nada más.
+ *
+ *   'terminado' — 6-0…6-4, 7-5, 7-6, y la súper muerte a 10+ con dos de
+ *                 diferencia. El 7-6 SIEMPRE está terminado: si llegaron a
+ *                 6-6 el único desenlace posible es 7-6, no existe un 7-6 en
+ *                 curso.
+ *   'en_curso'  — cualquier otro marcador legal: 3-1, 5-4, 6-5, 6-6. Al 6-6
+ *                 se le está jugando el tiebreak, cuyos puntos no se capturan.
+ *   null        — lo imposible: 8-3, 6-8, 9-4, y el 0-0, que no es una foto
+ *                 de nada.
+ *
+ * Es el mismo criterio con el que `clasificarSet` deduce la súper muerte sin
+ * preguntar: los números ya lo dicen. Aquí solo se le añade el escalón que
+ * faltaba entre "válido" e "imposible".
+ */
+type EstadoDeSet = 'terminado' | 'en_curso' | null;
+/**
+ * @param esDecisivo el set que decide el partido. Es el único que puede
+ *   jugarse con otro formato, y por eso hay que decirlo: sin ese dato, el
+ *   mismo 5-4 es dos cosas distintas.
+ */
+declare function estadoDeSet(a: number, b: number, cfg?: ScoreConfig, esDecisivo?: boolean): EstadoDeSet;
 /**
  * Valida un marcador completo y deriva el ganador.
  * No persiste nada; solo dice si el marcador es legal y quién ganó.
@@ -174,7 +209,39 @@ interface StandingsConfig {
      * la cabecera de ../clinch/index.ts.
      */
     soloTerminados?: boolean;
+    /**
+     * Cómo se juega un set en ESTE torneo. Hace falta para saber si el set
+     * decisivo cerró: un 7-5 termina un set normal y no termina una súper
+     * muerte, y el motor ya no lo adivina (migración 063).
+     */
+    score?: ScoreConfig;
 }
+/**
+ * 2 por victoria, 0 por derrota. Los puntos son victorias × 2, punto.
+ *
+ * ► NO LO DEVUELVAS A 1 PENSANDO QUE PREMIA LA PARTICIPACIÓN. Era 1 y hubo
+ *   que quitarlo. El punto por presentarse no premia a nadie: se lo lleva
+ *   TODO el que juega, así que no distingue entre parejas — lo único que
+ *   hace es escalar la columna PTS con el número de partidos del grupo.
+ *
+ *   Y los grupos no son todos del mismo tamaño. `computeFormat` reparte el
+ *   resto (ver `distribute` en ../format/index.ts) y la tabla literal tiene
+ *   escritos a mano los mixtos: 10 = [4,3,3], 16 = [4,3,3,3,3],
+ *   20 = [4,4,3,3,3,3], 32 = [4,4,3,3,3,3,3,3,3,3]. En todos ellos pasa 1
+ *   por grupo y el resto del cuadro se llena con los MEJORES SEGUNDOS, que
+ *   `selectQualifiers` compara entre grupos distintos por esta misma columna.
+ *
+ *   Con 1 por derrota, un 1-2 en grupo de 4 sumaba 4 puntos y un 1-1 en
+ *   grupo de 3 sumaba 3: el que perdió dos de tres clasificaba por encima
+ *   del que ganó uno de dos, y ni siquiera se llegaban a comparar los sets.
+ *   Peor: un 0-3 en grupo de 4 sumaba 3 y EMPATABA con ese 1-1.
+ *
+ *   Con 0, ambos quedan en 2 puntos y decide el desempate, que son
+ *   diferencias y no acumulados. La tabla además se lee sola: el jugador que
+ *   ve 2 puntos sabe que ganó un partido. No hacía falta normalizar por
+ *   partidos jugados; hacía falta dejar de repartir puntos por jugar.
+ */
+declare const DEFAULT_STANDINGS_CONFIG: StandingsConfig;
 /**
  * LA CADENA DE DESEMPATE, EN UN SOLO SITIO.
  *
@@ -1099,4 +1166,4 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type CriterioDesempate, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type CriterioDesempate, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EstadoDeSet, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };

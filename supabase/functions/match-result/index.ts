@@ -2,6 +2,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   validateScore,
   validateParcial,
+  DEFAULT_SCORE_CONFIG,
+  DEFAULT_STANDINGS_CONFIG,
   computeStandings,
   computeClinch,
   planAvance,
@@ -137,6 +139,34 @@ Deno.serve(async (req) => {
 
     // 2) Validar marcador y derivar ganador (ENGINE — no reimplementar).
     //    validateScore espera SetScore[] (camelCase) y devuelve winnerSide 'A'|'B'.
+    // EL FORMATO DEL SET DECISIVO ES DEL TORNEO, y sin él no se valida nada:
+    // un 7-5 en el tercero cierra un set completo y NO cierra una súper
+    // muerte. Si la columna no llega, se aborta — un default aquí validaría el
+    // marcador con una regla que este torneo no juega.
+    const { data: cfgTorneo, error: cfe } = await admin
+      .from('tournaments')
+      .select('tercer_set_formato, tercer_set_puntos')
+      .eq('id', match.tournament_id).maybeSingle();
+    if (cfe) return json({ error: 'tournament_read_failed', detail: cfe.message }, 500);
+    if (!cfgTorneo || cfgTorneo.tercer_set_formato == null) {
+      return json({
+        error: 'tournament_incomplete',
+        detail: 'tercer_set_formato no definido: no se puede validar el tercer set.',
+      }, 500);
+    }
+    if (cfgTorneo.tercer_set_formato === 'super_muerte'
+        && typeof cfgTorneo.tercer_set_puntos !== 'number') {
+      return json({
+        error: 'tournament_incomplete',
+        detail: 'el torneo juega súper muerte y tercer_set_puntos no está definido.',
+      }, 500);
+    }
+    const scoreCfg = {
+      ...DEFAULT_SCORE_CONFIG,
+      deciderFormat: (cfgTorneo.tercer_set_formato === 'super_muerte' ? 'super' : 'full') as 'super' | 'full',
+      superTiebreakTarget: cfgTorneo.tercer_set_puntos ?? DEFAULT_SCORE_CONFIG.superTiebreakTarget,
+    };
+
     const huecos = sets.filter(setSinNumeros).length;
     if (huecos > 0) {
       return json({
@@ -150,7 +180,7 @@ Deno.serve(async (req) => {
     // `validateParcial` en la captura set a set: hace la MISMA comprobación de
     // cada set y solo perdona la de "falta un set". Un 3-1 sigue siendo un
     // marcador inválido aunque el partido esté a medias.
-    const score = esParcial ? validateParcial(reqSets) : validateScore(reqSets);
+    const score = esParcial ? validateParcial(reqSets, scoreCfg) : validateScore(reqSets, scoreCfg);
     if (!score.valid) {
       return json({ error: 'invalid_score', detail: score.errors.join(' · '), errors: score.errors }, 400);
     }
@@ -377,7 +407,8 @@ Deno.serve(async (req) => {
         }));
 
       // ENGINE: standings del grupo + clinch de la categoría entera.
-      const standings = computeStandings(pairIds, matchInputs);
+      // La tabla también necesita el formato: decide si el tercer set cerró.
+      const standings = computeStandings(pairIds, matchInputs, { ...DEFAULT_STANDINGS_CONFIG, score: scoreCfg });
       const clinch = computeClinch({
         groups: gruposDeLaCategoria,
         advancePerGroup,

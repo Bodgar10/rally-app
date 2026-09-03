@@ -38,6 +38,8 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
+import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import type { ScoreConfig } from '@/lib/engine/score';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
@@ -198,6 +200,7 @@ export default function JudgeTournamentScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<JudgeMatch | null>(null);
+  const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
   /**
    * Cuándo arranca el cuadro según `match_schedule`, o null si no hay plan.
    *
@@ -218,6 +221,15 @@ export default function JudgeTournamentScreen() {
     if (!tournamentId) return;
     setLoadError(null);
     try {
+      // El formato del set decisivo es del torneo y la captura lo necesita:
+      // sin él, un 7-5 en el tercero se valida con una regla que puede no ser
+      // la de aquí. `scoreConfigDelTorneo` revienta si falta, y ese error se
+      // enseña en vez de capturar mal.
+      const { data: t } = await supabase
+        .from('tournaments')
+        .select('tercer_set_formato, tercer_set_puntos')
+        .eq('id', tournamentId).maybeSingle();
+      setScoreConfig(scoreConfigDelTorneo(t, 'juez'));
       setMatches(await fetchMatches(tournamentId));
     } catch (e) {
       // NO se degrada a lista vacía: eso pintaba "Todo al día" sobre un fallo.
@@ -609,7 +621,7 @@ export default function JudgeTournamentScreen() {
             </>
           }
         >
-          <ScoreCapture
+          {scoreConfig && <ScoreCapture
             matchId={selectedMatch.id}
             pairAId={selectedMatch.pairAId}
             pairBId={selectedMatch.pairBId}
@@ -617,8 +629,9 @@ export default function JudgeTournamentScreen() {
             pairBName={selectedMatch.pairBName}
             setsIniciales={selectedMatch.sets}
             ganadorInicial={selectedMatch.winnerPairId}
+            scoreConfig={scoreConfig}
             onSuccess={handleSuccess}
-          />
+          />}
         </Hoja>
       )}
     </SafeAreaView>

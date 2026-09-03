@@ -40,6 +40,8 @@ import { pestanasDeFase, type FaseTorneo } from '@/lib/fase-torneo';
 import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStandings';
 import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracket';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
+import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import type { ScoreConfig } from '@/lib/engine/score';
 import { computeStandingsDetalle } from '@/lib/engine/standings';
 import type { MatchResultInput } from '@/lib/engine/types';
 import {
@@ -155,6 +157,7 @@ export default function GruposScreen() {
   const [faseTab, setFaseTab] = useState<FaseTorneo>('grupos');
   const [cargando, setCargando] = useState(true);
   const [nombre, setNombre] = useState('');
+  const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
   const [error, setError]   = useState<string | null>(null);
   const [sembrando, setSembrando] = useState<string | null>(null);
   const [avisoSiembra, setAvisoSiembra] = useState<string | null>(null);
@@ -232,13 +235,16 @@ export default function GruposScreen() {
     setError(null);
 
     const [{ data: t }, { data: filasCat }] = await Promise.all([
-      supabase.from('tournaments').select('name').eq('id', tournamentId).maybeSingle(),
+      supabase.from('tournaments').select('name, tercer_set_formato, tercer_set_puntos').eq('id', tournamentId).maybeSingle(),
       supabase.from('categories')
         .select('id, display_name, advance_per_group, best_extra_qualifiers')
         .eq('tournament_id', tournamentId).order('division'),
     ]);
 
     if (t) setNombre(t.name);
+    // El formato del set decisivo, para que la captura valide con la regla de
+    // ESTE torneo. Si falta, la hoja no se abre: mejor eso que validar mal.
+    setScoreConfig(t ? scoreConfigDelTorneo(t, 'grupos') : null);
 
     const catIds = (filasCat ?? []).map((c) => c.id);
     if (catIds.length === 0) { setCats([]); setCargando(false); return; }
@@ -867,16 +873,19 @@ export default function GruposScreen() {
             </Text>
           }
         >
-          <ScoreCapture
-            matchId={capturando.id}
-            pairAId={capturando.parejaAId ?? ''}
-            pairBId={capturando.parejaBId ?? ''}
-            pairAName={capturando.parejaA}
-            pairBName={capturando.parejaB}
-            setsIniciales={capturando.sets}
-            ganadorInicial={capturando.ganadorId}
-            onSuccess={() => { setCapturando(null); void cargar(); }}
-          />
+          {scoreConfig && (
+            <ScoreCapture
+              matchId={capturando.id}
+              pairAId={capturando.parejaAId ?? ''}
+              pairBId={capturando.parejaBId ?? ''}
+              pairAName={capturando.parejaA}
+              pairBName={capturando.parejaB}
+              setsIniciales={capturando.sets}
+              ganadorInicial={capturando.ganadorId}
+              onSuccess={() => { setCapturando(null); void cargar(); }}
+              scoreConfig={scoreConfig}
+            />)}
+
         </Hoja>
       )}
     </SafeAreaView>

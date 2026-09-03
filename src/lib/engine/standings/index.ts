@@ -2,7 +2,7 @@
 // Motor de standings + desempates (Doc B §2). Determinista.
 
 import type { MatchResultInput, SetScore, StandingRow } from '../types';
-import { estadoDeSet } from '../score';
+import { DEFAULT_SCORE_CONFIG, estadoDeSet, type ScoreConfig } from '../score';
 
 export interface StandingsConfig {
   pointsWin: number;
@@ -25,6 +25,12 @@ export interface StandingsConfig {
    * la cabecera de ../clinch/index.ts.
    */
   soloTerminados?: boolean;
+  /**
+   * Cómo se juega un set en ESTE torneo. Hace falta para saber si el set
+   * decisivo cerró: un 7-5 termina un set normal y no termina una súper
+   * muerte, y el motor ya no lo adivina (migración 063).
+   */
+  score?: ScoreConfig;
 }
 
 /**
@@ -94,9 +100,9 @@ const emptyStats = (): Stats => ({
  * cuando el set terminó, así que se reconoce por ahí y no por sus games — un
  * 1-0 leído como games sería "en curso" y se caería de la tabla.
  */
-function setCerrado(set: SetScore): boolean {
+function setCerrado(set: SetScore, esDecisivo: boolean, score: ScoreConfig): boolean {
   if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) return true;
-  return estadoDeSet(set.gamesA, set.gamesB) === 'terminado';
+  return estadoDeSet(set.gamesA, set.gamesB, score, esDecisivo) === 'terminado';
 }
 
 /** Lado ganador de un set ('A' | 'B'), considerando super muerte. */
@@ -167,7 +173,11 @@ function computeStats(
     let gamesB = 0;
     // En un partido ya cerrado todos sus sets lo están; en uno en curso, el
     // último puede seguir jugándose y ese no entra.
-    const suyos = terminado ? m.sets : m.sets.filter(setCerrado);
+    const score = cfg.score ?? DEFAULT_SCORE_CONFIG;
+    const suyos = terminado
+      ? m.sets
+      // El set decisivo es el último de la serie: con `bestOf` 3, el tercero.
+      : m.sets.filter((st, i) => setCerrado(st, i === score.bestOf - 1, score));
     for (const st of suyos) {
       if (setWinner(st) === 'A') setsA++;
       else setsB++;

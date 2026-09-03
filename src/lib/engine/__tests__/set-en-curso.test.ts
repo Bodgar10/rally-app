@@ -17,9 +17,12 @@ describe('estadoDeSet — la regla, caso por caso', () => {
   it.each([[6, 0], [6, 1], [6, 2], [6, 3], [6, 4], [7, 5], [7, 6]])(
     '%i-%i está TERMINADO', (a, b) => expect(estadoDeSet(a, b)).toBe('terminado'));
 
-  it('la súper muerte a 10 o más con dos de diferencia está terminada', () => {
-    expect(estadoDeSet(10, 8)).toBe('terminado');
-    expect(estadoDeSet(12, 10)).toBe('terminado');
+  it('la súper muerte solo existe en el set DECISIVO, y hay que decirlo', () => {
+    // Sin el cuarto argumento se lee como un set normal, donde un 10-8 no
+    // existe. Es el dato que el motor dejó de adivinar (migración 063).
+    expect(estadoDeSet(10, 8)).toBe(null);
+    expect(estadoDeSet(10, 8, undefined, true)).toBe('terminado');
+    expect(estadoDeSet(12, 10, undefined, true)).toBe('terminado');
   });
 
   it.each([[3, 1], [5, 4], [6, 5], [6, 6]])(

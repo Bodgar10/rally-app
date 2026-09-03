@@ -184,7 +184,8 @@ var DEFAULT_SCORE_CONFIG = {
   setWinBy: 2,
   setTiebreakCap: 7,
   superTiebreakTarget: 10,
-  superTiebreakWinBy: 2
+  superTiebreakWinBy: 2,
+  deciderFormat: "super"
 };
 function clasificarSet(a, b, cfg = DEFAULT_SCORE_CONFIG) {
   if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) return null;
@@ -197,9 +198,22 @@ function clasificarSet(a, b, cfg = DEFAULT_SCORE_CONFIG) {
   if (hi >= cfg.superTiebreakTarget && hi - lo >= cfg.superTiebreakWinBy) return "super";
   return null;
 }
-function estadoDeSet(a, b, cfg = DEFAULT_SCORE_CONFIG) {
-  if (clasificarSet(a, b, cfg) !== null) return "terminado";
+function estadoSuperMuerte(a, b, cfg) {
+  const hi = Math.max(a, b);
+  const lo = Math.min(a, b);
+  const dif = hi - lo;
+  if (hi >= cfg.superTiebreakTarget && dif >= cfg.superTiebreakWinBy) {
+    return hi === cfg.superTiebreakTarget || dif === cfg.superTiebreakWinBy ? "terminado" : null;
+  }
+  if (a + b === 0) return null;
+  return "en_curso";
+}
+function estadoDeSet(a, b, cfg = DEFAULT_SCORE_CONFIG, esDecisivo = false) {
   if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) return null;
+  if (esDecisivo && cfg.deciderFormat === "super") {
+    return estadoSuperMuerte(a, b, cfg);
+  }
+  if (clasificarSet(a, b, cfg) === "normal") return "terminado";
   if (Math.max(a, b) <= cfg.setTarget && a + b > 0) return "en_curso";
   return null;
 }
@@ -246,8 +260,28 @@ function validar(sets, config, parcial) {
     const isDecider = setsA === setsToWin - 1 && setsB === setsToWin - 1;
     const { a, b } = numerosDelSet(st);
     const formato = clasificarSet(a, b, config);
+    const estado = estadoDeSet(a, b, config, isDecider);
+    if (isDecider) {
+      if (estado === "terminado") {
+        if (a >= b) setsA++;
+        else setsB++;
+        if (setsA >= setsToWin || setsB >= setsToWin) decided = true;
+        continue;
+      }
+      if (estado === "en_curso") {
+        if (parcial && i === sets.length - 1) continue;
+        errors.push(
+          `Set ${i + 1}: ${a}-${b} todav\xEDa no ha terminado. No se puede empezar el siguiente set con este abierto.`
+        );
+        continue;
+      }
+      errors.push(
+        `Set ${i + 1}: ${a}-${b} no es un marcador v\xE1lido. Puede ser ${config.deciderFormat === "super" ? `una s\xFAper muerte a ${config.superTiebreakTarget} (${config.superTiebreakTarget}-8, ${config.superTiebreakTarget + 2}-${config.superTiebreakTarget})` : FORMATO_NORMAL}.`
+      );
+      continue;
+    }
     if (formato === null) {
-      const abierto = estadoDeSet(a, b, config) === "en_curso";
+      const abierto = estado === "en_curso";
       if (abierto && parcial && i === sets.length - 1) {
         continue;
       }
@@ -293,9 +327,9 @@ var emptyStats = () => ({
   gamesLost: 0,
   points: 0
 });
-function setCerrado(set) {
+function setCerrado(set, esDecisivo, score) {
   if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) return true;
-  return estadoDeSet(set.gamesA, set.gamesB) === "terminado";
+  return estadoDeSet(set.gamesA, set.gamesB, score, esDecisivo) === "terminado";
 }
 function setWinner(set) {
   if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) {
@@ -331,7 +365,8 @@ function computeStats(pairIds, matches, cfg) {
     let setsB = 0;
     let gamesA = 0;
     let gamesB = 0;
-    const suyos = terminado ? m.sets : m.sets.filter(setCerrado);
+    const score = cfg.score ?? DEFAULT_SCORE_CONFIG;
+    const suyos = terminado ? m.sets : m.sets.filter((st, i) => setCerrado(st, i === score.bestOf - 1, score));
     for (const st of suyos) {
       if (setWinner(st) === "A") setsA++;
       else setsB++;
@@ -1975,4 +2010,4 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };
+export { DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };

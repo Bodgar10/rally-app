@@ -90,6 +90,12 @@ export default function NuevoTorneoScreen() {
         // —que es exactamente lo que pasó con la 057— el torneo nace con el
         // 3.er lugar encendido y nadie se entera hasta el domingo.
         tercer_lugar:     false,
+        // Explícito por la misma razón que el 3.er lugar: el default de la
+        // columna es de otro sistema, y si su migración no llegó a aplicarse,
+        // el torneo nace con un formato que nadie eligió. Súper muerte a 10 es
+        // lo normal en padel; se cambia desde Formato.
+        tercer_set_formato: 'super_muerte' as const,
+        tercer_set_puntos:  10,
       })
       .select('id')
       .single();

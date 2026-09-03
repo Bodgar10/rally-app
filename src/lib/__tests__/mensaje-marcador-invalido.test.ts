@@ -53,7 +53,9 @@ describe('el mensaje que lee el juez', () => {
 
   it('nombra el set que está mal y el marcador que se capturó', () => {
     expect(leeElJuez([[6, 5], [6, 3]])).toMatch(/Set 1\b.*6-5/);
-    expect(leeElJuez([[6, 4], [3, 6], [8, 6]])).toMatch(/Set 3\b.*8-6/);
+    // 12-3 y no 8-6: desde la 063, un 8-6 en el tercero es una súper muerte
+    // EN CURSO, no un marcador imposible.
+    expect(leeElJuez([[6, 4], [3, 6], [12, 3]])).toMatch(/Set 3\b.*12-3/);
   });
 
   it('dice qué marcador SÍ valdría, con ejemplos', () => {
@@ -61,10 +63,11 @@ describe('el mensaje que lee el juez', () => {
     const primero = leeElJuez([[6, 5], [6, 3]]);
     expect(primero).toMatch(/6-4|7-5|7-6/);
 
-    // El decisivo: cabe también la súper muerte, y hay que ofrecerla.
-    const decisivo = leeElJuez([[6, 4], [3, 6], [8, 6]]);
-    expect(decisivo).toMatch(/7-5|7-6/);
-    expect(decisivo).toMatch(/10-8|12-10|10 o más|súper muerte a 10/i);
+    // El decisivo ofrece EL formato del torneo, no los dos: cuál se juega ya
+    // no se adivina, lo dice `tercer_set_formato`.
+    const decisivo = leeElJuez([[6, 4], [3, 6], [12, 3]]);
+    expect(decisivo).toMatch(/súper muerte a 10/i);
+    expect(decisivo).not.toMatch(/set normal/);
   });
 
   it('cuando lo que falta es un set, lo dice por su nombre', () => {

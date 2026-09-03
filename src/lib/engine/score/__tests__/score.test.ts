@@ -1,5 +1,5 @@
 // src/lib/engine/score/__tests__/score.test.ts
-import { clasificarSet, validateParcial, validateScore } from '../index';
+import { clasificarSet, DEFAULT_SCORE_CONFIG, estadoDeSet, validateParcial, validateScore } from '../index';
 import type { SetScore } from '../../types';
 
 const set = (a: number, b: number): SetScore => ({
@@ -119,12 +119,14 @@ describe('validateScore — contrato de super muerte', () => {
   });
 
   it('exige llegar a 10 y ganar por 2', () => {
+    // Desde la 063 estos NO son imposibles: son súper muertes EN CURSO, y
+    // `validateScore` las rechaza porque no cierran el partido, no porque no
+    // existan. Ver 'el set decisivo se juega como diga el torneo'.
     const casos: [number, number][] = [[9, 7], [10, 9], [10, 10]];
     for (const [a, b] of casos) {
       const r = validateScore([set(6, 4), set(4, 6), superSet(a, b)]);
       expect(r.valid).toBe(false);
-      // El error dice qué SÍ vale, no solo que está mal.
-      expect(r.errors.join(' ')).toMatch(/súper muerte a 10/);
+      expect(r.errors.join(' ')).toMatch(/todavía no ha terminado/);
     }
     // 12-10 sí: pasa de 10 con margen de 2.
     expect(validateScore([set(6, 4), set(4, 6), superSet(12, 10)]).valid).toBe(true);
@@ -202,19 +204,26 @@ describe('validateScore — tercer set sin interruptor', () => {
     expect([r.setsA, r.setsB]).toEqual([2, 1]);
   });
 
-  it('acepta un tercer set normal, 7-5, en el mismo hueco', () => {
-    const r = validateScore([set(6, 4), set(4, 6), set(5, 7)]);
+  it('acepta un tercer set normal, 7-5, si el TORNEO juega set completo', () => {
+    // Antes lo aceptaba siempre, adivinando. Ahora lo dice el torneo: con el
+    // default (súper muerte) un 5-7 en el tercero es un set en curso.
+    const completo = { ...DEFAULT_SCORE_CONFIG, deciderFormat: 'full' as const };
+    const r = validateScore([set(6, 4), set(4, 6), set(5, 7)], completo);
     expect(r.valid).toBe(true);
     expect(r.winnerSide).toBe('B');
   });
 
-  it('el error del tercer set ofrece LOS DOS formatos', () => {
-    const r = validateScore([set(6, 4), set(4, 6), set(7, 3)]);
+  it('el error del tercer set ofrece EL formato del torneo, no los dos', () => {
+    // Ofrecer los dos era consecuencia de no saber cuál se juega. Ahora se
+    // sabe, y decir el que no toca solo confunde.
+    // 12-3 es imposible en una súper muerte a 10: habría acabado en el 10-3.
+    // (Un 7-3, en cambio, ya no es un error: es una súper muerte en curso.)
+    const r = validateScore([set(6, 4), set(4, 6), set(12, 3)]);
     expect(r.valid).toBe(false);
     const msg = r.errors.join(' ');
-    expect(msg).toMatch(/7-3/);                          // qué se capturó
-    expect(msg).toMatch(/set normal \(6-4, 7-5, 7-6\)/); // qué sí vale
-    expect(msg).toMatch(/súper muerte a 10 \(10-8, 12-10\)/);
+    expect(msg).toMatch(/12-3/);
+    expect(msg).toMatch(/súper muerte a 10/);
+    expect(msg).not.toMatch(/set normal/);
   });
 
   it('en un set que NO es el decisivo, el error ofrece solo el formato normal', () => {

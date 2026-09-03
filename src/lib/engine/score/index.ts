@@ -12,6 +12,17 @@ export interface ScoreConfig {
   setTiebreakCap: number; // 7
   superTiebreakTarget: number; // puntos para cerrar super muerte (10)
   superTiebreakWinBy: number; // margen mínimo en super muerte (2)
+  /**
+   * Cómo se juega el SET DECISIVO. Decisión del torneo, no del motor.
+   *
+   * En el set decisivo un 5-4 es legal de dos formas: camino de un set
+   * completo o camino de una súper muerte. Nada en los números lo distingue,
+   * así que el motor no puede deducirlo — y mientras lo intentaba, rechazaba
+   * los marcadores en curso del tercer set como si fueran imposibles.
+   *
+   * Sale de `tournaments.tercer_set_formato` (migración 063).
+   */
+  deciderFormat: 'super' | 'full';
 }
 
 export const DEFAULT_SCORE_CONFIG: ScoreConfig = {
@@ -21,6 +32,7 @@ export const DEFAULT_SCORE_CONFIG: ScoreConfig = {
   setTiebreakCap: 7,
   superTiebreakTarget: 10,
   superTiebreakWinBy: 2,
+  deciderFormat: 'super',
 };
 
 export interface ValidatedScore {
@@ -98,13 +110,52 @@ export function clasificarSet(
  */
 export type EstadoDeSet = 'terminado' | 'en_curso' | null;
 
+/**
+ * Estado de una SÚPER MUERTE a `cfg.superTiebreakTarget` puntos.
+ *
+ *   TERMINADO — se llegó al objetivo con el margen: 10-8, 11-9, 12-10. Y solo
+ *               eso: un 12-3 es imposible, porque el set habría acabado en el
+ *               10-3. Formalmente, cierra cuando se alcanza el objetivo con
+ *               margen suficiente Y no se pasó de largo — o el ganador está
+ *               justo en el objetivo, o gana por el margen exacto.
+ *   EN CURSO  — todo lo legal por debajo: 2-1, 7-5, 9-9, 10-9, 11-10. Ojo con
+ *               los dos últimos: llegar a 10 no cierra nada si no hay dos de
+ *               diferencia.
+ *   null      — lo que no se pudo haber jugado.
+ */
+function estadoSuperMuerte(a: number, b: number, cfg: ScoreConfig): EstadoDeSet {
+  const hi = Math.max(a, b);
+  const lo = Math.min(a, b);
+  const dif = hi - lo;
+
+  if (hi >= cfg.superTiebreakTarget && dif >= cfg.superTiebreakWinBy) {
+    return hi === cfg.superTiebreakTarget || dif === cfg.superTiebreakWinBy ? 'terminado' : null;
+  }
+  // Sin cerrar: o no se llegó al objetivo, o se llegó sin despegarse.
+  if (a + b === 0) return null;   // un set que no ha empezado no es una foto
+  return 'en_curso';
+}
+
+/**
+ * @param esDecisivo el set que decide el partido. Es el único que puede
+ *   jugarse con otro formato, y por eso hay que decirlo: sin ese dato, el
+ *   mismo 5-4 es dos cosas distintas.
+ */
 export function estadoDeSet(
   a: number,
   b: number,
   cfg: ScoreConfig = DEFAULT_SCORE_CONFIG,
+  esDecisivo = false,
 ): EstadoDeSet {
-  if (clasificarSet(a, b, cfg) !== null) return 'terminado';
   if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) return null;
+
+  // El set decisivo de un torneo que juega súper muerte NO es un set normal:
+  // ni cierra en 6, ni un 7-5 lo termina.
+  if (esDecisivo && cfg.deciderFormat === 'super') {
+    return estadoSuperMuerte(a, b, cfg);
+  }
+
+  if (clasificarSet(a, b, cfg) === 'normal') return 'terminado';
   // Un set en marcha no ha pasado del objetivo, y alguien ha ganado un juego:
   // el 0-0 es un set que no ha empezado y no dice nada que valga la pena
   // guardar.
@@ -224,9 +275,40 @@ function validar(
 
     const { a, b } = numerosDelSet(st);
     const formato = clasificarSet(a, b, config);
+    const estado = estadoDeSet(a, b, config, isDecider);
+
+    // EL SET DECISIVO SE JUEGA COMO DIGA EL TORNEO, y su estado ya viene
+    // resuelto por `estadoDeSet`: en súper muerte un 7-5 sigue en curso y un
+    // 10-8 cierra; en set completo, al revés.
+    if (isDecider) {
+      if (estado === 'terminado') {
+        // `numerosDelSet` ya resolvió la súper muerte guardada, así que aquí
+        // los dos formatos se leen igual: gana quien tenga el número mayor.
+        if (a >= b) setsA++;
+        else setsB++;
+        if (setsA >= setsToWin || setsB >= setsToWin) decided = true;
+        continue;
+      }
+      if (estado === 'en_curso') {
+        if (parcial && i === sets.length - 1) continue;
+        errors.push(
+          `Set ${i + 1}: ${a}-${b} todavía no ha terminado. ` +
+          `No se puede empezar el siguiente set con este abierto.`,
+        );
+        continue;
+      }
+      errors.push(
+        `Set ${i + 1}: ${a}-${b} no es un marcador válido. Puede ser ${
+          config.deciderFormat === 'super'
+            ? `una súper muerte a ${config.superTiebreakTarget} (${config.superTiebreakTarget}-8, ${config.superTiebreakTarget + 2}-${config.superTiebreakTarget})`
+            : FORMATO_NORMAL
+        }.`,
+      );
+      continue;
+    }
 
     if (formato === null) {
-      const abierto = estadoDeSet(a, b, config) === 'en_curso';
+      const abierto = estado === 'en_curso';
 
       // EL SET QUE SE ESTÁ JUGANDO. Solo puede ser el último, y solo en una
       // captura parcial: el juez actualiza su marcador cada dos o tres games.

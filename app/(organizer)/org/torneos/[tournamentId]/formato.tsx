@@ -21,7 +21,7 @@
 import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
-  ActivityIndicator, StyleSheet, SafeAreaView, Switch,
+  ActivityIndicator, StyleSheet, SafeAreaView, Switch, TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
@@ -42,6 +42,14 @@ export default function FormatoScreen() {
   // Arranca apagado: si la carga falla, la pantalla no promete un partido
   // que el torneo no va a jugar.
   const [tercero, setTercero]     = useState(false);
+  const [formato, setFormato]     = useState<'super_muerte' | 'set_completo'>('super_muerte');
+  const [puntos, setPuntos]       = useState('10');
+  const [tercerosCapturados, setTercerosCapturados] = useState(0);
+  /** Lo que hay en la base, para saber si de verdad se está cambiando algo. */
+  const [formatoGuardado, setFormatoGuardado] = useState<'super_muerte' | 'set_completo'>('super_muerte');
+  const [puntosGuardados, setPuntosGuardados] = useState(10);
+  /** El aviso está pendiente de confirmar. No es un impedimento. */
+  const [confirmando, setConfirmando] = useState(false);
   const [precio, setPrecio]       = useState<string | null>(null);
   const [cargando, setCargando]   = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -52,7 +60,7 @@ export default function FormatoScreen() {
     try {
       const { data: t, error: te } = await supabase
         .from('tournaments')
-        .select('name, courts, match_minutes, tercer_lugar')
+        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos')
         .eq('id', tournamentId)
         .maybeSingle();
       if (te) throw te;
@@ -61,11 +69,28 @@ export default function FormatoScreen() {
       const fila = t as unknown as {
         name: string; courts: number | null;
         match_minutes: number | null; tercer_lugar: boolean | null;
+        tercer_set_formato: 'super_muerte' | 'set_completo' | null;
+        tercer_set_puntos: number | null;
       };
       setNombre(fila.name);
       // `=== true` y no `!== false`: lo desconocido se lee APAGADO. La regla
       // es que solo esté encendido si alguien lo encendió a propósito.
       setTercero(fila.tercer_lugar === true);
+      // Un torneo creado antes de la 063 no tiene el dato: súper muerte a 10,
+      // que es como se venía jugando.
+      setFormato(fila.tercer_set_formato ?? 'super_muerte');
+      setPuntos(String(fila.tercer_set_puntos ?? 10));
+      setFormatoGuardado(fila.tercer_set_formato ?? 'super_muerte');
+      setPuntosGuardados(fila.tercer_set_puntos ?? 10);
+
+      // Cuántos partidos tienen ya un tercer set capturado. No bloquea nada:
+      // es lo que hay que decirle al organizador antes de que cambie la regla.
+      const { count } = await supabase
+        .from('match_sets')
+        .select('match_id, matches!inner(tournament_id)', { count: 'exact', head: true })
+        .eq('set_number', 3)
+        .eq('matches.tournament_id', tournamentId);
+      setTercerosCapturados(count ?? 0);
 
       // ── El precio ─────────────────────────────────────────────────────────
       // Clasificados por categoría = grupos × pasan + repescados. Hace falta
@@ -104,13 +129,30 @@ export default function FormatoScreen() {
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
+  /** ¿Se está cambiando la regla con terceros sets ya jugados? */
+  const cambiaFormato = formato !== formatoGuardado || Number(puntos) !== puntosGuardados;
+  const hayQueAvisar = cambiaFormato && tercerosCapturados > 0;
+
   async function guardar() {
+    // AVISO CON CONFIRMACIÓN, NO CANDADO. El organizador puede cambiar la
+    // regla con el torneo en marcha; lo que no puede es hacerlo sin saber a
+    // cuántos partidos ya jugados afecta la lectura.
+    if (hayQueAvisar && !confirmando) { setConfirmando(true); return; }
+
     setError(null);
     setGuardando(true);
     try {
+      const n = Number(puntos);
+      if (formato === 'super_muerte' && (!Number.isInteger(n) || n < 7 || n > 21)) {
+        throw new Error('La súper muerte se juega entre 7 y 21 puntos.');
+      }
       const { error: e } = await supabase
         .from('tournaments')
-        .update({ tercer_lugar: tercero } as never)
+        .update({
+          tercer_lugar: tercero,
+          tercer_set_formato: formato,
+          tercer_set_puntos: formato === 'super_muerte' ? n : 10,
+        } as never)
         .eq('id', tournamentId);
       if (e) throw e;
       volver();
@@ -164,6 +206,70 @@ export default function FormatoScreen() {
           )}
         </View>
 
+        {/* ── EL SET DECISIVO ──────────────────────────────────────────
+            No se deduce de los números: en el tercer set un 5-4 es legal
+            camino de un set completo y camino de una súper muerte. Mientras el
+            motor lo adivinaba, rechazaba los marcadores en curso del tercero
+            como si fueran imposibles. */}
+        <Text style={s.seccion}>Cómo se juega el tercer set</Text>
+
+        <View style={s.opciones}>
+          {([
+            ['super_muerte', 'Súper muerte', 'Lo normal en padel'],
+            ['set_completo', 'Set completo', 'Como el primero y el segundo'],
+          ] as const).map(([valor, titulo, sub]) => (
+            <Pressable
+              key={valor}
+              onPress={() => { setFormato(valor); setConfirmando(false); }}
+              style={[s.opcion, formato === valor && s.opcionElegida]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: formato === valor }}
+            >
+              <Text style={[s.opcionTitulo, formato === valor && s.opcionTituloElegida]}>{titulo}</Text>
+              <Text style={s.opcionSub}>{sub}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {formato === 'super_muerte' && (
+          <View style={s.fila}>
+            <View style={s.filaTexto}>
+              <Text style={s.filaTitulo}>A cuántos puntos</Text>
+              <Text style={s.filaSub}>Se gana por dos. Entre 7 y 21.</Text>
+            </View>
+            <TextInput
+              value={puntos}
+              onChangeText={(v) => { setPuntos(v.replace(/[^0-9]/g, '')); setConfirmando(false); }}
+              keyboardType="number-pad"
+              maxLength={2}
+              style={s.puntos}
+              accessibilityLabel="Puntos de la súper muerte"
+            />
+          </View>
+        )}
+
+        {/* EL AVISO, cuando ya hay terceros sets jugados. Con confirmación,
+            no con candado: la regla se puede cambiar en cualquier momento. */}
+        {hayQueAvisar && (
+          <View style={s.aviso}>
+            <Text style={s.avisoTitulo}>
+              {tercerosCapturados === 1
+                ? 'Hay 1 partido con tercer set capturado'
+                : `Hay ${tercerosCapturados} partidos con tercer set capturado`}
+            </Text>
+            <Text style={s.avisoTexto}>
+              Esos resultados NO se tocan: su marcador y su ganador se quedan
+              exactamente como están. El formato nuevo solo aplica de aquí en
+              adelante.
+            </Text>
+            {confirmando && (
+              <Text style={s.avisoConfirmar}>
+                Vuelve a pulsar Guardar para confirmar el cambio.
+              </Text>
+            )}
+          </View>
+        )}
+
         {error && <Text style={s.error}>{error}</Text>}
 
         <Pressable
@@ -198,6 +304,19 @@ const s = StyleSheet.create({
   filaTexto:  { flex: 1, gap: space[1] },
   filaTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
   filaSub:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+
+  seccion:     { fontFamily: font.display, fontSize: fontSize.section, color: color.champagne, marginTop: space[2] },
+  opciones:    { flexDirection: 'row', gap: space[2] },
+  opcion:      { flex: 1, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[1] },
+  opcionElegida: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
+  opcionTitulo:  { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.text },
+  opcionTituloElegida: { color: color.gold },
+  opcionSub:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+  puntos:      { width: 64, textAlign: 'center', borderWidth: 1, borderColor: color.goldMuted, borderRadius: radius.sm, color: color.text, fontFamily: font.display, fontSize: fontSize.cardName, paddingVertical: space[2] },
+  aviso:       { backgroundColor: 'rgba(230,180,80,0.10)', borderWidth: 1, borderColor: 'rgba(230,180,80,0.25)', borderRadius: radius.md, padding: space[3], gap: space[2] },
+  avisoTitulo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
+  avisoTexto:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 18 },
+  avisoConfirmar: { fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600', color: color.alive },
 
   nota:        { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[2] },
   notaTexto:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
