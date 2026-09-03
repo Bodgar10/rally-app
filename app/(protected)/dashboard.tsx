@@ -49,6 +49,7 @@ import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSitua
 import MisResultados from '@/components/player/MisResultados';
 import EnMiCancha from '@/components/player/EnMiCancha';
 import { porQueNoHayPartido } from '@/lib/situacion-jugador';
+import { bloquesDelDashboard, type ResumenDePartidos } from '@/lib/dashboard-jugador';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -66,6 +67,14 @@ export default function DashboardScreen() {
    * partido" pueda explicar POR QUÉ no hay uno en vez de callarse.
    */
   const [situacion, setSituacion] = useState<SituacionResuelta | null>(null);
+  /**
+   * Cuántos partidos suyos tienen hora y cuántos quedan por jugar.
+   *
+   * Es lo que decide qué bloques tienen respuesta (ver `bloquesDelDashboard`).
+   * Sin esto, "Empieza mañana" se pintaba solo por estar inscrito en un torneo
+   * vivo — y le salía a quien ya había jugado, con sus resultados debajo.
+   */
+  const [resumen, setResumen] = useState<ResumenDePartidos>({ conHorario: 0, pendientes: 0 });
 
   useEffect(() => {
     async function loadUserData() {
@@ -79,7 +88,20 @@ export default function DashboardScreen() {
         .from('pairs')
         .select('id')
         .or(`player1_id.eq.${data.user.id},player2_id.eq.${data.user.id}`);
-      if (pairs) setPairIds(pairs.map((p: { id: string }) => p.id));
+      const ids = (pairs ?? []).map((p: { id: string }) => p.id);
+      if (pairs) setPairIds(ids);
+
+      // El resumen de SUS partidos: con hora publicada y sin terminar.
+      if (ids.length > 0) {
+        const { data: suyos } = await supabase
+          .from('matches')
+          .select('status, scheduled_at')
+          .or(`pair_a_id.in.(${ids.join(',')}),pair_b_id.in.(${ids.join(',')})`);
+        setResumen({
+          conHorario: (suyos ?? []).filter((m) => m.scheduled_at !== null).length,
+          pendientes: (suyos ?? []).filter((m) => m.status !== 'finished').length,
+        });
+      }
 
       // Torneo inscrito más próximo, para cuando todavía no hay partido.
       const { data: mias } = await supabase
@@ -170,6 +192,12 @@ export default function DashboardScreen() {
     ? (user.user_metadata.full_name as string).split(' ')[0]
     : (user?.email?.split('@')[0] ?? 'Jugador');
 
+  /**
+   * Qué bloques se pintan. Cada uno responde una pregunta, y solo se pinta si
+   * tiene respuesta — ver `bloquesDelDashboard`.
+   */
+  const bloques = bloquesDelDashboard(pairIds.length > 0, resumen);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -233,7 +261,7 @@ export default function DashboardScreen() {
 
              El componente no pinta nada si su próximo partido no tiene cancha
              asignada: sin cancha no hay cola que mirar. */}
-        {pairIds.length > 0 && (
+        {bloques.enMiCancha && (
           <View style={{ marginTop: space[3] }}>
             <EnMiCancha pairIds={pairIds} />
           </View>
@@ -243,11 +271,18 @@ export default function DashboardScreen() {
              Ya no es stub: MyNextMatch lee de matches por Realtime. Sus
              nombres de rival salen de bracket_pairs_public (migración 039)
              desde que se quitó el embed roto contra users_select_own. */}
+        {/* La sección ENTERA, etiqueta incluida, solo si tiene respuesta.
+            Quien ya jugó todo y espera el desenlace no tiene próximo partido ni
+            nada que explicar aquí: la pregunta la contesta la tarjeta de
+            situación de abajo, y dejar una etiqueta con un hueco —o peor, con
+            la tarjeta de "Empieza mañana"— la contradecía. */}
+        {bloques.proximoPartido && (
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>MI PRÓXIMO PARTIDO</Text>
         </View>
+        )}
 
-        {pairIds.length > 0 ? (
+        {!bloques.proximoPartido ? null : pairIds.length > 0 ? (
           // En vivo via Realtime cuando el usuario tiene parejas inscritas.
           // Si aún no hay partido programado, en vez de "no tienes partidos"
           // se enseña el torneo que le espera: los partidos no existen hasta
@@ -261,7 +296,11 @@ export default function DashboardScreen() {
                  "todavía no se puede saber", y lo segundo es casi siempre la
                  respuesta. `porQueNoHayPartido` la dice a partir del estado que
                  acaba de resolver MiSituacion. */
-              torneoProximo
+              /* `bloques.torneoPorEmpezar` y no solo `torneoProximo`: estar
+                 inscrito en un torneo que no ha terminado NO significa que el
+                 torneo esté por empezar. En cuanto hay una hora publicada, esta
+                 tarjeta miente. */
+              bloques.torneoPorEmpezar && torneoProximo
                 ? <TorneoPorEmpezar torneo={torneoProximo} />
                 : situacion
                   ? (
