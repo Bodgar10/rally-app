@@ -1,11 +1,19 @@
 /**
  * RALLY · Dashboard del Jugador
- * Home mínimo (Sprint 0). Muestra:
- *   - Saludo + nombre del usuario
- *   - Banner "Mi próximo partido" (stub — se rellena en Sprint 3)
- *   - Banner CTA granate "¿Organizas torneos?" (visible solo si NO tiene membresía)
- *     o switch de modo si SÍ la tiene.
- *   - Acceso rápido a torneos disponibles.
+ *
+ * EL ORDEN ES LA PANTALLA
+ *   Las tarjetas se leen en el orden en que el jugador se hace las preguntas, y
+ *   antes no era así: la respuesta a "¿cuándo juego?" estaba partida en tres
+ *   tarjetas con un banner comercial en medio.
+ *
+ *     1. Qué pasa en mi cancha  — decide si se mueve del sillón. Va primero.
+ *     2. Mi siguiente partido   — la hora y el rival.
+ *     3. Mi situación           — si sigo dentro y de qué depende.
+ *     4. Mis resultados         — cómo me fue.
+ *     5. Ver mi grupo           — la tabla completa.
+ *
+ *   El banner de Pro se fue al final. En medio del bloque informativo competía
+ *   con el dato justo cuando más urge.
  *
  * Colores: 100% desde design-tokens (cero hex literales).
  * Estilo: Doc D §8 (tarjetas, banners, botones).
@@ -212,16 +220,22 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {/* ── MI SITUACIÓN ────────────────────────────────────────
-             ARRIBA DEL TODO, antes que el próximo partido, porque es la
-             pregunta con la que se abre la app: "¿sigo dentro?". El horario
-             importa DESPUÉS de saber que hay horario que esperar.
+        {/* ── QUÉ PASA EN MI CANCHA ───────────────────────────────
+             Justo debajo del próximo partido, porque es su continuación: la
+             hora publicada dice cuándo TENDRÍA que jugar, y esto dice cuándo va
+             a jugar de verdad.
 
-             El dato ya existía —`clinch_status`, calculado por el motor— y no
-             salía a ninguna pantalla del jugador. */}
+             El caso que lo motivó: un jugador con partido a las 10:00 se
+             levantó a las 8:30 y jugó a las 10:40, porque su cancha estaba
+             ocupada con una categoría que no era la suya. La información no
+             estaba en su categoría — estaba en la cancha, y en la cancha no la
+             miraba nadie.
+
+             El componente no pinta nada si su próximo partido no tiene cancha
+             asignada: sin cancha no hay cola que mirar. */}
         {pairIds.length > 0 && (
-          <View style={{ marginBottom: space[4] }}>
-            <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
+          <View style={{ marginTop: space[3] }}>
+            <EnMiCancha pairIds={pairIds} />
           </View>
         )}
 
@@ -280,89 +294,16 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* ── Banner Pro — solo visible para usuarios no suscritos ─ */}
-        {!isPro && (
-          <Pressable
-            onPress={() => setProSheetOpen(true)}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.92 : 1,
-              marginBottom: 14,
-            })}
-          >
-            <View
-              style={{
-                backgroundColor: color.wine,
-                borderRadius: 15,
-                borderWidth: 1,
-                borderColor: 'rgba(241,217,140,0.38)',
-                padding: 13,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 11,
-                shadowColor: 'rgba(120,28,48,0.6)',
-                shadowOffset: { width: 0, height: 8 },
-                shadowRadius: 24,
-                shadowOpacity: 1,
-                elevation: 8,
-              }}
-            >
-              <LinearGradient
-                colors={[color.goldBright, color.goldDeep]}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 10,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <Text style={{ fontSize: 16 }}>⚡</Text>
-              </LinearGradient>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text
-                  style={{
-                    fontFamily: font.display,
-                    fontSize: 13.5,
-                    fontWeight: '600',
-                    color: '#F7EAC6',
-                  }}
-                >
-                  Conoce los beneficios Pro
-                </Text>
-                <Text
-                  style={{
-                    fontFamily: font.body,
-                    fontSize: 10.5,
-                    color: '#E6CDC2',
-                    marginTop: 2,
-                    lineHeight: 14,
-                  }}
-                >
-                  Análisis, scouting, descuento en torneos y más.
-                </Text>
-              </View>
-              <Text style={{ color: color.goldBright, fontSize: 16 }}>›</Text>
-            </View>
-          </Pressable>
-        )}
+        {/* ── MI SITUACIÓN ────────────────────────────────────────
+             ARRIBA DEL TODO, antes que el próximo partido, porque es la
+             pregunta con la que se abre la app: "¿sigo dentro?". El horario
+             importa DESPUÉS de saber que hay horario que esperar.
 
-        {/* ── QUÉ PASA EN MI CANCHA ───────────────────────────────
-             Justo debajo del próximo partido, porque es su continuación: la
-             hora publicada dice cuándo TENDRÍA que jugar, y esto dice cuándo va
-             a jugar de verdad.
-
-             El caso que lo motivó: un jugador con partido a las 10:00 se
-             levantó a las 8:30 y jugó a las 10:40, porque su cancha estaba
-             ocupada con una categoría que no era la suya. La información no
-             estaba en su categoría — estaba en la cancha, y en la cancha no la
-             miraba nadie.
-
-             El componente no pinta nada si su próximo partido no tiene cancha
-             asignada: sin cancha no hay cola que mirar. */}
+             El dato ya existía —`clinch_status`, calculado por el motor— y no
+             salía a ninguna pantalla del jugador. */}
         {pairIds.length > 0 && (
-          <View style={{ marginTop: space[3] }}>
-            <EnMiCancha pairIds={pairIds} />
+          <View style={{ marginBottom: space[4] }}>
+            <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
           </View>
         )}
 
@@ -382,6 +323,31 @@ export default function DashboardScreen() {
             </View>
             <MisResultados pairIds={pairIds} />
           </>
+        )}
+
+        {/* ── VER MI GRUPO ────────────────────────────────────────
+             La tabla completa de su grupo no era alcanzable desde el
+             dashboard: había que entrar por Torneos, buscar el torneo y
+             luego la categoría. Es la pantalla que contesta "¿en qué
+             posición voy?", y va aquí porque es el paso natural después
+             de leer su situación. */}
+        {situacion && (
+          <Pressable
+            style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85 }]}
+            onPress={() => router.push(
+              `/(protected)/torneos/${situacion.tournamentId}/${situacion.categoryId}`,
+            )}
+            accessibilityRole="button"
+            accessibilityLabel={`Ver la tabla de mi grupo en ${situacion.categoria}`}
+          >
+            <View style={styles.quickCardRow}>
+              <Text style={styles.quickCardTitle}>Ver mi grupo</Text>
+              <Text style={styles.quickCardChevron}>›</Text>
+            </View>
+            <Text style={styles.quickCardSub}>
+              La tabla completa de {situacion.categoria}, con todas las parejas
+            </Text>
+          </Pressable>
         )}
 
         {/* ── Acceso rápido a torneos ──────────────────────────── */}
@@ -419,6 +385,51 @@ export default function DashboardScreen() {
             </View>
           )}
         </Pressable>
+        {/* ── Banner Pro ──────────────────────────────────────────
+             AL FINAL, no en medio. Estaba entre "mi próximo partido" y "qué
+             pasa en mi cancha", partiendo en dos la única pregunta que trae al
+             jugador a esta pantalla: ¿cuándo juego? Una oferta comercial en
+             mitad de esa respuesta la vuelve ilegible, y además compite con el
+             dato justo cuando más urge. */}
+        {!isPro && (
+          <Pressable
+            onPress={() => setProSheetOpen(true)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1, marginTop: space[4] })}
+          >
+            <View
+              style={{
+                backgroundColor: color.wine,
+                borderRadius: 15,
+                borderWidth: 1,
+                borderColor: 'rgba(241,217,140,0.38)',
+                padding: 13,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 11,
+              }}
+            >
+              <LinearGradient
+                colors={[color.goldBright, color.goldDeep]}
+                style={{
+                  width: 34, height: 34, borderRadius: 10,
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}
+              >
+                <Text style={{ fontSize: 16 }}>⚡</Text>
+              </LinearGradient>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ fontFamily: font.display, fontSize: 13.5, fontWeight: '600', color: '#F7EAC6' }}>
+                  Conoce los beneficios Pro
+                </Text>
+                <Text style={{ fontFamily: font.body, fontSize: 10.5, color: '#E6CDC2', marginTop: 2, lineHeight: 14 }}>
+                  Análisis, scouting, descuento en torneos y más.
+                </Text>
+              </View>
+              <Text style={{ color: color.goldBright, fontSize: 16 }}>›</Text>
+            </View>
+          </Pressable>
+        )}
+
       </ScrollView>
     </SafeAreaView>
   );

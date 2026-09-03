@@ -82,6 +82,19 @@ export interface EstadoDeCancha {
   miInicioEstimado: string | null;
   /** Minutos que voy a entrar más tarde de lo publicado. 0 si voy en hora. */
   miRetraso: number;
+  /**
+   * Partidos que faltan en esta cancha ANTES del mío, el que se está jugando
+   * incluido. Los ya terminados no cuentan: no queda nada por esperar de ellos.
+   *
+   * "Cuál se juega ahora" no contesta la pregunta que se hace el jugador. Saber
+   * que hay DOS partidos por delante en vez de ser el siguiente es la diferencia
+   * entre ir saliendo de casa y sentarse otra vez.
+   *
+   * 0 = el siguiente en entrar soy yo.
+   */
+  partidosAntesDelMio: number;
+  /** Los ids de esos partidos, en orden de cancha. El primero es el ocupante. */
+  colaAntesDelMio: string[];
 }
 
 const MIN = 60_000;
@@ -118,6 +131,7 @@ export function estadoDeCancha(args: {
   const vacio: EstadoDeCancha = {
     ocupanteId: null, ocupanteDesde: null, ocupanteLleva: 0,
     miInicioEstimado: null, miRetraso: 0,
+    partidosAntesDelMio: 0, colaAntesDelMio: [],
   };
   if (cola.length === 0) return vacio;
 
@@ -127,6 +141,12 @@ export function estadoDeCancha(args: {
   let ocupanteDesde: number | null = null;
   let miInicio: number | null = null;
   let miPrevisto: number | null = null;
+  /**
+   * Lo que queda por jugarse delante de mí. Se va acumulando y se CORTA al
+   * llegar a mi partido: lo que viene detrás no me hace esperar.
+   */
+  const antesDelMio: string[] = [];
+  let yaLlegueAlMio = false;
 
   for (const p of cola) {
     const previsto = ms(p.scheduledAt)!;
@@ -136,6 +156,10 @@ export function estadoDeCancha(args: {
     if (p.id === miMatchId) {
       miInicio = inicioReal;
       miPrevisto = previsto;
+      yaLlegueAlMio = true;
+    } else if (!yaLlegueAlMio && !p.finished) {
+      // Sin terminar y por delante: es tiempo que voy a esperar de verdad.
+      antesDelMio.push(p.id);
     }
 
     if (p.finished) {
@@ -171,7 +195,35 @@ export function estadoDeCancha(args: {
     miRetraso: miInicio === null || miPrevisto === null
       ? 0
       : Math.max(0, Math.round((miInicio - miPrevisto) / MIN)),
+    partidosAntesDelMio: antesDelMio.length,
+    colaAntesDelMio: antesDelMio,
   };
+}
+
+/**
+ * Cuántos partidos faltan antes del mío, dicho como se dice.
+ *
+ * `null` cuando soy el siguiente: "faltan 0 partidos" es una forma rara de dar
+ * una buena noticia, y ese caso lo dice mejor `fraseDeTurno`.
+ */
+export function fraseDeCola(partidosAntes: number): string | null {
+  if (partidosAntes <= 0) return null;
+  if (partidosAntes === 1) return 'Falta 1 partido antes del tuyo.';
+  return `Faltan ${partidosAntes} partidos antes del tuyo.`;
+}
+
+/**
+ * El turno, para el caso bueno: eres el siguiente en entrar.
+ *
+ * Se separa de `fraseDeCola` porque no es la misma información — una dice
+ * cuánto esperas, la otra que no esperas nada— y porque es la única que hace
+ * levantarse del sillón.
+ */
+export function fraseDeTurno(partidosAntes: number, hayOcupante: boolean): string | null {
+  if (partidosAntes > 0) return null;
+  return hayOcupante
+    ? 'Eres el siguiente: entras cuando acabe este partido.'
+    : 'Tu cancha está libre: eres el siguiente en entrar.';
 }
 
 /**

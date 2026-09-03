@@ -37,10 +37,38 @@ export type ClinchStatus = 'clinched' | 'repechage_pending' | 'alive' | 'elimina
  */
 export type TonoSituacion = 'clasificado' | 'espera' | 'vivo' | 'fuera';
 
+/**
+ * Un partido concreto del que depende el jugador.
+ *
+ * HOY NADIE LLENA ESTO. El motor de clinch dice SI sigues vivo, no de qué
+ * partidos depende que lo sigas estando — enumerar escenarios es trabajo de
+ * motor que todavía no existe.
+ *
+ * La estructura se deja preparada porque el texto genérico y el concreto no son
+ * la misma frase con más datos: son dos frases distintas, y descubrirlo cuando
+ * el motor esté listo obligaría a rehacer la traducción entera. Con esto, ese
+ * día solo hay que llenar el array.
+ */
+export interface PartidoDelQueDependes {
+  /** "Luis / Pedro vs Sofía / Regina", ya resuelto a nombres. */
+  partido: string;
+  /** Qué te conviene: "que ganen Luis / Pedro", "que se decida en tres sets". */
+  queTeConviene: string;
+  /** Cuándo se juega, si se sabe. */
+  cuando?: string | null;
+}
+
 export interface Situacion {
   titulo: string;
   detalle: string;
   tono: TonoSituacion;
+  /**
+   * Los partidos de los que depende, si se saben.
+   *
+   * Vacío = no se sabe todavía, y entonces `detalle` lleva la versión genérica.
+   * La pantalla decide cómo pintarlos; aquí solo se dice cuáles son.
+   */
+  dependeDe: PartidoDelQueDependes[];
 }
 
 /**
@@ -62,13 +90,25 @@ function faltanGrupos(n: number): string {
  * que es una espera. En los otros tres ya no hay nada que esperar: o pasaste, o
  * depende de lo que hagas tú, o se acabó.
  */
-export function situacionDe(estado: ClinchStatus, gruposPendientes: number): Situacion {
+export function situacionDe(
+  estado: ClinchStatus,
+  gruposPendientes: number,
+  /**
+   * Los partidos de los que depende, cuando se sepan.
+   *
+   * Por defecto vacío, que es el estado de hoy: el motor no los enumera. Es un
+   * parámetro y no un cálculo aquí porque quien los sabe es el motor, no la
+   * traducción — este módulo solo elige las palabras.
+   */
+  dependeDe: PartidoDelQueDependes[] = [],
+): Situacion {
   switch (estado) {
     case 'clinched':
       return {
         titulo: 'Ya clasificaste',
         detalle: 'Espera los resultados de los demás para saber cuándo juegas.',
         tono: 'clasificado',
+        dependeDe: [],   // ya no dependes de nadie: estás dentro
       };
 
     case 'repechage_pending':
@@ -78,13 +118,21 @@ export function situacionDe(estado: ClinchStatus, gruposPendientes: number): Sit
           'Ya no puedes ser primero de tu grupo, pero entras si tu segundo puesto ' +
           `es de los mejores. ${faltanGrupos(gruposPendientes)}`,
         tono: 'espera',
+        dependeDe,
       };
 
     case 'alive':
       return {
         titulo: 'Todavía puedes clasificar',
-        detalle: 'Depende de lo que pase en tus partidos que faltan.',
+        // "Depende de lo que pase en tus partidos que faltan" es cierto y
+        // vacío: el jugador ya sabe que depende de algo, lo que no sabe es de
+        // QUÉ. Con la lista concreta la frase cambia de forma, no solo de
+        // longitud — por eso son dos textos y no uno con relleno.
+        detalle: dependeDe.length > 0
+          ? `Depende de ${dependeDe.length === 1 ? 'este partido' : `estos ${dependeDe.length} partidos`}:`
+          : 'Depende de lo que pase en tus partidos que faltan. Cuando se sepa de qué resultados concretos, aparecerá aquí.',
         tono: 'vivo',
+        dependeDe,
       };
 
     case 'eliminated':
@@ -95,6 +143,7 @@ export function situacionDe(estado: ClinchStatus, gruposPendientes: number): Sit
         titulo: 'Tu torneo terminó aquí',
         detalle: 'No alcanzaste la clasificación esta vez. Gracias por jugar.',
         tono: 'fuera',
+        dependeDe: [],   // ya no depende de nada
       };
   }
 }

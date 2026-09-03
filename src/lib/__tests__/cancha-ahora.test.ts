@@ -8,7 +8,10 @@
 // La detección va por la cola, y estos tests fijan que aguanta el caso que
 // rompe la regla ingenua de "el que empezó hace menos de una hora".
 
-import { estadoDeCancha, fraseDeRetraso, type PartidoEnCancha } from '@/lib/cancha-ahora';
+import {
+  estadoDeCancha, fraseDeRetraso, fraseDeCola, fraseDeTurno,
+  type PartidoEnCancha,
+} from '@/lib/cancha-ahora';
 
 const T = (hhmm: string) => `2026-09-05T${hhmm}:00-06:00`;
 const en = (hhmm: string) => Date.parse(T(hhmm));
@@ -176,5 +179,79 @@ describe('un partido EN JUEGO ocupa la cancha', () => {
     });
     expect(r.ocupanteId).toBe('a');
     expect(r.miRetraso).toBeGreaterThanOrEqual(30);
+  });
+});
+
+describe('la cola entera, no solo el ocupante', () => {
+  // "Cuál se juega ahora" no contesta la pregunta del jugador. Saber que hay
+  // DOS partidos por delante en vez de ser el siguiente es la diferencia entre
+  // ir saliendo de casa y sentarse otra vez.
+  it('cuenta los que faltan antes del mío', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'c',
+      partidos: cola(),   // a las 9, 10 y 11; ninguno terminado
+      ahora: en('09:10'),
+    });
+    expect(r.partidosAntesDelMio).toBe(2);
+    expect(r.colaAntesDelMio).toEqual(['a', 'b']);
+  });
+
+  it('los terminados no cuentan: ya no se espera nada de ellos', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'c',
+      partidos: cola({ a: { finished: true, playedAt: T('10:05') } }),
+      ahora: en('10:10'),
+    });
+    expect(r.partidosAntesDelMio).toBe(1);
+    expect(r.colaAntesDelMio).toEqual(['b']);
+  });
+
+  it('cero cuando soy el siguiente', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'b',
+      partidos: cola({ a: { finished: true, playedAt: T('09:55') } }),
+      ahora: en('09:58'),
+    });
+    expect(r.partidosAntesDelMio).toBe(0);
+    expect(r.colaAntesDelMio).toEqual([]);
+  });
+
+  it('lo que viene DETRÁS del mío no me hace esperar', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'a',   // el mío es el primero de la cancha
+      partidos: cola(),
+      ahora: en('09:00'),
+    });
+    expect(r.partidosAntesDelMio).toBe(0);
+  });
+
+  it('el partido en curso cuenta como uno por delante', () => {
+    const r = estadoDeCancha({
+      ...base, miMatchId: 'b',
+      partidos: cola({ a: { enJuego: true } }),
+      ahora: en('09:30'),
+    });
+    expect(r.ocupanteId).toBe('a');
+    expect(r.partidosAntesDelMio).toBe(1);
+    expect(r.colaAntesDelMio[0]).toBe('a');
+  });
+});
+
+describe('cómo se dice la cola', () => {
+  it('en partidos, no en ids', () => {
+    expect(fraseDeCola(1)).toBe('Falta 1 partido antes del tuyo.');
+    expect(fraseDeCola(3)).toBe('Faltan 3 partidos antes del tuyo.');
+  });
+
+  // "Faltan 0 partidos" es una forma rara de dar una buena noticia.
+  it('sin cola no hay frase de cola: la da fraseDeTurno', () => {
+    expect(fraseDeCola(0)).toBeNull();
+    expect(fraseDeTurno(0, true)).toMatch(/siguiente/i);
+    expect(fraseDeTurno(0, true)).toMatch(/cuando acabe/i);
+    expect(fraseDeTurno(0, false)).toMatch(/libre/i);
+  });
+
+  it('con cola no se anuncia turno', () => {
+    expect(fraseDeTurno(2, true)).toBeNull();
   });
 });

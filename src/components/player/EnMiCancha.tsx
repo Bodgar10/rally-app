@@ -39,7 +39,10 @@ import { subscribeToTable, tournamentChannel, combineUnsubs } from '@/lib/realti
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { horaDeTorneo } from '@/lib/fechas';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
-import { estadoDeCancha, fraseDeRetraso, type PartidoEnCancha } from '@/lib/cancha-ahora';
+import {
+  estadoDeCancha, fraseDeRetraso, fraseDeCola, fraseDeTurno,
+  type PartidoEnCancha,
+} from '@/lib/cancha-ahora';
 
 const ETAPA: Record<string, string> = {
   group: 'Fase de grupos',
@@ -79,6 +82,8 @@ interface Vista {
    * propio partido ya habla "Mi próximo partido", así que aquí no se repite.
    */
   ocupanteEsMio: boolean;
+  /** Partidos sin terminar por delante del mío, el ocupante incluido. */
+  partidosAntes: number;
   miHoraPublicada: string | null;
   miRetraso: number;
   miInicioEstimado: string | null;
@@ -182,6 +187,7 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     cancha: mio.court_label,
     ocupante,
     ocupanteEsMio,
+    partidosAntes: estado.partidosAntesDelMio,
     miHoraPublicada: mio.scheduled_at,
     miRetraso: estado.miRetraso,
     miInicioEstimado: estado.miInicioEstimado,
@@ -263,6 +269,8 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
   if (!vista) return null;
 
   const retraso = fraseDeRetraso(vista.miRetraso);
+  const cola = fraseDeCola(vista.partidosAntes);
+  const turno = fraseDeTurno(vista.partidosAntes, !!vista.ocupante);
 
   return (
     <View
@@ -303,8 +311,21 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
         </Text>
       ) : vista.ocupante ? (
         <>
+          {/* LA CATEGORÍA, EN GRANDE Y PRIMERO.
+              Es el dato que faltaba en el caso real: la cancha estaba ocupada
+              con una categoría que no era la suya y no había forma de saberlo.
+              Iba en gris de 12px junto a la ronda, como una nota al pie de algo
+              más importante — y resulta que era lo importante. */}
+          <Text
+            style={{
+              fontFamily: font.display, fontSize: fontSize.h1Inline, color: color.text,
+            }}
+            numberOfLines={2}
+          >
+            {vista.ocupante.categoria}
+          </Text>
           <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
-            {vista.ocupante.categoria} · {vista.ocupante.ronda}
+            {vista.ocupante.ronda}
           </Text>
           <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text }} numberOfLines={2}>
             {vista.ocupante.parejaA}
@@ -329,9 +350,27 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
         </Text>
       )}
 
+      {/* CUÁNTOS FALTAN ANTES DEL MÍO.
+          "Cuál se juega ahora" no contesta la pregunta del jugador. Dos
+          partidos por delante o ser el siguiente es la diferencia entre ir
+          saliendo de casa y sentarse otra vez — y es lo que decide si se mueve
+          del sillón, así que va en la línea más visible después del ocupante. */}
+      {!vista.ocupanteEsMio && (cola || turno) && (
+        <Text
+          style={{
+            fontFamily: font.display,
+            fontSize: fontSize.body,
+            color: turno ? color.live : color.champagne,
+            marginTop: space[1],
+          }}
+        >
+          {turno ?? cola}
+        </Text>
+      )}
+
       {/* EL NÚMERO QUE CAMBIA LA MAÑANA. Es lo que convierte "levántate a las
           8:30" en "puedes dormir media hora más". */}
-      {retraso && (
+      {retraso ? (
         <View
           style={{
             backgroundColor: 'rgba(230,180,80,0.12)',
@@ -351,6 +390,15 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
             </Text>
           )}
         </View>
+      ) : (
+        /* Sin retraso digno de aviso, la hora real se dice igual: es la
+           respuesta a "¿a qué hora entro?", y callarla porque la cancha va en
+           hora obliga al jugador a deducir que su hora publicada sigue en pie. */
+        !vista.ocupanteEsMio && vista.miInicioEstimado && (
+          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
+            Entras hacia las {horaDeTorneo(vista.miInicioEstimado)}.
+          </Text>
+        )
       )}
     </View>
   );

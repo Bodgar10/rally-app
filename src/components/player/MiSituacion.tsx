@@ -343,6 +343,32 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
         {s.detalle}
       </Text>
 
+      {/* DE QUÉ PARTIDOS DEPENDE.
+          Hoy esta lista llega SIEMPRE vacía y no se pinta nada: el motor de
+          clinch dice si sigues vivo, no de qué resultados concretos depende que
+          lo sigas estando. El sitio está hecho para que ese día solo haya que
+          llenar el array — y para que no se cuele un "0 partidos" mientras. */}
+      {s.dependeDe.map((d) => (
+        <View
+          key={`${d.partido}-${d.queTeConviene}`}
+          style={{
+            borderLeftWidth: 2,
+            borderLeftColor: tinte,
+            paddingLeft: space[3],
+            marginTop: space[2],
+            gap: 2,
+          }}
+        >
+          <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text }} numberOfLines={2}>
+            {d.partido}
+          </Text>
+          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: tinte }}>
+            {d.queTeConviene}
+            {d.cuando ? ` · ${d.cuando}` : ''}
+          </Text>
+        </View>
+      ))}
+
       {situacion.jugados > 0 && (
         <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: space[1] }}>
           Vas {situacion.posicion}.º de tu grupo con {situacion.jugados}{' '}
