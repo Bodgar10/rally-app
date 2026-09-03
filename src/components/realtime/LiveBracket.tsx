@@ -29,6 +29,7 @@ import {
   ETIQUETA_ETAPA,
   agruparPorEtapa,
   columnasDelCuadro,
+  fusionarConElPlan,
   estaPendiente,
   textoPendiente,
   type EtapaCuadro,
@@ -140,6 +141,19 @@ async function fetchPlanDelCuadro(categoryId: string): Promise<Map<string, SlotD
 }
 
 async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> {
+  // EL PLAN, EN PARALELO CON LOS PARTIDOS.
+  //
+  // `match_schedule` tiene la hora y la cancha de TODAS las rondas desde que se
+  // programa el torneo, aunque el cuadro no esté sembrado. Es lo que permite
+  // decirle al jugador el viernes por la noche que, si clasifica, juega octavos
+  // el domingo a las 10:00 en la Cancha 3 — que es exactamente lo que antes no
+  // podía saber y le hacía desvelarse.
+  const planPromesa = supabase
+    .from('match_schedule')
+    .select('stage, slot_index, scheduled_at, court_label')
+    .eq('category_id', categoryId)
+    .order('slot_index', { ascending: true });
+
   const { data, error } = await supabase
     .from('matches')
     // Sin embed de `pairs → users`: users_select_own solo deja leer la propia
@@ -166,7 +180,7 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
     filas.flatMap((r) => [r.pair_a_id, r.pair_b_id]),
   );
 
-  return filas.map((row) => ({
+  const reales: BracketMatch[] = filas.map((row) => ({
     id: row.id,
     stage: row.stage as BracketStage,
     roundLabel: row.round_label,
@@ -182,6 +196,33 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
     scheduledAt: row.scheduled_at,
     courtLabel: row.court_label,
   }));
+
+  const { data: plan } = await planPromesa;
+
+  // Las celdas que solo existen en el plan. Sin parejas: no se sabe quién juega
+  // y no se finge — `MatchCard` ya las pinta como pendientes.
+  return fusionarConElPlan(
+    reales,
+    (plan ?? []).map((r) => ({
+      stage: r.stage as BracketStage,
+      slotIndex: r.slot_index,
+      scheduledAt: r.scheduled_at,
+      courtLabel: r.court_label,
+    })),
+    (slot, i) => ({
+      id: `plan:${slot.stage}:${slot.slotIndex}:${i}`,
+      stage: slot.stage,
+      roundLabel: null,
+      status: 'scheduled',
+      pairAId: null,
+      pairBId: null,
+      pairAName: null,
+      pairBName: null,
+      winnerPairId: null,
+      scheduledAt: slot.scheduledAt,
+      courtLabel: slot.courtLabel,
+    }),
+  );
 }
 
 // ───────────────────────────────────────────
@@ -617,12 +658,20 @@ export default function LiveBracket({
           borderColor: color.lineSoft,
         }}
       >
-        <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13 }}>
-          {vacio ?? 'El cuadro eliminatorio aún no está disponible.'}
+        {/* LA RAZÓN CONCRETA, NO "no está disponible".
+            Antes esto salía siempre que el cuadro no estuviera sembrado, y era
+            falso a medias: sin sembrar no se sabe QUIÉN juega, pero la hora y
+            la cancha están en `match_schedule` desde que se programa el torneo.
+            Ahora, si hay plan, el cuadro se pinta; llegar aquí significa que no
+            lo hay — y eso sí es una razón que se puede decir y que el
+            organizador puede resolver. */}
+        <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
+          {vacio ?? 'Todavía no hay horario para las eliminatorias.'}
         </Text>
         {!vacio && (
-          <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 11, marginTop: 4 }}>
-            Se generará al cerrar la fase de grupos.
+          <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+            Aparecerán aquí con su hora y su cancha en cuanto el organizador
+            programe el torneo, aunque todavía no se sepa quién juega.
           </Text>
         )}
       </View>

@@ -42,7 +42,7 @@ import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture'
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
-import { horaDeTorneo } from '@/lib/fechas';
+import { horaDeTorneo, fechaHoraDeTorneo } from '@/lib/fechas';
 import { ordenarPartidos, type PartidoOrdenable } from '@/lib/juez/orden-partidos';
 import { ETIQUETA_FASE, faseDeStage, type FaseTorneo } from '@/lib/fase-torneo';
 
@@ -198,6 +198,16 @@ export default function JudgeTournamentScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<JudgeMatch | null>(null);
+  /**
+   * Cuándo arranca el cuadro según `match_schedule`, o null si no hay plan.
+   *
+   * NO se meten las filas del plan en la LISTA: un cruce sin parejas no se
+   * puede capturar, y añadir filas inertes a una pantalla por la que el juez
+   * pasa 165 veces es ruido. Lo que sí sirve es que, al filtrar por
+   * eliminatorias antes de que estén sembradas, la pantalla diga cuándo
+   * empiezan en vez de "nada que mostrar".
+   */
+  const [cuadroPlaneado, setCuadroPlaneado] = useState<string | null>(null);
 
   const [estado, setEstado] = useState<FiltroEstado>('pendientes');
   const [fase, setFase] = useState<FiltroFase>('todas');
@@ -220,6 +230,22 @@ export default function JudgeTournamentScreen() {
   }, [tournamentId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!tournamentId) return;
+    let vivo = true;
+    void (async () => {
+      const { data } = await supabase
+        .from('match_schedule')
+        .select('scheduled_at')
+        .eq('tournament_id', tournamentId)
+        .neq('stage', 'group')
+        .order('scheduled_at', { ascending: true })
+        .limit(1);
+      if (vivo) setCuadroPlaneado((data ?? [])[0]?.scheduled_at ?? null);
+    })();
+    return () => { vivo = false; };
+  }, [tournamentId]);
 
   function handleSuccess() {
     setSelectedMatch(null);
@@ -267,8 +293,11 @@ export default function JudgeTournamentScreen() {
    */
   const hayDosFases = useMemo(
     () => matches.some((m) => faseDeStage(m.stage) === 'grupos')
-      && matches.some((m) => faseDeStage(m.stage) === 'eliminatorias'),
-    [matches],
+      // Con el cuadro planeado pero sin sembrar, la fase existe aunque todavía
+      // no haya un solo partido: es lo que deja al juez preguntar por ella y
+      // enterarse de a qué hora empieza.
+      && (matches.some((m) => faseDeStage(m.stage) === 'eliminatorias') || !!cuadroPlaneado),
+    [matches, cuadroPlaneado],
   );
 
   const pendientes = useMemo(
@@ -472,9 +501,14 @@ export default function JudgeTournamentScreen() {
                     {estado === 'pendientes' ? '✓ Todo al día' : 'Nada que mostrar'}
                   </Text>
                   <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
-                    {estado === 'pendientes'
-                      ? 'No hay partidos pendientes con estos filtros.'
-                      : 'Ningún partido coincide con los filtros elegidos.'}
+                    {/* Filtrando por eliminatorias antes de que estén sembradas,
+                        "ningún partido coincide" es cierto y no sirve: lo que el
+                        juez quiere saber es cuándo le va a tocar. */}
+                    {fase === 'eliminatorias' && cuadroPlaneado
+                      ? `Todavía no hay cruces: se siembran al terminar los grupos. Están programadas para ${fechaHoraDeTorneo(cuadroPlaneado)}.`
+                      : estado === 'pendientes'
+                        ? 'No hay partidos pendientes con estos filtros.'
+                        : 'Ningún partido coincide con los filtros elegidos.'}
                   </Text>
                 </View>
               }

@@ -183,3 +183,93 @@ export function columnasDelCuadro<T extends PartidoDeCuadro>(
 
   return columnas;
 }
+
+// ───────────────────────────────────────────
+// El cuadro ANTES de que exista
+// ───────────────────────────────────────────
+
+/**
+ * SE SABE CUÁNDO Y DÓNDE MUCHO ANTES DE SABER QUIÉN.
+ *
+ * La pestaña de eliminatorias decía "El cuadro aún no está disponible. Se
+ * generará al cerrar la fase de grupos", y eso solo es cierto a medias: lo que
+ * no se sabe es QUIÉN juega. La hora y la cancha de todas las rondas están en
+ * `match_schedule` desde que se programa el torneo, identificadas por
+ * (category_id, stage, slot_index).
+ *
+ * Es justo el dato que el jugador necesita el viernes por la noche: si clasifica
+ * juega octavos el domingo a las 10:00 en la Cancha 3. Sin eso se desvela sin
+ * información, que es el problema que esta app viene a resolver.
+ *
+ * CÓMO SE EMPAREJAN PLAN Y PARTIDOS
+ *   `matches` no tiene `slot_index` y `match_schedule` no tiene ids de partido,
+ *   así que se emparejan POSICIONALMENTE dentro de cada ronda: partidos
+ *   ordenados por `round_label` contra slots ordenados por `slot_index`. Es el
+ *   mismo criterio con el que `schedule-knockout` vuelca el plan sobre las
+ *   filas reales — si aquí se emparejara de otra forma, la hora que enseña la
+ *   pantalla no sería la que se guardó.
+ *
+ *   Los slots que sobran son rondas todavía sin materializar: salen como celdas
+ *   con hora y cancha, y sin parejas.
+ */
+
+/** Una fila de `match_schedule`, con lo mínimo para colocarla. */
+export interface SlotPlanificado {
+  stage: EtapaCuadro;
+  slotIndex: number;
+  scheduledAt: string | null;
+  courtLabel: string | null;
+}
+
+/** Lo que necesita el layout de un partido para fusionarse con el plan. */
+export interface PartidoFusionable extends PartidoDeCuadro {
+  id: string;
+  roundLabel: string | null;
+  scheduledAt: string | null;
+  courtLabel?: string | null;
+}
+
+/**
+ * Añade al cuadro las celdas que solo existen en el plan.
+ *
+ * Los partidos reales mandan: si una ronda ya está materializada, su hora sale
+ * de `matches` —que es donde queda un cambio hecho a mano— y el plan solo
+ * rellena lo que falta. El plan nunca pisa un partido existente.
+ */
+export function fusionarConElPlan<T extends PartidoFusionable>(
+  partidos: T[],
+  plan: SlotPlanificado[],
+  /** Cómo fabricar una celda que aún no tiene fila en `matches`. */
+  celdaFutura: (slot: SlotPlanificado, indice: number) => T,
+): T[] {
+  const salida = [...partidos];
+
+  const porEtapa = new Map<EtapaCuadro, T[]>();
+  for (const p of partidos) {
+    const ya = porEtapa.get(p.stage);
+    if (ya) ya.push(p);
+    else porEtapa.set(p.stage, [p]);
+  }
+
+  const planPorEtapa = new Map<EtapaCuadro, SlotPlanificado[]>();
+  for (const s of plan) {
+    const ya = planPorEtapa.get(s.stage);
+    if (ya) ya.push(s);
+    else planPorEtapa.set(s.stage, [s]);
+  }
+
+  for (const [etapa, slots] of planPorEtapa) {
+    const reales = (porEtapa.get(etapa) ?? [])
+      // `round_label` lleva zero-padding justamente para que el orden
+      // lexicográfico coincida con el numérico (ver generate-bracket).
+      .sort((a, b) => (a.roundLabel ?? '').localeCompare(b.roundLabel ?? ''));
+    const ordenados = [...slots].sort((a, b) => a.slotIndex - b.slotIndex);
+
+    // Los que sobran del plan: rondas que aún no tienen fila en `matches`.
+    for (let i = reales.length; i < ordenados.length; i++) {
+      salida.push(celdaFutura(ordenados[i], i));
+    }
+  }
+
+  return salida;
+}

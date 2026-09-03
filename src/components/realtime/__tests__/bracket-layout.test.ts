@@ -1,4 +1,5 @@
 import {
+  fusionarConElPlan,
   ORDEN_ETAPAS,
   ETIQUETA_ETAPA,
   agruparPorEtapa,
@@ -8,6 +9,8 @@ import {
   type EtapaCuadro,
   type PartidoDeCuadro,
   columnasDelCuadro,
+  type PartidoFusionable,
+  type SlotPlanificado,
 } from '../bracket-layout';
 
 const p = (stage: EtapaCuadro, a: string | null = 'a', b: string | null = 'b'): PartidoDeCuadro =>
@@ -142,5 +145,99 @@ describe('columnasDelCuadro', () => {
 
   it('sin partidos no hay cuadro que pintar', () => {
     expect(columnasDelCuadro({})).toEqual([]);
+  });
+});
+
+// ───────────────────────────────────────────
+// El cuadro ANTES de que exista
+// ───────────────────────────────────────────
+//
+// La pestaña de eliminatorias decía "aún no está disponible" cuando lo que no
+// se sabía era QUIÉN juega: la hora y la cancha de todas las rondas están en
+// `match_schedule` desde que se programa el torneo. Es el dato que el jugador
+// necesita el viernes por la noche.
+
+describe('fusionarConElPlan', () => {
+  // Tipado explícito: sin él, TS infiere `roundLabel: null` de la celda y
+  // `roundLabel: string` del partido real, y el genérico no puede unificarlos.
+  type Celda = PartidoFusionable;
+
+  const celda = (s: SlotPlanificado): Celda => ({
+    id: `plan:${s.stage}:${s.slotIndex}`,
+    stage: s.stage,
+    roundLabel: null,
+    pairAId: null,
+    pairBId: null,
+    scheduledAt: s.scheduledAt,
+    courtLabel: s.courtLabel,
+  });
+
+  const slot = (stage: EtapaCuadro, slotIndex: number, hora: string, cancha: string): SlotPlanificado =>
+    ({ stage, slotIndex, scheduledAt: hora, courtLabel: cancha });
+
+  it('sin ningún partido, el cuadro entero sale del plan', () => {
+    const r = fusionarConElPlan<Celda>([], [
+      slot('quarter', 0, '2026-09-06T10:00:00Z', 'Cancha 3'),
+      slot('quarter', 1, '2026-09-06T10:00:00Z', 'Cancha 4'),
+      slot('semi', 0, '2026-09-06T12:00:00Z', 'Cancha 3'),
+      slot('final', 0, '2026-09-06T14:00:00Z', 'Cancha 1'),
+    ], celda);
+
+    expect(r).toHaveLength(4);
+    // El dato que el jugador se desvelaba sin saber.
+    const octavos = r.find((x) => x.stage === 'quarter')!;
+    expect(octavos.scheduledAt).toBe('2026-09-06T10:00:00Z');
+    expect(octavos.courtLabel).toBe('Cancha 3');
+    // Sin parejas: no se sabe quién, y no se finge.
+    expect(r.every((x) => x.pairAId === null && x.pairBId === null)).toBe(true);
+  });
+
+  // Los partidos reales mandan: ahí es donde queda un cambio hecho a mano.
+  it('el plan NO pisa un partido que ya existe', () => {
+    const real: Celda = {
+      id: 'q1', stage: 'quarter', roundLabel: 'R01',
+      pairAId: 'a', pairBId: 'b',
+      scheduledAt: '2026-09-06T11:30:00Z', courtLabel: 'Cancha 8',
+    };
+    const r = fusionarConElPlan([real], [
+      slot('quarter', 0, '2026-09-06T10:00:00Z', 'Cancha 3'),
+    ], celda);
+
+    expect(r).toHaveLength(1);
+    expect(r[0].scheduledAt).toBe('2026-09-06T11:30:00Z');   // el movido a mano
+    expect(r[0].courtLabel).toBe('Cancha 8');
+  });
+
+  it('rellena solo lo que falta de una ronda a medias', () => {
+    const real: Celda = {
+      id: 'q1', stage: 'quarter', roundLabel: 'R01',
+      pairAId: 'a', pairBId: 'b', scheduledAt: null, courtLabel: null,
+    };
+    const r = fusionarConElPlan([real], [
+      slot('quarter', 0, '2026-09-06T10:00:00Z', 'Cancha 3'),
+      slot('quarter', 1, '2026-09-06T10:00:00Z', 'Cancha 4'),
+    ], celda);
+
+    expect(r).toHaveLength(2);
+    expect(r.filter((x) => x.pairAId === null)).toHaveLength(1);
+  });
+
+  it('con cuartos jugados, las semis del plan siguen apareciendo', () => {
+    const cuartos: Celda[] = Array.from({ length: 4 }, (_, i) => ({
+      id: `q${i}`, stage: 'quarter', roundLabel: `R0${i + 1}`,
+      pairAId: 'a', pairBId: 'b', scheduledAt: null, courtLabel: null,
+    }));
+    const r = fusionarConElPlan(cuartos, [
+      ...Array.from({ length: 4 }, (_, i) => slot('quarter', i, '2026-09-06T10:00:00Z', `Cancha ${i + 1}`)),
+      slot('semi', 0, '2026-09-06T12:00:00Z', 'Cancha 1'),
+      slot('semi', 1, '2026-09-06T12:00:00Z', 'Cancha 2'),
+    ], celda);
+
+    expect(r.filter((x) => x.stage === 'semi')).toHaveLength(2);
+    expect(r.filter((x) => x.stage === 'quarter')).toHaveLength(4);
+  });
+
+  it('sin plan no se inventa nada', () => {
+    expect(fusionarConElPlan<Celda>([], [], celda)).toEqual([]);
   });
 });

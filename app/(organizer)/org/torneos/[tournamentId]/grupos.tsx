@@ -519,7 +519,15 @@ export default function GruposScreen() {
    * tiene los suyos, y la 3.ª Varonil es la única que llega a 32.
    */
   const pestanasFase = useMemo(
-    () => pestanasDeFase(!!activa && activa.grupos.length > 0, !!activa?.cuadroSembrado),
+    // La pestaña de eliminatorias NO espera a que se siembre el cuadro: desde
+    // que la categoría tiene clasificados hay un cuadro que enseñar, aunque
+    // todavía no se sepa quién lo juega. `LiveBracket` pinta las horas del plan
+    // (`match_schedule`) y, si tampoco hay plan, dice que falta programar — que
+    // es una razón que el organizador puede resolver desde esta misma pantalla.
+    () => pestanasDeFase(
+      !!activa && activa.grupos.length > 0,
+      !!activa && clasificados(activa) > 0,
+    ),
     [activa],
   );
   /** Con una sola fase manda ella, no lo que quedó en el estado. */
@@ -816,7 +824,7 @@ export default function GruposScreen() {
                     —preguntado al servidor, no deducido del rol—: con permiso
                     las tarjetas se tocan y abren la MISMA hoja que las de
                     grupos; sin él, el cuadro es de lectura. */}
-                {activa.cuadroSembrado && faseVisible === 'eliminatorias' && (
+                {faseVisible === 'eliminatorias' && (
                   <View style={s.bloqueCuadro}>
                     {/* Sin título cuando hay pestañas: la pestaña activa ya
                         dice dónde estás. */}
