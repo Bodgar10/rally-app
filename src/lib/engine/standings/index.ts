@@ -2,6 +2,7 @@
 // Motor de standings + desempates (Doc B §2). Determinista.
 
 import type { MatchResultInput, SetScore, StandingRow } from '../types';
+import { estadoDeSet } from '../score';
 
 export interface StandingsConfig {
   pointsWin: number;
@@ -80,6 +81,24 @@ const emptyStats = (): Stats => ({
   points: 0,
 });
 
+/**
+ * ¿Este set ya cerró?
+ *
+ * UN SET EN CURSO NO ES UN RESULTADO, ES UNA FOTO. Un 3-1 no cuenta para la
+ * tabla: si contara, la tabla bailaría con cada actualización del juez y un
+ * desempate podría verse resuelto de una forma y cambiar diez minutos después.
+ * Los sets ya CERRADOS de un partido en curso sí cuentan, como siempre.
+ *
+ * La súper muerte guardada llega como games 1-0 con los puntos en los
+ * tiebreaks (ver el contrato en captura-sets.ts). Esa forma solo se escribe
+ * cuando el set terminó, así que se reconoce por ahí y no por sus games — un
+ * 1-0 leído como games sería "en curso" y se caería de la tabla.
+ */
+function setCerrado(set: SetScore): boolean {
+  if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) return true;
+  return estadoDeSet(set.gamesA, set.gamesB) === 'terminado';
+}
+
 /** Lado ganador de un set ('A' | 'B'), considerando super muerte. */
 function setWinner(set: SetScore): 'A' | 'B' {
   if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) {
@@ -146,7 +165,10 @@ function computeStats(
     let setsB = 0;
     let gamesA = 0;
     let gamesB = 0;
-    for (const st of m.sets) {
+    // En un partido ya cerrado todos sus sets lo están; en uno en curso, el
+    // último puede seguir jugándose y ese no entra.
+    const suyos = terminado ? m.sets : m.sets.filter(setCerrado);
+    for (const st of suyos) {
       if (setWinner(st) === 'A') setsA++;
       else setsB++;
       const g = setGames(st, cfg);

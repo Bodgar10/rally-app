@@ -238,7 +238,9 @@ function marcadorParcial(
       const par = soyA ? `${x}-${y}` : `${y}-${x}`;
       return st.is_super_tiebreak ? `[${par}]` : par;
     })
-    .join(' ');
+    // Coma y no espacio: "6-2, 3-1" separa los sets de un vistazo, y con el
+    // set en curso al final la lista ya no son solo resultados cerrados.
+    .join(', ');
 }
 
 // ───────────────────────────────────────────

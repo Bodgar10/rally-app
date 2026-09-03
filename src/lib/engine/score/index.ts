@@ -81,6 +81,38 @@ export function clasificarSet(
 }
 
 /**
+ * En qué punto está un set, deducido de sus DOS NÚMEROS y de nada más.
+ *
+ *   'terminado' — 6-0…6-4, 7-5, 7-6, y la súper muerte a 10+ con dos de
+ *                 diferencia. El 7-6 SIEMPRE está terminado: si llegaron a
+ *                 6-6 el único desenlace posible es 7-6, no existe un 7-6 en
+ *                 curso.
+ *   'en_curso'  — cualquier otro marcador legal: 3-1, 5-4, 6-5, 6-6. Al 6-6
+ *                 se le está jugando el tiebreak, cuyos puntos no se capturan.
+ *   null        — lo imposible: 8-3, 6-8, 9-4, y el 0-0, que no es una foto
+ *                 de nada.
+ *
+ * Es el mismo criterio con el que `clasificarSet` deduce la súper muerte sin
+ * preguntar: los números ya lo dicen. Aquí solo se le añade el escalón que
+ * faltaba entre "válido" e "imposible".
+ */
+export type EstadoDeSet = 'terminado' | 'en_curso' | null;
+
+export function estadoDeSet(
+  a: number,
+  b: number,
+  cfg: ScoreConfig = DEFAULT_SCORE_CONFIG,
+): EstadoDeSet {
+  if (clasificarSet(a, b, cfg) !== null) return 'terminado';
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) return null;
+  // Un set en marcha no ha pasado del objetivo, y alguien ha ganado un juego:
+  // el 0-0 es un set que no ha empezado y no dice nada que valga la pena
+  // guardar.
+  if (Math.max(a, b) <= cfg.setTarget && a + b > 0) return 'en_curso';
+  return null;
+}
+
+/**
  * Cómo se escribe un marcador válido, para decírselo al juez cuando el suyo no
  * lo es. Antes el error decía "marcador de games inválido (7-3)" y se quedaba
  * ahí: señalaba el problema sin decir qué sí vale.
@@ -140,6 +172,32 @@ export function validateScore(
   sets: SetScore[],
   config: ScoreConfig = DEFAULT_SCORE_CONFIG,
 ): ValidatedScore {
+  return validar(sets, config, false);
+}
+
+/**
+ * ¿Es LEGAL lo capturado hasta ahora, aunque el partido siga?
+ *
+ * Igual que `validateScore` salvo en dos cosas, y solo dos:
+ *   · no exige que haya ganador;
+ *   · admite que el ÚLTIMO set esté EN CURSO, para que el juez pueda ir
+ *     actualizando el marcador del set que se está jugando.
+ *
+ * Los sets anteriores sí tienen que estar cerrados: `[3-1, 2-0]` es imposible,
+ * porque no se empieza un set sin terminar el anterior.
+ */
+export function validateParcial(
+  sets: SetScore[],
+  config: ScoreConfig = DEFAULT_SCORE_CONFIG,
+): ValidatedScore {
+  return validar(sets, config, true);
+}
+
+function validar(
+  sets: SetScore[],
+  config: ScoreConfig,
+  parcial: boolean,
+): ValidatedScore {
   const errors: string[] = [];
   const setsToWin = Math.ceil(config.bestOf / 2);
 
@@ -168,6 +226,24 @@ export function validateScore(
     const formato = clasificarSet(a, b, config);
 
     if (formato === null) {
+      const abierto = estadoDeSet(a, b, config) === 'en_curso';
+
+      // EL SET QUE SE ESTÁ JUGANDO. Solo puede ser el último, y solo en una
+      // captura parcial: el juez actualiza su marcador cada dos o tres games.
+      if (abierto && parcial && i === sets.length - 1) {
+        continue;   // no suma set a nadie hasta que cierre
+      }
+      // Un set abierto que NO es el último es un imposible distinto, y decirlo
+      // como "marcador inválido" mandaría al juez a revisar unos números que
+      // están bien: lo que está mal es el orden.
+      if (abierto && parcial) {
+        errors.push(
+          `Set ${i + 1}: ${a}-${b} todavía no ha terminado. ` +
+          `No se puede empezar el siguiente set con este abierto.`,
+        );
+        continue;
+      }
+
       // El mensaje dice qué SÍ vale, y solo lo que vale AHÍ: ofrecer la súper
       // muerte en el primer set sería invitar a un error.
       const permitido = isDecider
@@ -188,7 +264,9 @@ export function validateScore(
     if (setsA >= setsToWin || setsB >= setsToWin) decided = true;
   }
 
-  if (!decided) {
+  // "Falta el segundo set" es un error solo cuando se pretende CERRAR el
+  // partido. En una captura parcial es la situación normal, no un fallo.
+  if (!decided && !parcial) {
     const esDesempate = setsA === setsToWin - 1 && setsB === setsToWin - 1;
     errors.push(faltaEsteSet(sets.length, esDesempate, config));
   }
@@ -199,28 +277,4 @@ export function validateScore(
   return { valid, errors, winnerSide, setsA, setsB, completo: decided };
 }
 
-/**
- * ¿Es LEGAL lo capturado hasta ahora, aunque el partido siga?
- *
- * EL SUPUESTO QUE HACÍA FALTA ROMPER
- *   `validateScore` responde a "¿es esto un partido completo y legal?", y a un
- *   6-4 suelto le contesta "Falta el segundo set." Correcto para cerrar un
- *   partido; inservible para el juez que anota set a set y quiere guardar el
- *   primero en cuanto termina.
- *
- *   Esta función hace la MISMA validación de cada set —formato, súper muerte
- *   solo en el decisivo, sets de más, sets después de estar decidido— y se
- *   salta la única regla que sobra: exigir que haya ganador.
- *
- *   No se toca `validateScore`: su `valid` sigue significando lo de siempre y
- *   es lo que decide si el partido se cierra. Esto es aditivo.
- */
-export function validateParcial(
-  sets: SetScore[],
-  config: ScoreConfig = DEFAULT_SCORE_CONFIG,
-): ValidatedScore {
-  const r = validateScore(sets, config);
-  // El único error que se perdona es el de "todavía falta un set".
-  const errors = r.errors.filter((e) => !/^Falta el |^Partido incompleto:/.test(e));
-  return { ...r, errors, valid: errors.length === 0 };
-}
+

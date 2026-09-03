@@ -50,7 +50,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
-import { clasificarSet, validateParcial, validateScore } from '@/lib/engine/score';
+import { clasificarSet, estadoDeSet, validateParcial, validateScore } from '@/lib/engine/score';
 // La conversión formulario -> payload vive fuera para poder probarla: el fallo
 // del set vacío que llegaba como 0-0 era de conversión, no de pantalla.
 import { aMotor, capturado, payloadDeSets } from '@/lib/captura-sets';
@@ -188,7 +188,7 @@ export default function ScoreCapture({
    * un modal, una confirmación o una pantalla más, no lo haría entre punto y
    * punto y no habría nada de esto.
    */
-  const listo = !submitting && (parcial?.valid ?? false) && (parcial?.setsA ?? 0) + (parcial?.setsB ?? 0) > 0;
+  const listo = !submitting && (parcial?.valid ?? false) && aMotor(sets).length > 0;
 
   /**
    * El error de un SET concreto, para ponerlo en su fila.
@@ -205,6 +205,19 @@ export default function ScoreCapture({
     }
     return m;
   }, [veredicto]);
+
+  /**
+   * En qué punto está cada set, deducido de sus números.
+   *
+   * El juez no declara nada: teclea 3-1 y la fila dice "en curso"; teclea 6-2
+   * y dice "cerrado". Es acuse de recibo, no una pregunta — igual que la nota
+   * de súper muerte de aquí abajo.
+   */
+  const estadoFila = (idx: number): 'terminado' | 'en_curso' | null => {
+    const st = sets[idx];
+    if (!st || !capturado(st)) return null;
+    return estadoDeSet(parseInt(st.a, 10), parseInt(st.b, 10));
+  };
 
   /** ¿Este set se está leyendo como súper muerte? Solo para decirlo en pantalla. */
   const esSuperMuerte = (idx: number): boolean => {
@@ -350,6 +363,12 @@ export default function ScoreCapture({
                   cuando pasa, para que el juez vea que se entendió. */}
               {!malo && esSuperMuerte(idx) && (
                 <Text style={estilos.notaSet}>Súper muerte</Text>
+              )}
+              {!malo && !esSuperMuerte(idx) && estadoFila(idx) === 'en_curso' && (
+                <Text style={estilos.notaSetEnCurso}>● En curso</Text>
+              )}
+              {!malo && !esSuperMuerte(idx) && estadoFila(idx) === 'terminado' && (
+                <Text style={estilos.notaSet}>✓ Set cerrado</Text>
               )}
               {malo && <Text style={estilos.errorSet}>{malo}</Text>}
             </View>
@@ -557,6 +576,14 @@ const estilos = {
     fontFamily: font.body as string,
     fontSize: 11,
     color: color.champagne,
+  },
+
+  // Verde: es el mismo token con el que toda la app dice "en vivo".
+  notaSetEnCurso: {
+    marginLeft: ANCHO_NUMERO + HUECO,
+    fontFamily: font.body as string,
+    fontSize: 11,
+    color: color.live,
   },
 
   errorSet: {

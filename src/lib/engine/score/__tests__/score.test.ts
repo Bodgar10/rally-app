@@ -253,9 +253,10 @@ describe('validateParcial — un set suelto es legal', () => {
     expect(p.completo).toBe(false);
   });
 
-  it('un set MAL escrito sigue siendo un error', () => {
-    // Perdonar "falta un set" no es perdonar cualquier cosa.
-    const p = validateParcial([set(3, 1)]);
+  it('un set IMPOSIBLE sigue siendo un error', () => {
+    // Perdonar "falta un set" no es perdonar cualquier cosa. Un 8-3 no existe;
+    // un 3-1, desde que el juez actualiza el set en curso, sí (ver más abajo).
+    const p = validateParcial([set(8, 3)]);
     expect(p.valid).toBe(false);
     expect(p.errors.join(' ')).toMatch(/Set 1/);
   });

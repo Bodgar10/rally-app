@@ -197,6 +197,12 @@ function clasificarSet(a, b, cfg = DEFAULT_SCORE_CONFIG) {
   if (hi >= cfg.superTiebreakTarget && hi - lo >= cfg.superTiebreakWinBy) return "super";
   return null;
 }
+function estadoDeSet(a, b, cfg = DEFAULT_SCORE_CONFIG) {
+  if (clasificarSet(a, b, cfg) !== null) return "terminado";
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) return null;
+  if (Math.max(a, b) <= cfg.setTarget && a + b > 0) return "en_curso";
+  return null;
+}
 var FORMATO_NORMAL = "un set normal (6-4, 7-5, 7-6)";
 var FORMATO_SUPER = "una s\xFAper muerte a 10 (10-8, 12-10)";
 var ORDINAL = ["", "primer", "segundo", "tercer", "cuarto", "quinto"];
@@ -214,6 +220,12 @@ function numerosDelSet(set) {
   return { a: set.gamesA, b: set.gamesB };
 }
 function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
+  return validar(sets, config, false);
+}
+function validateParcial(sets, config = DEFAULT_SCORE_CONFIG) {
+  return validar(sets, config, true);
+}
+function validar(sets, config, parcial) {
   const errors = [];
   const setsToWin = Math.ceil(config.bestOf / 2);
   if (!sets || sets.length === 0) {
@@ -235,6 +247,16 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
     const { a, b } = numerosDelSet(st);
     const formato = clasificarSet(a, b, config);
     if (formato === null) {
+      const abierto = estadoDeSet(a, b, config) === "en_curso";
+      if (abierto && parcial && i === sets.length - 1) {
+        continue;
+      }
+      if (abierto && parcial) {
+        errors.push(
+          `Set ${i + 1}: ${a}-${b} todav\xEDa no ha terminado. No se puede empezar el siguiente set con este abierto.`
+        );
+        continue;
+      }
       const permitido = isDecider ? `${FORMATO_NORMAL} o ${FORMATO_SUPER}` : FORMATO_NORMAL;
       errors.push(`Set ${i + 1}: ${a}-${b} no es un marcador v\xE1lido. Puede ser ${permitido}.`);
     } else if (formato === "super" && !isDecider) {
@@ -245,18 +267,13 @@ function validateScore(sets, config = DEFAULT_SCORE_CONFIG) {
     else setsB++;
     if (setsA >= setsToWin || setsB >= setsToWin) decided = true;
   }
-  if (!decided) {
+  if (!decided && !parcial) {
     const esDesempate = setsA === setsToWin - 1 && setsB === setsToWin - 1;
     errors.push(faltaEsteSet(sets.length, esDesempate, config));
   }
   const valid = errors.length === 0;
   const winnerSide = valid ? setsA > setsB ? "A" : "B" : null;
   return { valid, errors, winnerSide, setsA, setsB, completo: decided };
-}
-function validateParcial(sets, config = DEFAULT_SCORE_CONFIG) {
-  const r = validateScore(sets, config);
-  const errors = r.errors.filter((e) => !/^Falta el |^Partido incompleto:/.test(e));
-  return { ...r, errors, valid: errors.length === 0 };
 }
 
 // src/lib/engine/standings/index.ts
@@ -276,6 +293,10 @@ var emptyStats = () => ({
   gamesLost: 0,
   points: 0
 });
+function setCerrado(set) {
+  if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) return true;
+  return estadoDeSet(set.gamesA, set.gamesB) === "terminado";
+}
 function setWinner(set) {
   if (set.isSuperTiebreak && set.tiebreakA != null && set.tiebreakB != null) {
     return set.tiebreakA > set.tiebreakB ? "A" : "B";
@@ -310,7 +331,8 @@ function computeStats(pairIds, matches, cfg) {
     let setsB = 0;
     let gamesA = 0;
     let gamesB = 0;
-    for (const st of m.sets) {
+    const suyos = terminado ? m.sets : m.sets.filter(setCerrado);
+    for (const st of suyos) {
       if (setWinner(st) === "A") setsA++;
       else setsB++;
       const g2 = setGames(st, cfg);

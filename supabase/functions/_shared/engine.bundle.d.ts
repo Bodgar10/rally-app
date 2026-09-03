@@ -143,18 +143,13 @@ declare function validateScore(sets: SetScore[], config?: ScoreConfig): Validate
 /**
  * ¿Es LEGAL lo capturado hasta ahora, aunque el partido siga?
  *
- * EL SUPUESTO QUE HACÍA FALTA ROMPER
- *   `validateScore` responde a "¿es esto un partido completo y legal?", y a un
- *   6-4 suelto le contesta "Falta el segundo set." Correcto para cerrar un
- *   partido; inservible para el juez que anota set a set y quiere guardar el
- *   primero en cuanto termina.
+ * Igual que `validateScore` salvo en dos cosas, y solo dos:
+ *   · no exige que haya ganador;
+ *   · admite que el ÚLTIMO set esté EN CURSO, para que el juez pueda ir
+ *     actualizando el marcador del set que se está jugando.
  *
- *   Esta función hace la MISMA validación de cada set —formato, súper muerte
- *   solo en el decisivo, sets de más, sets después de estar decidido— y se
- *   salta la única regla que sobra: exigir que haya ganador.
- *
- *   No se toca `validateScore`: su `valid` sigue significando lo de siempre y
- *   es lo que decide si el partido se cierra. Esto es aditivo.
+ * Los sets anteriores sí tienen que estar cerrados: `[3-1, 2-0]` es imposible,
+ * porque no se empieza un set sin terminar el anterior.
  */
 declare function validateParcial(sets: SetScore[], config?: ScoreConfig): ValidatedScore;
 
