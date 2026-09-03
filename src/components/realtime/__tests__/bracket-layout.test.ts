@@ -241,3 +241,37 @@ describe('fusionarConElPlan', () => {
     expect(fusionarConElPlan<Celda>([], [], celda)).toEqual([]);
   });
 });
+
+// EL SÍNTOMA: 3.ª Mixto —5 clasificados, cuadro de 8, 3 byes— enseñaba UN cruce
+// de cuartos. El ancho de la primera ronda se deducía de lo que hubiera, y lo
+// que había era el PLAN: solo reserva cancha para los cruces que se juegan.
+describe('columnasDelCuadro con el tamaño del cuadro conocido', () => {
+  const p = (stage: EtapaCuadro, n: number) =>
+    Array.from({ length: n }, () => ({ stage, pairAId: null, pairBId: null }));
+
+  it('el caso del bug: un solo cuartos en el plan, cuatro en el cuadro', () => {
+    // Sin el tamaño: una columna mal dimensionada.
+    const sinForma = columnasDelCuadro({ quarter: p('quarter', 1) });
+    expect(sinForma[0].partidos.length + sinForma[0].huecos).toBe(1);
+
+    // Con el tamaño: cuatro cruces, dos semis y la final.
+    const conForma = columnasDelCuadro({ quarter: p('quarter', 1) }, 8);
+    expect(conForma.map((c) => c.etapa)).toEqual(['quarter', 'semi', 'final']);
+    expect(conForma[0].partidos.length + conForma[0].huecos).toBe(4);
+    expect(conForma[1].huecos).toBe(2);
+    expect(conForma[2].huecos).toBe(1);
+  });
+
+  it('el tamaño no encoge una ronda ya materializada', () => {
+    // Si por lo que sea hay más partidos que media llave, mandan los partidos:
+    // el cuadro real no se recorta por una cuenta.
+    const c = columnasDelCuadro({ quarter: p('quarter', 4) }, 4);
+    expect(c[0].partidos).toHaveLength(4);
+    expect(c[0].huecos).toBe(0);
+  });
+
+  it('sin tamaño se comporta como antes', () => {
+    const c = columnasDelCuadro({ quarter: p('quarter', 4) });
+    expect(c.map((x) => x.etapa)).toEqual(['quarter', 'semi', 'final']);
+  });
+});

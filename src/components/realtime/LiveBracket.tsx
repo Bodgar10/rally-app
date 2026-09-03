@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { horaDeTorneo } from '@/lib/fechas';
+import { formaDelCuadro, type FormaDelCuadro } from '@/lib/cuadro-forma';
 import {
   ORDEN_ETAPAS,
   ETIQUETA_ETAPA,
@@ -119,6 +120,15 @@ interface SlotDelPlan {
   courtLabel: string;
 }
 
+/** Ronda en la que arranca un cuadro de ese tamaño. */
+function rondaInicial(bracketSize: number): EtapaCuadro {
+  if (bracketSize <= 2) return 'final';
+  if (bracketSize <= 4) return 'semi';
+  if (bracketSize <= 8) return 'quarter';
+  if (bracketSize <= 16) return 'round_of_16';
+  return 'round_of_32';
+}
+
 /** El plan de la categoría, indexado por `etapa#slot`. */
 async function fetchPlanDelCuadro(categoryId: string): Promise<Map<string, SlotDelPlan>> {
   const { data, error } = await supabase
@@ -138,6 +148,27 @@ async function fetchPlanDelCuadro(categoryId: string): Promise<Map<string, SlotD
     });
   }
   return m;
+}
+
+/**
+ * El tamaño del cuadro y sus byes, a partir de los clasificados.
+ *
+ * Dos consultas diminutas —la configuración de la categoría y cuántos grupos
+ * tiene— contra la alternativa de deducir la forma del horario, que es lo que
+ * estaba mal.
+ */
+async function fetchFormaDelCuadro(categoryId: string): Promise<FormaDelCuadro | null> {
+  const [{ data: cat }, { count: nGrupos }] = await Promise.all([
+    supabase
+      .from('categories')
+      .select('advance_per_group, best_extra_qualifiers')
+      .eq('id', categoryId)
+      .maybeSingle(),
+    supabase.from('groups').select('id', { count: 'exact', head: true }).eq('category_id', categoryId),
+  ]);
+  const c = cat as { advance_per_group: number | null; best_extra_qualifiers: number | null } | null;
+  if (!c?.advance_per_group || !nGrupos) return null;
+  return formaDelCuadro(nGrupos, c.advance_per_group, c.best_extra_qualifiers ?? 0);
 }
 
 async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> {
@@ -241,10 +272,26 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
  * justo lo que se va a mirar en un cuadro antes de que se juegue: el camino.
  */
 function CeldaFutura({
-  etapa, indice, slot, ladoA, ladoB,
+  etapa, indice, slot, ladoA, ladoB, esBye, esPrimeraRonda = false,
 }: {
   etapa: EtapaCuadro;
   indice: number;
+  /**
+   * Es la ronda con la que ARRANCA el cuadro.
+   *
+   * Sus parejas salen de la fase de grupos, no de una ronda anterior que no
+   * existe: sin esto, el único cruce real de 3.ª Mixto decía "Ganador de
+   * octavos" en un cuadro que empieza en cuartos.
+   */
+  esPrimeraRonda?: boolean;
+  /**
+   * Es un PASE DIRECTO, no un cruce por definir.
+   *
+   * Un bye no se juega: no tiene rival, ni hora, ni cancha. Pintarlo como "Se
+   * define en la fase de grupos" lo anunciaba como un partido que iba a
+   * ocurrir, y quien lo mirara esperaría un rival que no va a llegar.
+   */
+  esBye?: boolean;
   /** El hueco del plan, si lo hay. Sin él la celda queda como estaba. */
   slot?: SlotDelPlan;
   /**
@@ -259,7 +306,51 @@ function CeldaFutura({
   ladoA: string | null;
   ladoB: string | null;
 }) {
-  const viene = ORIGEN_DE_LA_RONDA[etapa];
+  // En la primera ronda del cuadro no hay ronda anterior de la que venir: las
+  // parejas salen de los grupos.
+  const viene = esPrimeraRonda ? null : ORIGEN_DE_LA_RONDA[etapa];
+  const sinResolver = esPrimeraRonda
+    ? textoPendiente(etapa, true)
+    : null;
+
+  // ── PASE DIRECTO ─────────────────────────────────────────────────────────
+  // Se ve distinto a propósito: no es un cruce esperando rival, es una plaza
+  // que ya está resuelta por el reglamento. Sin "vs" y sin hueco de rival,
+  // porque no hay segundo lado que llenar.
+  if (esBye) {
+    return (
+      <View
+        style={{
+          width: 180,
+          minHeight: 84,
+          borderRadius: radius.lg,
+          borderWidth: 1,
+          borderColor: color.line,
+          backgroundColor: 'rgba(212,175,55,0.06)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 10,
+          gap: 3,
+        }}
+      >
+        <Text
+          style={{
+            fontFamily: font.display, fontSize: 11, color: color.champagne,
+            textTransform: 'uppercase', letterSpacing: 0.8,
+          }}
+        >
+          Pase directo
+        </Text>
+        <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
+          {ladoA ?? 'Uno de los mejores clasificados'}
+        </Text>
+        <Text style={{ fontFamily: font.body, fontSize: 10, color: color.muted, textAlign: 'center' }}>
+          No juega esta ronda
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View
       style={{
@@ -286,7 +377,7 @@ function CeldaFutura({
         }}
         numberOfLines={2}
       >
-        {ladoA ?? (viene ? `${viene} ${indice * 2 + 1}` : 'Por definir')}
+        {ladoA ?? sinResolver ?? (viene ? `${viene} ${indice * 2 + 1}` : 'Por definir')}
       </Text>
       <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, textAlign: 'center' }}>
         vs
@@ -301,7 +392,7 @@ function CeldaFutura({
         }}
         numberOfLines={2}
       >
-        {ladoB ?? (viene ? `${viene} ${indice * 2 + 2}` : 'Por definir')}
+        {ladoB ?? sinResolver ?? (viene ? `${viene} ${indice * 2 + 2}` : 'Por definir')}
       </Text>
 
       {/* LA HORA YA SE SABE, AUNQUE LAS PAREJAS NO.
@@ -581,6 +672,15 @@ export default function LiveBracket({
    * futuras digan su hora, y es una tabla diminuta con una fila por hueco.
    */
   const [plan, setPlan] = useState<Map<string, SlotDelPlan>>(new Map());
+  /**
+   * La forma del cuadro: tamaño, byes y dónde caen.
+   *
+   * NO SALE DEL PLAN. `match_schedule` solo reserva cancha para los cruces que
+   * se juegan, y un bye no ocupa pista — por eso 3.ª Mixto, con 5 clasificados
+   * y 3 byes, enseñaba un solo cuartos. El tamaño sale de los clasificados
+   * (ver `@/lib/cuadro-forma`).
+   */
+  const [forma, setForma] = useState<FormaDelCuadro | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -598,6 +698,7 @@ export default function LiveBracket({
   useEffect(() => {
     let vivo = true;
     void fetchPlanDelCuadro(categoryId).then((p) => { if (vivo) setPlan(p); });
+    void fetchFormaDelCuadro(categoryId).then((f) => { if (vivo) setForma(f); });
     return () => { vivo = false; };
   }, [categoryId]);
 
@@ -638,10 +739,29 @@ export default function LiveBracket({
     );
   }
 
+  /** ¿Hay partidos de verdad, o todo lo que hay salió del plan? */
+  const hayCuadroSembrado = Object.values(porEtapa)
+    .some((xs) => (xs ?? []).some((m) => !m.id.startsWith('plan:')));
+
   // No solo las rondas con partidos: TODAS las que quedan hasta la final. El
   // cuadro se materializa ronda a ronda, así que sin esto la 6.ª Varonil se
   // pintaba con una sola columna —CUARTOS— y no se veía hacia dónde iba.
-  const columnas = columnasDelCuadro(porEtapa);
+  /**
+   * Con la forma conocida y el cuadro SIN SEMBRAR, la primera ronda la manda
+   * ella entera: se quitan las celdas que venían del plan.
+   *
+   * El plan solo tiene fila para los cruces que se juegan, así que su slot 0 es
+   * el PRIMER PARTIDO REAL — que en 3.ª Mixto es el cruce nº 1 del cuadro, no
+   * el nº 0, porque el 0 es un bye. Dejarlas entrar desplazaba los byes una
+   * posición y uno se perdía por el camino. La hora la recuperan las celdas
+   * futuras por su cuenta, saltándose los byes al contar slots.
+   */
+  const inicial = forma ? rondaInicial(forma.bracketSize) : undefined;
+  const paraColumnas = forma && !hayCuadroSembrado
+    ? { ...porEtapa, [inicial as EtapaCuadro]: [] }
+    : porEtapa;
+
+  const columnas = columnasDelCuadro(paraColumnas, forma?.bracketSize, inicial);
   // La primera columna del cuadro es la que se alimenta de los grupos; las
   // demás salen de la ronda anterior. Lo necesita el texto de los pendientes.
   const primeraEtapa = columnas[0]?.etapa;
@@ -679,6 +799,28 @@ export default function LiveBracket({
   }
 
   return (
+    <View>
+      {/* QUIÉN PUEDE ENTRAR EN ESOS BYES.
+          Sin nombres: el orden de siembra exacto no se conoce hasta que
+          terminan los grupos, así que nombrar a alguien sería inventar. Lo que
+          sí es cierto desde el principio es la REGLA, y es justo lo que el
+          jugador quiere saber — le dice si le compensa pelear por el primer
+          puesto de su grupo en vez de conformarse con pasar. */}
+      {forma?.fraseDeByes && (
+        <Text
+          style={{
+            fontFamily: font.body,
+            fontSize: 12,
+            color: color.champagne,
+            lineHeight: 18,
+            paddingHorizontal: 16,
+            paddingBottom: 4,
+          }}
+        >
+          {forma.fraseDeByes}
+        </Text>
+      )}
+
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', gap: 24, padding: 16, alignItems: 'flex-start' }}>
         {columnas.map(({ etapa: stage, partidos, huecos }, col) => {
@@ -726,7 +868,21 @@ export default function LiveBracket({
                 // que el primer hueco es el slot que sigue al último real. Con
                 // la ronda entera sin materializar —lo normal, porque se crea
                 // de golpe— esto es 0, 1, 2…
-                const slotIndex = partidos.length + i;
+                const indiceEnLaRonda = partidos.length + i;
+
+                // ¿Este cruce es un pase directo? Solo la PRIMERA ronda tiene
+                // byes: se ganan en los grupos, no dentro del cuadro.
+                const cruce = stage === primeraEtapa
+                  ? forma?.cruces[indiceEnLaRonda]
+                  : undefined;
+                const esBye = !!cruce?.esBye;
+
+                // LOS BYES NO CONSUMEN SLOT DEL PLAN: no ocupan cancha, así que
+                // `match_schedule` no tiene fila para ellos. Contarlos
+                // desplazaría la hora de todos los partidos que vienen detrás.
+                const slotIndex = stage === primeraEtapa && forma
+                  ? forma.cruces.slice(0, indiceEnLaRonda).filter((c) => !c.esBye).length
+                  : indiceEnLaRonda;
                 // Un cruce sale de dos partidos consecutivos de la ronda
                 // anterior: el 2n y el 2n+1. El 3.er lugar sale de las dos
                 // semifinales, que son justo esos dos con n = 0.
@@ -734,10 +890,12 @@ export default function LiveBracket({
                   <CeldaFutura
                     key={`hueco-${stage}-${i}`}
                     etapa={stage}
-                    indice={i}
-                    slot={plan.get(`${stage}#${slotIndex}`)}
-                    ladoA={saleDe(previa[slotIndex * 2], quiero)}
-                    ladoB={saleDe(previa[slotIndex * 2 + 1], quiero)}
+                    indice={indiceEnLaRonda}
+                    esBye={esBye}
+                    esPrimeraRonda={stage === primeraEtapa}
+                    slot={esBye ? undefined : plan.get(`${stage}#${slotIndex}`)}
+                    ladoA={saleDe(previa[indiceEnLaRonda * 2], quiero)}
+                    ladoB={saleDe(previa[indiceEnLaRonda * 2 + 1], quiero)}
                   />
                 );
               })}
@@ -747,5 +905,6 @@ export default function LiveBracket({
         })}
       </View>
     </ScrollView>
+    </View>
   );
 }

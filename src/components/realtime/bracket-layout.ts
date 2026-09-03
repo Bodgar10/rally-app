@@ -142,12 +142,33 @@ const CAMINO: EtapaCuadro[] = ['round_of_32', 'round_of_16', 'quarter', 'semi', 
  */
 export function columnasDelCuadro<T extends PartidoDeCuadro>(
   porEtapa: Partial<Record<EtapaCuadro, T[]>>,
+  /**
+   * Tamaño del cuadro, cuando se sabe.
+   *
+   * SIN ESTO, EL ANCHO DE LA PRIMERA RONDA SE DEDUCÍA DE LO QUE HUBIERA — y lo
+   * que hay, en una categoría sin sembrar, son las filas del PLAN. El plan solo
+   * reserva cancha para los cruces que se juegan, así que con byes tiene menos
+   * filas que cruces tiene el cuadro: 3.ª Mixto, con 5 clasificados y 3 byes,
+   * enseñaba UN cuartos en vez de cuatro, y de ahí para abajo todo salía mal.
+   *
+   * La forma del cuadro sale de los clasificados, no del horario.
+   */
+  bracketSize?: number,
+  /**
+   * En qué ronda arranca el cuadro, cuando se sabe.
+   *
+   * Va con `bracketSize` y sirve para el caso en que NO hay ni una fila: sin
+   * esto, un cuadro sin sembrar y sin plan no tendría por dónde empezar y no se
+   * pintaría nada.
+   */
+  etapaInicial?: EtapaCuadro,
 ): ColumnaCuadro<T>[] {
   const conPartidos = ORDEN_ETAPAS.filter((e) => (porEtapa[e]?.length ?? 0) > 0);
-  if (conPartidos.length === 0) return [];
+  if (conPartidos.length === 0 && !etapaInicial) return [];
 
-  // Desde la primera ronda que existe: hacia atrás no hay nada que deducir.
-  const primera = conPartidos.find((e) => CAMINO.includes(e));
+  // Desde la primera ronda que existe —o la que diga la forma del cuadro, que
+  // manda: lo que haya puede ser solo el plan, y el plan no cuenta los byes.
+  const primera = etapaInicial ?? conPartidos.find((e) => CAMINO.includes(e));
   if (primera === undefined) {
     // Solo hay 3.er lugar (o algo raro): se pinta lo que haya, sin inventar.
     return conPartidos.map((etapa) => ({ etapa, partidos: porEtapa[etapa] ?? [], huecos: 0 }));
@@ -158,7 +179,13 @@ export function columnasDelCuadro<T extends PartidoDeCuadro>(
 
   // Cuántos partidos tiene la ronda de la que venimos. La primera manda: si
   // arranca en cuartos con 4, la siguiente son 2 y la última 1.
-  let anchoPrevio = (porEtapa[primera] ?? []).length;
+  //
+  // Con el tamaño del cuadro conocido manda ÉL: media llave son los cruces de
+  // la primera ronda, byes incluidos. Lo que haya en `porEtapa` puede ser solo
+  // el plan, que no cuenta los byes.
+  let anchoPrevio = bracketSize
+    ? Math.max(bracketSize / 2, (porEtapa[primera] ?? []).length)
+    : (porEtapa[primera] ?? []).length;
 
   for (let i = desde; i < CAMINO.length; i++) {
     const etapa = CAMINO[i];
