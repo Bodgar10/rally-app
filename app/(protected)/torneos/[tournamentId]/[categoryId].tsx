@@ -29,6 +29,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { SectionLabel, Badge } from '@/components/ui';
 import BotonVolver from '@/components/ui/BotonVolver';
+import SelectorPestanas from '@/components/ui/SelectorPestanas';
+import { pestanasDeFase, faseInicial, type FaseTorneo } from '@/lib/fase-torneo';
 import LiveStandings from '@/components/realtime/LiveStandings';
 import LiveBracket from '@/components/realtime/LiveBracket';
 import MyNextMatch from '@/components/realtime/MyNextMatch';
@@ -57,6 +59,15 @@ export default function CuadroCategoriaScreen() {
   const [cabecera, setCabecera] = useState<Cabecera | null>(null);
   const [grupos, setGrupos]     = useState<Grupo[]>([]);
   const [misParejas, setMisParejas] = useState<string[]>([]);
+  /**
+   * Qué fase se está mirando.
+   *
+   * Con diez grupos esta pantalla medía metro y medio y las eliminatorias
+   * quedaban al final: para ver el cuadro había que pasar por todas las tablas.
+   * Las dos fases no se leen a la vez —o miras tu grupo o miras el cuadro—, así
+   * que son pestañas y no secciones apiladas.
+   */
+  const [fase, setFase] = useState<FaseTorneo>('grupos');
   const [userId, setUserId]     = useState<string | undefined>(undefined);
   const [cargando, setCargando] = useState(true);
 
@@ -135,6 +146,18 @@ export default function CuadroCategoriaScreen() {
   const hayGrupos = cabecera.formato !== 'knockout_only';
   const hayCuadro = cabecera.formato !== 'round_robin';
 
+  const pestanas = pestanasDeFase(hayGrupos && grupos.length > 0, hayCuadro);
+  /**
+   * La fase que se pinta de verdad.
+   *
+   * Con una sola fase manda ella, no lo que haya en el estado: si la categoría
+   * es solo cuadro y `fase` arranca en 'grupos', respetarlo dejaría la pantalla
+   * en blanco.
+   */
+  const faseVisible: FaseTorneo = pestanas.length > 0
+    ? fase
+    : faseInicial(hayGrupos && grupos.length > 0);
+
   return (
     <SafeAreaView style={s.safe}>
       <BotonVolver texto="Torneo" />
@@ -163,9 +186,25 @@ export default function CuadroCategoriaScreen() {
           </View>
         )}
 
-        {hayGrupos && grupos.length > 0 && (
+        {/* LAS DOS FASES, EN PESTAÑAS.
+            Solo cuando existen las dos: con round robin o con cuadro directo no
+            hay nada que elegir, y un selector de una opción es un control que
+            no controla nada (ver `pestanasDeFase`). */}
+        {pestanas.length > 0 && (
+          <View style={{ marginTop: space[2] }}>
+            <SelectorPestanas
+              pestanas={pestanas}
+              activa={faseVisible}
+              onCambiar={(id) => setFase(id as FaseTorneo)}
+            />
+          </View>
+        )}
+
+        {hayGrupos && grupos.length > 0 && faseVisible === 'grupos' && (
           <View style={s.bloque}>
-            <SectionLabel title="Fase de grupos" />
+            {/* Sin `SectionLabel` cuando hay pestañas: la pestaña activa ya dice
+                dónde estás, y repetirlo debajo es la misma palabra dos veces. */}
+            {pestanas.length === 0 && <SectionLabel title="Fase de grupos" />}
             {grupos.map((g) => (
               <View key={g.id} style={s.grupo}>
                 <Text style={s.grupoNombre}>{g.name}</Text>
@@ -179,9 +218,9 @@ export default function CuadroCategoriaScreen() {
           </View>
         )}
 
-        {hayCuadro && (
+        {hayCuadro && faseVisible === 'eliminatorias' && (
           <View style={s.bloque}>
-            <SectionLabel title="Eliminatorias" />
+            {pestanas.length === 0 && <SectionLabel title="Eliminatorias" />}
             <LiveBracket categoryId={categoryId} currentUserId={userId} />
           </View>
         )}

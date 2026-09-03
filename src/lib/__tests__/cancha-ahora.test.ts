@@ -238,9 +238,19 @@ describe('la cola entera, no solo el ocupante', () => {
 });
 
 describe('cómo se dice la cola', () => {
-  it('en partidos, no en ids', () => {
-    expect(fraseDeCola(1)).toBe('Falta 1 partido antes del tuyo.');
-    expect(fraseDeCola(3)).toBe('Faltan 3 partidos antes del tuyo.');
+  // "Falta 1 partido antes del tuyo" con uno en curso se leía como "ese MÁS
+  // otro": el que se está jugando ya no falta, está pasando.
+  it('con el partido en curso como único de delante, se dice por lo que es', () => {
+    expect(fraseDeCola(1, true)).toBe('Vas después de este partido.');
+  });
+
+  it('uno por delante que aún no empieza SÍ es algo que falta', () => {
+    expect(fraseDeCola(1, false)).toBe('Falta 1 partido antes del tuyo.');
+  });
+
+  it('de dos en adelante el número informa', () => {
+    expect(fraseDeCola(2, true)).toBe('Faltan 2 partidos antes del tuyo.');
+    expect(fraseDeCola(3, true)).toBe('Faltan 3 partidos antes del tuyo.');
   });
 
   // "Faltan 0 partidos" es una forma rara de dar una buena noticia.

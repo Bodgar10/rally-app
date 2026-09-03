@@ -203,12 +203,29 @@ export function estadoDeCancha(args: {
 /**
  * Cuántos partidos faltan antes del mío, dicho como se dice.
  *
+ * "FALTA 1 PARTIDO ANTES DEL TUYO" SE LEÍA MAL.
+ *   Con un partido en curso y el suyo detrás, esa frase da a entender que falta
+ *   ESE MÁS OTRO: el que se está jugando ya no "falta", está pasando. El jugador
+ *   entendía que le quedaban dos esperas cuando le quedaba una.
+ *
+ *   Un partido en juego no es una espera pendiente, es la espera actual. Así que
+ *   cuando lo único que hay por delante es él, se dice por lo que es: "vas
+ *   después de este partido".
+ *
+ * Contar sí tiene sentido de dos en adelante, porque ahí el número informa: dos
+ * o tres partidos son esperas distintas.
+ *
  * `null` cuando soy el siguiente: "faltan 0 partidos" es una forma rara de dar
  * una buena noticia, y ese caso lo dice mejor `fraseDeTurno`.
  */
-export function fraseDeCola(partidosAntes: number): string | null {
+export function fraseDeCola(partidosAntes: number, hayOcupante = false): string | null {
   if (partidosAntes <= 0) return null;
-  if (partidosAntes === 1) return 'Falta 1 partido antes del tuyo.';
+  if (partidosAntes === 1) {
+    return hayOcupante
+      ? 'Vas después de este partido.'
+      // Uno por delante que TODAVÍA NO EMPIEZA sí es algo que falta.
+      : 'Falta 1 partido antes del tuyo.';
+  }
   return `Faltan ${partidosAntes} partidos antes del tuyo.`;
 }
 

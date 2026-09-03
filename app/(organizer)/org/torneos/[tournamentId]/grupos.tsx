@@ -36,6 +36,7 @@ import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
+import { pestanasDeFase, type FaseTorneo } from '@/lib/fase-torneo';
 import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStandings';
 import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracket';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
@@ -143,6 +144,15 @@ export default function GruposScreen() {
    * toque. Al revés, el caso normal costaría un scroll largo siempre.
    */
   const [grupoTab, setGrupoTab] = useState<string>('');
+  /**
+   * Qué fase se está mirando en esta categoría.
+   *
+   * El cuadro estaba DEBAJO de todas las tablas de grupo: con diez grupos había
+   * que scrollear la pantalla entera para verlo. Mismas pestañas y mismos
+   * nombres que la vista del jugador (ver `@/lib/fase-torneo`) — es la misma
+   * pregunta y no tiene por qué contestarse distinto según quién mire.
+   */
+  const [faseTab, setFaseTab] = useState<FaseTorneo>('grupos');
   const [cargando, setCargando] = useState(true);
   const [nombre, setNombre] = useState('');
   const [error, setError]   = useState<string | null>(null);
@@ -508,6 +518,13 @@ export default function GruposScreen() {
    * Se recalcula con la categoría, no con la pestaña de grupo: cada categoría
    * tiene los suyos, y la 3.ª Varonil es la única que llega a 32.
    */
+  const pestanasFase = useMemo(
+    () => pestanasDeFase(!!activa && activa.grupos.length > 0, !!activa?.cuadroSembrado),
+    [activa],
+  );
+  /** Con una sola fase manda ella, no lo que quedó en el estado. */
+  const faseVisible: FaseTorneo = pestanasFase.length > 0 ? faseTab : 'grupos';
+
   const explicacionCuadro = useMemo(
     () => (activa
       ? explicarCuadro(activa.grupos.length, activa.pasanPorGrupo, activa.repescados)
@@ -702,7 +719,21 @@ export default function GruposScreen() {
                     tres cosas que en un grupo de 3 valen 3, 3 y 0. Ahora se
                     dice entero —"1 de 3"— y el grupo terminado lleva un check,
                     que es lo que se busca de un vistazo. */}
-                {activa.grupos.length > 1 && (
+                {/* LAS DOS FASES, ARRIBA DEL TODO.
+                    Antes solo se llegaba al cuadro scrolleando por las tablas.
+                    Solo aparecen cuando el cuadro existe: sin sembrar no hay
+                    nada que elegir. */}
+                {pestanasFase.length > 0 && (
+                  <View style={{ marginBottom: space[2] }}>
+                    <SelectorPestanas
+                      pestanas={pestanasFase}
+                      activa={faseVisible}
+                      onCambiar={(id) => setFaseTab(id as FaseTorneo)}
+                    />
+                  </View>
+                )}
+
+                {faseVisible === 'grupos' && activa.grupos.length > 1 && (
                   <SelectorPestanas
                     pestanas={[
                       ...activa.grupos.map((g) => ({
@@ -718,7 +749,7 @@ export default function GruposScreen() {
                   />
                 )}
 
-                {gruposVisibles.map((g) => (
+                {faseVisible === 'grupos' && gruposVisibles.map((g) => (
                   <View key={g.id} style={s.grupo}>
                     <View style={s.grupoCabecera}>
                       <Text style={s.grupoNombre}>Grupo {g.nombre}</Text>
@@ -785,9 +816,13 @@ export default function GruposScreen() {
                     —preguntado al servidor, no deducido del rol—: con permiso
                     las tarjetas se tocan y abren la MISMA hoja que las de
                     grupos; sin él, el cuadro es de lectura. */}
-                {activa.cuadroSembrado && (
+                {activa.cuadroSembrado && faseVisible === 'eliminatorias' && (
                   <View style={s.bloqueCuadro}>
-                    <Text style={s.bloqueCuadroTitulo}>ELIMINATORIAS</Text>
+                    {/* Sin título cuando hay pestañas: la pestaña activa ya
+                        dice dónde estás. */}
+                    {pestanasFase.length === 0 && (
+                      <Text style={s.bloqueCuadroTitulo}>ELIMINATORIAS</Text>
+                    )}
                     <LiveBracket
                       categoryId={activa.id}
                       onCapturar={puedeCapturar ? abrirCapturaDeCuadro : undefined}

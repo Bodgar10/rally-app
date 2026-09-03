@@ -62,12 +62,13 @@ interface Ocupante {
   desde: string | null;
   lleva: number;
   /**
-   * Sets ya capturados del partido en curso. HUECO PREPARADO: hoy siempre viene
-   * vacío porque la captura es de una sola vez, al final. Cuando exista la
-   * captura set a set —el otro chat la está construyendo— esto se llena solo y
-   * la tarjeta dirá "van 1-0". No se depende de ello para funcionar.
+   * Los games de cada set, por pareja: `[[6,2],[3,1]]` es 6-2 y 3-1.
+   *
+   * En columnas y no en una cadena "6-2 3-1" porque el marcador se pinta como
+   * un marcador deportivo —cada pareja con sus games— y para eso hace falta
+   * saber qué número es de quién. Vacío mientras no haya sets capturados.
    */
-  sets: string | null;
+  sets: Array<[number, number]>;
 }
 
 interface Vista {
@@ -93,14 +94,12 @@ interface Vista {
 function marcadorParcial(sets: Array<{
   set_number: number; games_a: number; games_b: number;
   is_super_tiebreak: boolean; tiebreak_a: number | null; tiebreak_b: number | null;
-}>): string | null {
-  if (sets.length === 0) return null;
+}>): Array<[number, number]> {
   return [...sets]
     .sort((a, b) => a.set_number - b.set_number)
     .map((st) => (st.is_super_tiebreak && st.tiebreak_a != null && st.tiebreak_b != null
-      ? `[${st.tiebreak_a}-${st.tiebreak_b}]`
-      : `${st.games_a}-${st.games_b}`))
-    .join(' ');
+      ? [st.tiebreak_a, st.tiebreak_b]
+      : [st.games_a, st.games_b]) as [number, number]);
 }
 
 async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
@@ -194,6 +193,62 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
   };
 }
 
+/**
+ * Quién va ganando, para resaltar su fila.
+ *
+ * Sets ganados, no games totales: un 6-0 3-6 va 1-1 aunque uno tenga nueve
+ * games más. Sin sets terminados no hay nadie por delante y no se resalta a
+ * nadie — un partido a 3-2 en el primer set no tiene líder.
+ */
+const setsGanados = (sets: Array<[number, number]>, lado: 0 | 1): number =>
+  sets.filter((x) => x[lado] > x[1 - lado]).length;
+
+const ganaA = (sets: Array<[number, number]>): boolean =>
+  setsGanados(sets, 0) > setsGanados(sets, 1);
+const ganaB = (sets: Array<[number, number]>): boolean =>
+  setsGanados(sets, 1) > setsGanados(sets, 0);
+
+/** Una pareja y sus games, en fila, como en un marcador de televisión. */
+function FilaDeMarcador({
+  nombre, games, gana,
+}: { nombre: string; games: number[]; gana: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+      {/* `minWidth: 0` para que el nombre largo se recorte en vez de empujar
+          los números fuera de la tarjeta. */}
+      <Text
+        style={{
+          flex: 1, minWidth: 0,
+          fontFamily: font.body,
+          fontSize: fontSize.body,
+          fontWeight: gana ? '600' : '400',
+          color: gana ? color.text : color.muted,
+        }}
+        numberOfLines={2}
+      >
+        {nombre}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: space[2], flexShrink: 0 }}>
+        {games.map((g, i) => (
+          <Text
+            key={i}
+            style={{
+              fontFamily: font.display,
+              fontSize: 26,
+              fontWeight: '600',
+              color: gana ? color.goldBright : color.text,
+              minWidth: 22,
+              textAlign: 'center',
+            }}
+          >
+            {g}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
   const [vista, setVista] = useState<Vista | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -269,7 +324,7 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
   if (!vista) return null;
 
   const retraso = fraseDeRetraso(vista.miRetraso);
-  const cola = fraseDeCola(vista.partidosAntes);
+  const cola = fraseDeCola(vista.partidosAntes, !!vista.ocupante);
   const turno = fraseDeTurno(vista.partidosAntes, !!vista.ocupante);
 
   return (
@@ -327,21 +382,34 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
           <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
             {vista.ocupante.ronda}
           </Text>
-          <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text }} numberOfLines={2}>
-            {vista.ocupante.parejaA}
-          </Text>
-          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>vs</Text>
-          <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text }} numberOfLines={2}>
-            {vista.ocupante.parejaB}
-          </Text>
+          {/* EL MARCADOR, COMO UN MARCADOR.
+              Iba escondido al final de una línea gris de metadatos —"Desde las
+              10:59 · lleva 0 min · van 6-2"—, que es exactamente el dato que el
+              jugador viene a mirar tratado como nota al pie. Ahora es una
+              rejilla: cada pareja con sus games por set, legible de un vistazo
+              desde el coche.
 
-          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, marginTop: space[1] }}>
+              Sin sets capturados se pinta igual, con los nombres y sin números:
+              la estructura no depende de que haya marcador. */}
+          <View style={{ marginTop: space[2], gap: space[2] }}>
+            <FilaDeMarcador
+              nombre={vista.ocupante.parejaA}
+              games={vista.ocupante.sets.map((x) => x[0])}
+              gana={ganaA(vista.ocupante.sets)}
+            />
+            <FilaDeMarcador
+              nombre={vista.ocupante.parejaB}
+              games={vista.ocupante.sets.map((x) => x[1])}
+              gana={ganaB(vista.ocupante.sets)}
+            />
+          </View>
+
+          {/* La hora y los minutos bajan a línea secundaria: son el contexto del
+              marcador, no el marcador. */}
+          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, marginTop: space[2] }}>
             {vista.ocupante.desde
               ? `Desde las ${horaDeTorneo(vista.ocupante.desde)} · lleva ${vista.ocupante.lleva} min`
               : `Lleva ${vista.ocupante.lleva} min`}
-            {/* El hueco preparado: hoy no hay sets hasta que termina el partido,
-                así que esto no aparece. Con la captura set a set se llena solo. */}
-            {vista.ocupante.sets ? ` · van ${vista.ocupante.sets}` : ''}
           </Text>
         </>
       ) : (

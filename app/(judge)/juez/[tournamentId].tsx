@@ -44,6 +44,7 @@ import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { horaDeTorneo } from '@/lib/fechas';
 import { ordenarPartidos, type PartidoOrdenable } from '@/lib/juez/orden-partidos';
+import { ETIQUETA_FASE, faseDeStage, type FaseTorneo } from '@/lib/fase-torneo';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -76,7 +77,18 @@ type FiltroEstado = 'pendientes' | 'capturados' | 'todos';
  * ('quarter', 'semi', 'final'…), así que aquí solo hacen falta tres valores:
  * el juez quiere "lo de grupos", "lo del cuadro" o todo.
  */
-type FiltroFase = 'todas' | 'grupos' | 'eliminatorias';
+/**
+ * El filtro de fase del juez: las dos del torneo, más "todas".
+ *
+ * `FaseTorneo` viene de `@/lib/fase-torneo`, el mismo sitio del que salen las
+ * pestañas del jugador y del organizador — misma idea, mismos nombres. Lo que
+ * el juez añade es "todas", y NO es una inconsistencia: su pantalla es una
+ * LISTA con filtros y una lista sí puede enseñar las dos fases a la vez. Las
+ * otras dos son pestañas sobre secciones, y una sección no puede estar en dos
+ * sitios. Quitarle "todas" al juez le quitaría la única forma de ver el torneo
+ * entero de un tirón, que es como trabaja un sábado.
+ */
+type FiltroFase = FaseTorneo | 'todas';
 
 const STAGE_LABEL: Record<string, string> = {
   group: 'Grupos',
@@ -239,8 +251,8 @@ export default function JudgeTournamentScreen() {
   const visibles = useMemo(() => matches.filter((m) => {
     if (estado === 'pendientes' && m.status === 'finished') return false;
     if (estado === 'capturados' && m.status !== 'finished') return false;
-    if (fase === 'grupos' && m.stage !== 'group') return false;
-    if (fase === 'eliminatorias' && m.stage === 'group') return false;
+    // `faseDeStage` y no `stage !== 'group'` a pelo: la regla vive en un sitio.
+    if (fase !== 'todas' && faseDeStage(m.stage) !== fase) return false;
     if (catId !== TODAS && m.categoryId !== catId) return false;
     if (grupoId !== TODAS && m.groupId !== grupoId) return false;
     return true;
@@ -254,7 +266,8 @@ export default function JudgeTournamentScreen() {
    * el mismo criterio que ya usan CATEGORÍA (`> 1`) y GRUPO.
    */
   const hayDosFases = useMemo(
-    () => matches.some((m) => m.stage === 'group') && matches.some((m) => m.stage !== 'group'),
+    () => matches.some((m) => faseDeStage(m.stage) === 'grupos')
+      && matches.some((m) => faseDeStage(m.stage) === 'eliminatorias'),
     [matches],
   );
 
@@ -412,8 +425,8 @@ export default function JudgeTournamentScreen() {
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   {([
                     ['todas', 'Todas'],
-                    ['grupos', 'Fase de grupos'],
-                    ['eliminatorias', 'Eliminatorias'],
+                    ['grupos', ETIQUETA_FASE.grupos],
+                    ['eliminatorias', ETIQUETA_FASE.eliminatorias],
                   ] as [FiltroFase, string][]).map(([id, etiqueta]) => (
                     <Chip
                       key={id}

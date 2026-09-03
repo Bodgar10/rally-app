@@ -446,8 +446,16 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
         {match.rivalPlayer1} / {match.rivalPlayer2}
       </Text>
 
-      {/* Hora + Cancha */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      {/* Hora · Cancha · Cómo llegar.
+          `flexWrap` y gap más corto: las tres píldoras no caben en los 354px de
+          un iPhone y la tercera —"Cómo llegar", que es la accionable— quedaba
+          cortada por el borde. Con wrap baja a una segunda línea entera en vez
+          de mostrarse a medias.
+
+          `flexShrink: 0` en las píldoras a propósito: con wrap lo correcto es
+          que bajen ENTERAS a la segunda línea, no que se compriman hasta
+          recortar la hora. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <View
           style={{
             backgroundColor: color.surface2,
@@ -457,6 +465,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
             flexDirection: 'row',
             alignItems: 'center',
             gap: 5,
+            flexShrink: 0,
           }}
         >
           {/* Ícono de trazo en vez de 🕐: el emoji lo dibuja cada plataforma
@@ -473,9 +482,10 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
               borderRadius: radius.sm,
               paddingHorizontal: 10,
               paddingVertical: 5,
+              flexShrink: 0,
             }}
           >
-            <Text style={{ fontFamily: font.body, fontSize: 12, color: color.text }}>
+            <Text style={{ fontFamily: font.body, fontSize: 12, color: color.text }} numberOfLines={1}>
               🎾 {match.courtName}
             </Text>
           </View>
