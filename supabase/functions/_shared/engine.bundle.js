@@ -636,7 +636,7 @@ function computeClinch(input) {
 }
 
 // src/lib/engine/seeding/select-qualifiers.ts
-function cmpTiebreak(a, b) {
+function cmpDeportivo(a, b) {
   if (b.points !== a.points) return b.points - a.points;
   const setsA = a.setsWon - a.setsLost, setsB = b.setsWon - b.setsLost;
   if (setsB !== setsA) return setsB - setsA;
@@ -649,6 +649,11 @@ function cmpTiebreak(a, b) {
     const cruzada = b.gamesWon * totalA - a.gamesWon * totalB;
     if (cruzada !== 0) return cruzada;
   }
+  return 0;
+}
+function cmpTiebreak(a, b) {
+  const deportivo = cmpDeportivo(a, b);
+  if (deportivo !== 0) return deportivo;
   return a.pairId < b.pairId ? -1 : a.pairId > b.pairId ? 1 : 0;
 }
 function selectQualifiers(standings, advancePerGroup, bestExtraQualifiers) {

@@ -118,7 +118,7 @@ describe('lo que importa es el corte, no el puesto', () => {
 });
 
 describe('los games son incertidumbre: no se promete lo que no se sabe', () => {
-  it('un empate a puntos con otro segundo se dice por su nombre', () => {
+  it('con los dos grupos jugados y marcadores idénticos, es EMPATE, no incertidumbre', () => {
     const grupos = [
       grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']),
       grupo('B', ['B1', 'B2', 'B3'], ['B1', 'B1', 'B2']),
@@ -127,7 +127,10 @@ describe('los games son incertidumbre: no se promete lo que no se sabe', () => {
       grupos, advancePerGroup: 1, bestExtraQualifiers: 1,
       pairId: 'A2', nombres: nombresDe(TODOS),
     });
-    expect(r.repesca!.dependeDeGamesContra).toEqual(['Pareja B2']);
+    // Los dos ya jugaron todo: sus games son un hecho, no una incógnita. Y
+    // como son idénticos hasta el último criterio, es un empate de verdad.
+    expect(r.repesca!.dependeDeGamesContra).toEqual([]);
+    expect(r.repesca!.empatadosSinDesempate).toEqual(['Pareja B2']);
   });
 
   it('nadie se declara dentro por ganar un desempate de games', () => {
@@ -503,8 +506,10 @@ describe('puestoActual y porDelanteSeguros', () => {
     // motor no los inventa. La pantalla dirá "vas entre 1.º y 6.º".
     expect(r.repesca!.puestoActual).toEqual({ mejor: 1, peor: 6 });
     expect(r.repesca!.porDelanteSeguros).toBe(0);
-    // Y los cinco con los que empata salen por su nombre.
-    expect(r.repesca!.dependeDeGamesContra).toHaveLength(5);
+    // Marcadores idénticos en los seis grupos: es un empate real de seis, no
+    // "depende de los games". Los games ya están jugados y son los mismos.
+    expect(r.repesca!.dependeDeGamesContra).toEqual([]);
+    expect(r.repesca!.empatadosSinDesempate).toHaveLength(5);
   });
 
   it('sin enumerar la categoría, el puesto de hoy sí se sabe; los seguros no', () => {
@@ -521,5 +526,160 @@ describe('puestoActual y porDelanteSeguros', () => {
     expect(r.repesca!.puestoActual!.mejor).toBe(1);
     // Pero nadie es inalcanzable todavía: quedan 27 partidos por jugarse.
     expect(r.repesca!.porDelanteSeguros).toBeNull();
+  });
+});
+
+/**
+ * EL CASO DE SERGIO. 5ª Varonil, 9 grupos, 6 cupos de repesca. Los nueve
+ * segundos ya jugaron sus dos partidos, así que sus diferencias de games son
+ * firmes:
+ *
+ *   B +3 · I +1 · E +1 · F 0 · G 0 · A −1 · C −1 · H −4 · D −8
+ *
+ * Sergio es el de A, con −1. Va séptimo de nueve y quedan 6 cupos.
+ *
+ * La app le decía "vas entre 1.º y 9.º, hay 11 parejas empatadas contigo a
+ * puntos, las separa la diferencia de games". Esa diferencia ya estaba
+ * decidida para todas: nadie iba a jugar más.
+ */
+describe('datos firmes: los games de un partido jugado son un hecho', () => {
+  /**
+   * Grupo de 3 donde el primero gana los dos y el segundo gana el suyo con el
+   * margen que se pida. La diferencia de games del segundo sale de `dif`.
+   */
+  const grupoConDif = (n: string, dif: number): GrupoDeCategoria => {
+    const [p1, p2, p3] = [`${n}1`, `${n}2`, `${n}3`];
+    // p2 pierde contra p1 por 6-4 6-4 (−4) y gana a p3 con el margen que haga
+    // falta para acabar en `dif`.
+    const gana = 4 + dif;   // games que le saca a p3 en total
+    const m = (id: string, A: string, B: string, w: string, a: number, b: number): MatchResultInput =>
+      ({ matchId: id, pairAId: A, pairBId: B, winnerPairId: w, played: true, sets: [s(a, b), s(a, b)] });
+    return {
+      groupId: `g${n}`, nombre: n, pairIds: [p1, p2, p3],
+      matches: [
+        m(`${n}1x`, p1, p2, p1, 6, 4),                             // p2: −4
+        m(`${n}2x`, p1, p3, p1, 6, 0),
+        m(`${n}3x`, p2, p3, p2, 6, 6 - Math.min(6, gana / 2)),     // p2: +gana
+      ],
+    };
+  };
+
+  const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+  const nombres = nombresDe(LETRAS.flatMap((n) => [`${n}1`, `${n}2`, `${n}3`]));
+
+  // Diferencias reales del caso: A −1, B +3, C −1, D −8, E +1, F 0, G 0, H −4, I +1
+  const difs: Record<string, number> = { A: -1, B: 3, C: -1, D: -8, E: 1, F: 0, G: 0, H: -4, I: 1 };
+  const categoria = () => LETRAS.map((n) => grupoConDif(n, difs[n]));
+
+  it('los segundos con MEJOR diferencia van por delante, y es definitivo', () => {
+    const r = analizarFuturo({
+      grupos: categoria(), advancePerGroup: 1, bestExtraQualifiers: 6,
+      pairId: 'A2', nombres,
+    });
+    // Ya no dice "11 empatadas a puntos": los datos están cerrados y el motor
+    // los usa. Quien le saca diferencia va delante con certeza.
+    expect(r.repesca!.porDelanteSeguros).toBeGreaterThan(0);
+    expect(r.repesca!.dependeDeGamesContra).toEqual([]);
+  });
+
+  it('mejor y peor puesto coinciden cuando nada queda por decidir', () => {
+    const r = analizarFuturo({
+      grupos: categoria(), advancePerGroup: 1, bestExtraQualifiers: 6,
+      pairId: 'A2', nombres,
+    });
+    const p = r.repesca!.puestoActual!;
+    // Sin empates que resolver, el puesto es un número, no un rango.
+    if (r.repesca!.empatadosSinDesempate.length === 0) {
+      expect(p.mejor).toBe(p.peor);
+    }
+  });
+
+  it('el que va con la peor diferencia queda fuera, y se le dice', () => {
+    const r = analizarFuturo({
+      grupos: categoria(), advancePerGroup: 1, bestExtraQualifiers: 6,
+      pairId: 'D2', nombres,   // −8, el peor de los nueve
+    });
+    expect(r.repesca!.porDelanteSeguros).toBeGreaterThanOrEqual(6);
+    expect(r.estado).toBe('fuera');
+  });
+
+  it('el que va con la mejor diferencia entra seguro', () => {
+    const r = analizarFuturo({
+      grupos: categoria(), advancePerGroup: 1, bestExtraQualifiers: 6,
+      pairId: 'B2', nombres,   // +3, el mejor
+    });
+    expect(r.repesca!.porDelanteSeguros).toBe(0);
+    expect(r.estado).toBe('dentro');
+  });
+});
+
+/**
+ * MONOTONÍA CON DATOS FIRMES. Afirmar más no puede significar retractarse: un
+ * rival que pasa de "podría adelantarme" a resuelto solo puede confirmar lo
+ * que ya se suponía o mejorar la situación, nunca empeorarla.
+ */
+describe('afirmar más no rompe la monotonía', () => {
+  const LETRAS = ['A', 'B', 'C', 'D'];
+  const nombres = nombresDe(LETRAS.flatMap((n) => [`${n}1`, `${n}2`, `${n}3`]));
+
+  /** Cierra los partidos de la categoría uno a uno, en orden. */
+  function pasos(): GrupoDeCategoria[][] {
+    const total = LETRAS.length * 3;
+    const out: GrupoDeCategoria[][] = [];
+    for (let n = 0; n <= total; n++) {
+      let quedan = n;
+      out.push(LETRAS.map((letra) => {
+        const gan: (string | null)[] = [];
+        for (let i = 0; i < 3; i++) {
+          const cerrado = quedan > 0;
+          if (cerrado) quedan--;
+          gan.push(cerrado ? [`${letra}1`, `${letra}1`, `${letra}2`][i] : null);
+        }
+        return grupo(letra, [`${letra}1`, `${letra}2`, `${letra}3`], gan);
+      }));
+    }
+    return out;
+  }
+
+  it('nadie pasa de dentro a depende ni a fuera, partido a partido', () => {
+    for (const quien of LETRAS.flatMap((n) => [`${n}1`, `${n}2`, `${n}3`])) {
+      let yaDentro = false;
+      for (const grupos of pasos()) {
+        const r = analizarFuturo({
+          grupos, advancePerGroup: 1, bestExtraQualifiers: 2, pairId: quien, nombres,
+        });
+        if (r.estado === 'demasiado_pronto') continue;
+        if (yaDentro) expect(`${quien}: ${r.estado}`).toBe(`${quien}: dentro`);
+        if (r.estado === 'dentro') yaDentro = true;
+      }
+    }
+  });
+
+  it('tampoco se retracta un fuera', () => {
+    for (const quien of LETRAS.flatMap((n) => [`${n}1`, `${n}2`, `${n}3`])) {
+      let yaFuera = false;
+      for (const grupos of pasos()) {
+        const r = analizarFuturo({
+          grupos, advancePerGroup: 1, bestExtraQualifiers: 2, pairId: quien, nombres,
+        });
+        if (r.estado === 'demasiado_pronto') continue;
+        if (yaFuera) expect(`${quien}: ${r.estado}`).toBe(`${quien}: fuera`);
+        if (r.estado === 'fuera') yaFuera = true;
+      }
+    }
+  });
+
+  it('y `porDelanteSeguros` nunca crece al cerrarse partidos', () => {
+    // Los inalcanzables solo pueden confirmarse, no aparecer de la nada.
+    let previo = Infinity;
+    for (const grupos of pasos()) {
+      const r = analizarFuturo({
+        grupos, advancePerGroup: 1, bestExtraQualifiers: 2, pairId: 'A2', nombres,
+      });
+      const n = r.repesca?.porDelanteSeguros;
+      if (n == null) continue;
+      expect(n).toBeLessThanOrEqual(previo);
+      previo = n;
+    }
   });
 });

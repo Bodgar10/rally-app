@@ -40,7 +40,7 @@ export type QualifierStanding = {
  * exista, que al menos sea reproducible y no dependa del planificador de
  * consultas.
  */
-function cmpTiebreak(a: QualifierStanding, b: QualifierStanding): number {
+export function cmpDeportivo(a: QualifierStanding, b: QualifierStanding): number {
   if (b.points !== a.points) return b.points - a.points;
   const setsA = a.setsWon - a.setsLost, setsB = b.setsWon - b.setsLost;
   if (setsB !== setsA) return setsB - setsA;
@@ -54,6 +54,25 @@ function cmpTiebreak(a: QualifierStanding, b: QualifierStanding): number {
     const cruzada = b.gamesWon * totalA - a.gamesWon * totalB;
     if (cruzada !== 0) return cruzada;
   }
+  return 0;   // deportivamente iguales: no hay nada más que mirar
+}
+
+/**
+ * LA PARTE DEPORTIVA Y LA PARTE DE DESEMPATE, SEPARADAS A PROPÓSITO.
+ *
+ *   `cmpDeportivo` es lo que de verdad separa a dos parejas y devuelve 0
+ *   cuando nada lo hace. `cmpTiebreak` le añade el `pairId`, que NO es un
+ *   criterio deportivo: existe solo porque la siembra necesita un orden total
+ *   y alguien tiene que ir primero.
+ *
+ *   La distinción importa fuera de aquí: el análisis que lee el jugador usa
+ *   `cmpDeportivo` y, cuando devuelve 0, dice "empate" en vez de anunciar un
+ *   orden que sale de comparar dos uuid. Decirle "vas por delante" por eso
+ *   sería mentirle.
+ */
+function cmpTiebreak(a: QualifierStanding, b: QualifierStanding): number {
+  const deportivo = cmpDeportivo(a, b);
+  if (deportivo !== 0) return deportivo;
   return a.pairId < b.pairId ? -1 : a.pairId > b.pairId ? 1 : 0;
 }
 

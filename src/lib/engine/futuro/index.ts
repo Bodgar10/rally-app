@@ -37,7 +37,7 @@ import {
   DEFAULT_STANDINGS_CONFIG,
   type StandingsConfig,
 } from '../standings';
-import { selectQualifiers, type QualifierStanding } from '../seeding/select-qualifiers';
+import { cmpDeportivo, selectQualifiers, type QualifierStanding } from '../seeding/select-qualifiers';
 import { computeSeeding } from '../seeding';
 import { cuadroDe } from '../../cuadro-tamano';
 
@@ -146,10 +146,23 @@ export interface Carrera {
   plazas: number;
   partidosQueImportan: PartidoQueImporta[];
   /**
-   * Parejas con las que empata a puntos y a las que solo la diferencia de
-   * games puede separar. No se promete nada sobre ellas.
+   * Parejas de las que todavía no se puede decir nada porque a ELLAS o a él
+   * les quedan partidos: sus sets y sus games aún pueden cambiar.
+   *
+   * NO incluye a las que ya jugaron todo. Los sets y los games de un partido
+   * jugado son un hecho tan firme como los puntos, y compararse con ellos es
+   * afirmar, no adivinar.
    */
   dependeDeGamesContra: string[];
+  /**
+   * Parejas con datos DEFINITIVOS y exactamente los mismos puntos, sets y
+   * games. El reglamento no las separa y aquí no se inventa un orden.
+   *
+   * `selectQualifiers` sí las ordena, por `pairId`, porque la siembra necesita
+   * un orden total. Eso es una decisión de siembra, no un hecho deportivo, y
+   * enseñárselo al jugador como "vas por delante" sería mentirle.
+   */
+  empatadosSinDesempate: string[];
 }
 
 export interface AnalisisFuturo {
@@ -260,13 +273,16 @@ interface Foto {
   repescaSeguroDelante: number;
   /** Quiénes son. Cruzando escenarios sale quién es INALCANZABLE. */
   repescaDelanteIds: string[];
-  /** Los que empatan a puntos: solo los games los separan. */
-  repescaEmpatanAPuntos: string[];
+  /** Aún no comparables: a alguno de los dos le quedan partidos. */
+  repescaSinDecidir: string[];
+  /** Datos firmes e idénticos hasta el último criterio: empate de verdad. */
+  repescaEmpatados: string[];
   /** Idem para la carrera del bye, contra todos los clasificados. */
   byePodrianAdelantarme: number;
   byeSeguroDelante: number;
   byeDelanteIds: string[];
-  byeEmpatanAPuntos: string[];
+  byeSinDecidir: string[];
+  byeEmpatados: string[];
   /** Lo que dice la siembra REAL de este escenario. */
   siembraDaBye: boolean;
   siembraClasifica: boolean;
@@ -314,7 +330,8 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
    * usa la siembra: contarlo aparte, restando empatados, daría un criterio
    * distinto que se separaría del real a la primera excepción.
    */
-  const hoy = fotoDelEscenario(0, [], grupos, advancePerGroup, bestExtra, pairId, cfg, nombres);
+  const firmes = parejasConDatosFirmes(grupos);
+  const hoy = fotoDelEscenario(0, [], grupos, advancePerGroup, bestExtra, pairId, cfg, nombres, firmes);
   const puestoRepescaHoy: PuestoActual = {
     mejor: 1 + hoy.repescaSeguroDelante,
     peor: 1 + hoy.repescaPodrianAdelantarme,
@@ -349,7 +366,7 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
   const carreraCiega = (plazas: number, puesto: PuestoActual): Carrera => ({
     estado: 'demasiado_pronto', puestoActual: puesto, porDelanteSeguros: null,
     peorPuestoPosible: null, plazas,
-    partidosQueImportan: [], dependeDeGamesContra: [],
+    partidosQueImportan: [], dependeDeGamesContra: [], empatadosSinDesempate: [],
   });
 
   /** El hueco cuando la carrera ni siquiera aplica. */
@@ -357,7 +374,7 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
     aplica: false as const, byesEnElCuadro: 0,
     estado: 'fuera' as const, puestoActual: null, porDelanteSeguros: null,
     peorPuestoPosible: null, plazas: 0,
-    partidosQueImportan: [], dependeDeGamesContra: [],
+    partidosQueImportan: [], dependeDeGamesContra: [], empatadosSinDesempate: [],
   };
 
   if (imposible) {
@@ -404,7 +421,7 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
   const fotos: Foto[] = [];
 
   for (let mask = 0; mask < escenarios; mask++) {
-    fotos.push(fotoDelEscenario(mask, pendientes, grupos, advancePerGroup, bestExtra, pairId, cfg, nombres));
+    fotos.push(fotoDelEscenario(mask, pendientes, grupos, advancePerGroup, bestExtra, pairId, cfg, nombres, firmes));
   }
 
   const posiciones = [...new Set(fotos.map((f) => f.posicionEnGrupo))].sort((a, b) => a - b);
@@ -494,9 +511,15 @@ function carreraDe(
     ...fotos.map((f) => 1 + (cual === 'repesca' ? f.repescaPodrianAdelantarme : f.byePodrianAdelantarme)),
   );
 
-  const empatan = [...new Set(
-    fotos.flatMap((f) => (cual === 'repesca' ? f.repescaEmpatanAPuntos : f.byeEmpatanAPuntos)),
-  )].sort((a, b) => a.localeCompare(b, 'es'));
+  const ordenar = (xs: string[]) => [...new Set(xs)].sort((a, b) => a.localeCompare(b, 'es'));
+  const sinDecidir = ordenar(
+    fotos.flatMap((f) => (cual === 'repesca' ? f.repescaSinDecidir : f.byeSinDecidir)),
+  );
+  // Empate DE VERDAD solo si lo es en todos los escenarios: si en alguno se
+  // separan, es que todavía hay algo que puede decidirlo.
+  const empatados = ordenar(
+    fotos.flatMap((f) => (cual === 'repesca' ? f.repescaEmpatados : f.byeEmpatados)),
+  ).filter((n) => fotos.every((f) => (cual === 'repesca' ? f.repescaEmpatados : f.byeEmpatados).includes(n)));
 
   const partidosQueImportan = estado === 'depende'
     ? pivotes(fotos, pendientes, dentroEn, fueraEn, pairId, nombres)
@@ -525,7 +548,8 @@ function carreraDe(
     peorPuestoPosible: peor,
     plazas,
     partidosQueImportan,
-    dependeDeGamesContra: empatan,
+    dependeDeGamesContra: sinDecidir,
+    empatadosSinDesempate: empatados,
   };
 }
 
@@ -610,6 +634,32 @@ function escenariosDeMiGrupo(
   return out;
 }
 
+/**
+ * Parejas cuyos sets y games YA SON DEFINITIVOS: han jugado todos sus
+ * partidos del grupo.
+ *
+ * ES LA DISTINCIÓN QUE FALTABA. "No afirmar sobre games" es correcto para un
+ * partido PENDIENTE, cuyo marcador todavía no existe. Para uno ya jugado los
+ * games son un hecho, y tratarlos como incertidumbre le decía a Sergio "vas
+ * entre 1.º y 9.º, hay 11 parejas empatadas contigo" cuando las nueve
+ * diferencias de games estaban decididas y él iba séptimo.
+ *
+ * Los games SINTÉTICOS de los escenarios enumerados siguen sin valer para
+ * nada: una pareja con partidos pendientes nunca es firme.
+ */
+function parejasConDatosFirmes(grupos: GrupoDeCategoria[]): Set<string> {
+  const firmes = new Set<string>();
+  for (const g of grupos) {
+    for (const p of g.pairIds) {
+      const suyos = g.matches.filter((m) => m.pairAId === p || m.pairBId === p);
+      if (suyos.length > 0 && suyos.every((m) => m.played && m.winnerPairId != null)) {
+        firmes.add(p);
+      }
+    }
+  }
+  return firmes;
+}
+
 /** Una foto del escenario `mask`: tablas, clasificados y siembra REALES. */
 function fotoDelEscenario(
   mask: number,
@@ -620,6 +670,7 @@ function fotoDelEscenario(
   pairId: string,
   cfg: StandingsConfig,
   nombres: Record<string, string>,
+  firmes: Set<string>,
 ): Foto {
   // 1) Tablas de cada grupo con los pendientes resueltos.
   const decidido = new Map<string, MatchResultInput>();
@@ -664,19 +715,41 @@ function fotoDelEscenario(
     (r) => r.pairId !== pairId && clasificados.some((q) => q.pairId === r.pairId),
   );
 
+  const miFilaQ = qualifierRows.find((r) => r.pairId === pairId)!;
+  const yoSoyFirme = firmes.has(pairId);
+
   const cuenta = (rivales: QualifierStanding[], mejorPosicionCuenta: boolean) => {
     let podrian = 0, seguros = 0;
-    const empatan: string[] = [];
+    const sinDecidir: string[] = [];
+    const empatados: string[] = [];
     const delante: string[] = [];
+
     for (const r of rivales) {
-      const porPosicion = mejorPosicionCuenta && r.position < miFila.position;
-      if (porPosicion || r.points > miFila.points) {
+      // La posición de grupo manda sobre todo en la carrera del bye: un
+      // primero se siembra siempre por delante de un segundo.
+      if (mejorPosicionCuenta && r.position < miFila.position) {
         podrian++; seguros++; delante.push(r.pairId); continue;
       }
       if (mejorPosicionCuenta && r.position > miFila.position) continue;
-      if (r.points === miFila.points) { podrian++; empatan.push(nombreDe(r.pairId, nombres)); }
+
+      // LOS DATOS FIRMES SE COMPARAN ENTEROS. Con los dos lados ya jugados, la
+      // cadena de desempate —puntos, sets, games, % de games— es un hecho, y
+      // es EXACTAMENTE la que usa la siembra: `cmpDeportivo` es la misma
+      // función, sin el `pairId` final que no es deportivo.
+      if (yoSoyFirme && firmes.has(r.pairId)) {
+        const c = cmpDeportivo(r, miFilaQ);
+        if (c < 0) { podrian++; seguros++; delante.push(r.pairId); continue; }
+        if (c > 0) continue;                       // por detrás, y es definitivo
+        // Iguales hasta el último criterio: empate de verdad, sin orden.
+        podrian++; empatados.push(nombreDe(r.pairId, nombres));
+        continue;
+      }
+
+      // A alguno de los dos le quedan partidos: solo los PUNTOS son firmes.
+      if (r.points > miFila.points) { podrian++; seguros++; delante.push(r.pairId); continue; }
+      if (r.points === miFila.points) { podrian++; sinDecidir.push(nombreDe(r.pairId, nombres)); }
     }
-    return { podrian, seguros, empatan, delante };
+    return { podrian, seguros, sinDecidir, empatados, delante };
   };
 
   // En la repesca todos los rivales están en el mismo puesto de grupo, así que
@@ -691,11 +764,13 @@ function fotoDelEscenario(
     repescaPodrianAdelantarme: rep.podrian,
     repescaSeguroDelante: rep.seguros,
     repescaDelanteIds: rep.delante,
-    repescaEmpatanAPuntos: rep.empatan,
+    repescaSinDecidir: rep.sinDecidir,
+    repescaEmpatados: rep.empatados,
     byePodrianAdelantarme: byeC.podrian,
     byeSeguroDelante: byeC.seguros,
     byeDelanteIds: byeC.delante,
-    byeEmpatanAPuntos: byeC.empatan,
+    byeSinDecidir: byeC.sinDecidir,
+    byeEmpatados: byeC.empatados,
     siembraDaBye,
     siembraClasifica,
   };
