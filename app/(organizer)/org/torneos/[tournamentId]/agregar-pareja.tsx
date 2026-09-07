@@ -44,6 +44,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -257,6 +258,9 @@ export default function AgregarParejaScreen() {
         if (fallo) setError(fallo);
       }
 
+      // La pantalla DECLARA el hecho. 'listo' es el único punto donde la
+      // pareja existe de verdad en la base.
+      cumplirPaso('pareja-registrada');
       setPaso('listo');
       // Los correos salen en segundo plano, así que al responder están en
       // 'pending'. Se consultan un momento después para enseñar el resultado.

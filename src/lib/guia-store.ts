@@ -19,9 +19,18 @@ import { marcarHecho, type Guia } from './guia-organizador';
 interface EstadoGuia {
   guia: Guia | null;
   hechos: ReadonlySet<string>;
+  /**
+   * Puesto cuando esta guía entró pisando otra a medias.
+   *
+   * La barra lo dice en una línea y luego lo suelta. Que la anterior
+   * desapareciera en silencio confunde a quien creía tener dos cosas en marcha:
+   * el estado nuevo es correcto —solo se sigue una— pero el usuario no tiene
+   * por qué deducirlo de que la barra cambió de texto.
+   */
+  pisoAOtra: boolean;
 }
 
-const VACIO: EstadoGuia = { guia: null, hechos: new Set() };
+const VACIO: EstadoGuia = { guia: null, hechos: new Set(), pisoAOtra: false };
 
 let estado: EstadoGuia = VACIO;
 const oyentes = new Set<() => void>();
@@ -32,9 +41,22 @@ function emitir(siguiente: EstadoGuia) {
   for (const o of oyentes) o();
 }
 
-/** Arranca una guía desde cero. */
+/**
+ * Arranca una guía desde cero.
+ *
+ * Solo se sigue UNA a la vez: dos barras compitiendo por el mismo hueco no es
+ * un producto, y "¿cuál de las dos me está hablando?" no tiene respuesta buena.
+ * Pisar es lo correcto — pero se dice, no se hace en silencio.
+ */
 export function empezarGuia(guia: Guia): void {
-  emitir({ guia, hechos: new Set() });
+  const habiaOtraAMedias = estado.guia !== null && estado.guia.id !== guia.id;
+  emitir({ guia, hechos: new Set(), pisoAOtra: habiaOtraAMedias });
+}
+
+/** La barra ya dijo lo de "dejamos la anterior"; no hace falta repetirlo. */
+export function avisoDeRelevoVisto(): void {
+  if (!estado.pisoAOtra) return;
+  emitir({ ...estado, pisoAOtra: false });
 }
 
 /** La apaga: terminada, abandonada o cerrada a mano. */
@@ -44,13 +66,20 @@ export function terminarGuia(): void {
 }
 
 /**
- * Una pantalla dice que un paso está cumplido.
+ * Una pantalla dice QUÉ PASÓ. No a qué guía le sirve.
  *
- * Inocuo si no hay guía, si es otra guía, o si ya estaba marcado: las pantallas
- * avisan en cada render y no tienen por qué saber si alguien escucha.
+ * El id es del hecho —'canchas-guardadas'— y no de un paso de una guía
+ * concreta. Así una pantalla que aparece en tres guías avisa UNA vez, y añadir
+ * una guía que reutilice ese hecho no obliga a volver a tocar la pantalla. Al
+ * revés —`cumplirPaso(guiaId, pasoId)`— cada guía nueva era una línea más en
+ * una pantalla que ya funcionaba, y esa es la lista que nadie mantiene.
+ *
+ * Inocuo si no hay guía, si la activa no tiene ese paso, o si ya estaba
+ * marcado: las pantallas avisan en cada render y no tienen por qué saber si
+ * alguien escucha.
  */
-export function cumplirPaso(guiaId: string, pasoId: string): void {
-  if (estado.guia?.id !== guiaId) return;
+export function cumplirPaso(pasoId: string): void {
+  if (!estado.guia?.pasos.some((p) => p.id === pasoId)) return;
   const hechos = marcarHecho(estado.hechos, pasoId);
   if (hechos === estado.hechos) return;
   emitir({ ...estado, hechos });

@@ -38,6 +38,7 @@ import {
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import Icon from '@/components/ui/Icon';
 import BuscadorDeUsuario, { type UsuarioEncontrado } from '@/components/ui/BuscadorDeUsuario';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
@@ -264,6 +265,7 @@ export default function JuecesTorneoScreen() {
         return;
       }
 
+      cumplirPaso('juez-asignado');
       setExito(`${u.full_name} asignado como juez.`);
       await cargar();
     } finally {

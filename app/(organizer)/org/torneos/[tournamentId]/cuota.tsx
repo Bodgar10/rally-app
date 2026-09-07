@@ -12,7 +12,7 @@
  * aquí que explicarlo después.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import {
   View, Text, TextInput, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
@@ -21,6 +21,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { bottomInset, inputFontSize, webContentColumn } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -69,6 +70,12 @@ export default function CuotaTorneoScreen() {
   const valido     = monto >= 0 && monto < 1_000_000;
   const puedeGuardar = puedeCobrar && hayCambios && valido && !guardando;
 
+    // La pantalla DECLARA el hecho; la guía no lo adivina. `cargando` fuera:
+    // en el primer render los valores son los de arranque, no los de la base.
+  useEffect(() => {
+    if (!cargando && hayCambios && valido) cumplirPaso('cuota-escrita');
+  }, [cargando, hayCambios, valido]);
+
   async function guardar() {
     if (!puedeGuardar) return;
     setError(null);
@@ -85,6 +92,7 @@ export default function CuotaTorneoScreen() {
       setError('No se pudo guardar la cuota. Intenta de nuevo.');
       return;
     }
+    cumplirPaso('cuota-guardada');
     volver();
   }
 

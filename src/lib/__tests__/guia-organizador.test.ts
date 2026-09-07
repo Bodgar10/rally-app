@@ -1,9 +1,13 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   GUIAS,
   guiaDePregunta,
   situacionDeGuia,
   marcarHecho,
   textoDeSituacion,
+  pasoQueSeCumpleAlSalir,
   type Guia,
 } from '../guia-organizador';
 import { PREGUNTAS } from '../ayuda-organizador';
@@ -16,9 +20,9 @@ describe('qué guía lanza cada pregunta', () => {
     expect(guiaDePregunta('fechas')?.id).toBe('cambiar-fechas');
   });
 
-  // No toda pregunta tiene guía; las que no, navegan y ya.
-  it('una pregunta sin guía no inventa ninguna', () => {
-    expect(guiaDePregunta('jueces')).toBeNull();
+  // Una pregunta que no existe no inventa guía.
+  it('una pregunta desconocida no inventa ninguna', () => {
+    expect(guiaDePregunta('lo-que-sea')).toBeNull();
   });
 
   // Una guía colgada de una pregunta que no existe no se lanzaría nunca.
@@ -35,20 +39,20 @@ describe('qué toca ahora', () => {
   });
 
   it('el segundo, cuando el primero está hecho', () => {
-    const s = situacionDeGuia(fechas, new Set(['elegir-rango']), 'fechas');
+    const s = situacionDeGuia(fechas, new Set(['fechas-elegidas']), 'fechas');
     expect(s).toMatchObject({ tipo: 'paso', numero: 2, total: 2 });
-    expect(s.tipo === 'paso' && s.paso.id).toBe('guardar');
+    expect(s.tipo === 'paso' && s.paso.id).toBe('fechas-guardadas');
   });
 
   it('terminada, cuando están todos', () => {
-    expect(situacionDeGuia(fechas, new Set(['elegir-rango', 'guardar']), 'fechas'))
+    expect(situacionDeGuia(fechas, new Set(['fechas-elegidas', 'fechas-guardadas']), 'fechas'))
       .toEqual({ tipo: 'terminada' });
   });
 
   // El contador cuenta sobre el total real, no sobre los que quedan.
   it('el contador no miente al avanzar', () => {
     const a = situacionDeGuia(fechas, nada, 'fechas');
-    const b = situacionDeGuia(fechas, new Set(['elegir-rango']), 'fechas');
+    const b = situacionDeGuia(fechas, new Set(['fechas-elegidas']), 'fechas');
     expect([a, b].every((s) => s.tipo === 'paso' && s.total === 2)).toBe(true);
   });
 });
@@ -61,7 +65,7 @@ describe('salirse a media guía', () => {
   });
 
   it('también a medias', () => {
-    expect(situacionDeGuia(fechas, new Set(['elegir-rango']), 'otra'))
+    expect(situacionDeGuia(fechas, new Set(['fechas-elegidas']), 'otra'))
       .toEqual({ tipo: 'fuera' });
   });
 
@@ -71,8 +75,8 @@ describe('salirse a media guía', () => {
   it('no hay estado colgado, sea cual sea la pantalla', () => {
     const pantallas = ['fechas', 'horarios', 'grupos', 'otra', ''];
     const avances = [
-      nada, new Set(['elegir-rango']), new Set(['guardar']),
-      new Set(['elegir-rango', 'guardar']),
+      nada, new Set(['fechas-elegidas']), new Set(['fechas-guardadas']),
+      new Set(['fechas-elegidas', 'fechas-guardadas']),
     ];
     for (const p of pantallas) {
       for (const h of avances) {
@@ -84,24 +88,24 @@ describe('salirse a media guía', () => {
 
   // Cumplir el segundo sin el primero no salta el primero: sigue pendiente.
   it('los pasos no se saltan por marcar uno de más', () => {
-    const s = situacionDeGuia(fechas, new Set(['guardar']), 'fechas');
-    expect(s.tipo === 'paso' && s.paso.id).toBe('elegir-rango');
+    const s = situacionDeGuia(fechas, new Set(['fechas-guardadas']), 'fechas');
+    expect(s.tipo === 'paso' && s.paso.id).toBe('fechas-elegidas');
   });
 });
 
 describe('marcar un paso', () => {
   it('devuelve un conjunto nuevo', () => {
-    const despues = marcarHecho(nada, 'elegir-rango');
+    const despues = marcarHecho(nada, 'fechas-elegidas');
     expect(despues).not.toBe(nada);
-    expect(despues.has('elegir-rango')).toBe(true);
+    expect(despues.has('fechas-elegidas')).toBe(true);
     expect(nada.size).toBe(0);
   });
 
   // Las pantallas avisan en cada render: repetir tiene que ser inocuo Y no
   // producir una referencia nueva, o el store re-renderizaría en bucle.
   it('marcar dos veces devuelve el MISMO conjunto', () => {
-    const uno = marcarHecho(nada, 'elegir-rango');
-    expect(marcarHecho(uno, 'elegir-rango')).toBe(uno);
+    const uno = marcarHecho(nada, 'fechas-elegidas');
+    expect(marcarHecho(uno, 'fechas-elegidas')).toBe(uno);
   });
 });
 
@@ -136,38 +140,39 @@ const capacidad = GUIAS.find((g) => g.id === 'cabe-el-torneo')!;
 describe('una guía que cruza dos pantallas', () => {
   it('empieza en la primera', () => {
     const s = situacionDeGuia(capacidad, nada, 'canchas');
-    expect(s).toMatchObject({ tipo: 'paso', numero: 1, total: 2 });
+    expect(s).toMatchObject({ tipo: 'paso', numero: 1, total: 3 });
   });
 
   // LA REGLA: pasar por el panel camino del siguiente paso NO es abandonar.
   it('el panel es de camino, no una salida', () => {
-    const s = situacionDeGuia(capacidad, new Set(['canchas']), 'panel');
-    expect(s).toMatchObject({ tipo: 'transito', numero: 2, total: 2 });
+    const s = situacionDeGuia(capacidad, new Set(['canchas-guardadas']), 'panel');
+    expect(s).toMatchObject({ tipo: 'transito', numero: 2, total: 3 });
   });
 
   it('y desde el panel se dice CÓMO LLEGAR, no qué hacer', () => {
-    const enPanel = situacionDeGuia(capacidad, new Set(['canchas']), 'panel');
-    const enSitio = situacionDeGuia(capacidad, new Set(['canchas']), 'horarios');
+    const enPanel = situacionDeGuia(capacidad, new Set(['canchas-guardadas']), 'panel');
+    const enSitio = situacionDeGuia(capacidad, new Set(['canchas-guardadas']), 'horarios');
     expect(textoDeSituacion(enPanel)).toMatch(/abre "Horarios"/i);
     expect(textoDeSituacion(enSitio)).toMatch(/ventana de juego/i);
     expect(textoDeSituacion(enPanel)).not.toBe(textoDeSituacion(enSitio));
   });
 
   it('llegar a la segunda pantalla vuelve a dar instrucciones', () => {
-    const s = situacionDeGuia(capacidad, new Set(['canchas']), 'horarios');
+    const s = situacionDeGuia(capacidad, new Set(['canchas-guardadas']), 'horarios');
     expect(s).toMatchObject({ tipo: 'paso', numero: 2 });
   });
 
   // Irse a algo que NO está en el camino sí es abandonar.
   it('cualquier otro apartado sí es irse', () => {
     for (const p of ['fechas', 'jueces', 'grupos', 'otra']) {
-      expect(situacionDeGuia(capacidad, new Set(['canchas']), p))
+      expect(situacionDeGuia(capacidad, new Set(['canchas-guardadas']), p))
         .toEqual({ tipo: 'fuera' });
     }
   });
 
   it('terminada manda sobre el tránsito', () => {
-    expect(situacionDeGuia(capacidad, new Set(['canchas', 'horarios']), 'panel'))
+    expect(situacionDeGuia(capacidad,
+      new Set(['canchas-guardadas', 'horarios-guardados', 'mirar-bloques']), 'panel'))
       .toEqual({ tipo: 'terminada' });
   });
 });
@@ -175,9 +180,13 @@ describe('una guía que cruza dos pantallas', () => {
 describe('una guía de una sola pantalla en el panel', () => {
   // Sin `comoLlegar` se dice lo mismo que en su sitio: es mejor que callarse.
   it('sin comoLlegar, cae al texto del paso', () => {
-    const s = situacionDeGuia(fechas, nada, 'panel');
+    const pelada: Guia = {
+      id: 'x', desdePregunta: 'fechas',
+      pasos: [{ id: 'x1', pantalla: 'fechas', texto: 'Haz la cosa.' }],
+    };
+    const s = situacionDeGuia(pelada, nada, 'panel');
     expect(s.tipo).toBe('transito');
-    expect(textoDeSituacion(s)).toBe(fechas.pasos[0].texto);
+    expect(textoDeSituacion(s)).toBe('Haz la cosa.');
   });
 
   it('con comoLlegar, lo usa', () => {
@@ -188,9 +197,10 @@ describe('una guía de una sola pantalla en el panel', () => {
 
 describe('sigue sin haber estado colgado, con dos pantallas', () => {
   it('toda combinación cae en uno de los cuatro', () => {
-    const pantallas = ['canchas', 'horarios', 'panel', 'fechas', 'otra', ''];
-    const avances = [nada, new Set(['canchas']), new Set(['horarios']),
-                     new Set(['canchas', 'horarios'])];
+    const pantallas = ['canchas', 'horarios', 'bloques', 'panel', 'fechas', 'otra', ''];
+    const avances = [nada, new Set(['canchas-guardadas']), new Set(['horarios-guardados']),
+                     new Set(['canchas-guardadas', 'horarios-guardados']),
+                     new Set(['canchas-guardadas', 'horarios-guardados', 'mirar-bloques'])];
     for (const p of pantallas) {
       for (const h of avances) {
         const s = situacionDeGuia(capacidad, h, p);
@@ -231,5 +241,103 @@ describe('las tres guías, juntas', () => {
         if (p.comoLlegar) expect(p.comoLlegar.length).toBeLessThanOrEqual(70);
       }
     }
+  });
+});
+
+
+// ── PASOS DE SOLO MIRAR ─────────────────────────────────────────────────────
+
+const capacidad3 = GUIAS.find((g) => g.id === 'cabe-el-torneo')!;
+const soloMirar = GUIAS.find((g) => g.id === 'mirar-bloques')!;
+
+describe('un paso que se cumple mirando', () => {
+  // Mientras está ahí se ve el texto: si se marcara al ENTRAR, la guía
+  // terminaría en el mismo render y nadie leería qué hay que mirar.
+  it('mientras está en la pantalla, se le dice qué mirar', () => {
+    const s = situacionDeGuia(soloMirar, nada, 'bloques');
+    expect(s).toMatchObject({ tipo: 'paso' });
+    expect(textoDeSituacion(s)).toMatch(/cada grupo es un bloque/i);
+  });
+
+  it('se cumple al SALIR de esa pantalla', () => {
+    expect(pasoQueSeCumpleAlSalir(soloMirar, nada, 'bloques')?.id).toBe('mirar-bloques');
+  });
+
+  it('y no al salir de otra', () => {
+    expect(pasoQueSeCumpleAlSalir(soloMirar, nada, 'canchas')).toBeNull();
+    expect(pasoQueSeCumpleAlSalir(soloMirar, nada, 'panel')).toBeNull();
+  });
+
+  // Un paso que SÍ pide una acción no se regala por haber pasado por ahí.
+  it('un paso de acción no se cumple con la visita', () => {
+    expect(pasoQueSeCumpleAlSalir(capacidad3, nada, 'canchas')).toBeNull();
+  });
+
+  it('ya cumplido, no hay nada que volver a cumplir', () => {
+    expect(pasoQueSeCumpleAlSalir(soloMirar, new Set(['mirar-bloques']), 'bloques'))
+      .toBeNull();
+  });
+
+  // La guía de capacidad acaba en uno de mirar: tres pasos, y el tercero cierra.
+  it('cierra una guía de tres pantallas', () => {
+    const hechos = new Set(['canchas-guardadas', 'horarios-guardados']);
+    expect(situacionDeGuia(capacidad3, hechos, 'bloques')).toMatchObject({
+      tipo: 'paso', numero: 3, total: 3,
+    });
+    expect(pasoQueSeCumpleAlSalir(capacidad3, hechos, 'bloques')?.id).toBe('mirar-bloques');
+    expect(situacionDeGuia(capacidad3, new Set([...hechos, 'mirar-bloques']), 'bloques'))
+      .toEqual({ tipo: 'terminada' });
+  });
+});
+
+// ── LAS DIECIOCHO, COMO CONJUNTO ────────────────────────────────────────────
+
+describe('todas las guías', () => {
+  it('hay una por cada pregunta que lleva a una pantalla del panel', () => {
+    const conPantalla = PREGUNTAS.filter((p) => p.pantalla !== null);
+    const cubiertas = new Set(GUIAS.map((g) => g.desdePregunta));
+    const sinGuia = conPantalla.filter((p) => !cubiertas.has(p.id)).map((p) => p.id);
+    expect(sinGuia).toEqual([]);
+  });
+
+  it('ningún paso de acción está declarado como de mirar, ni al revés', () => {
+    for (const g of GUIAS) {
+      for (const p of g.pasos) {
+        // Un paso de mirar no puede pedir nada: su texto describe, no manda.
+        if (p.seCumpleAlMirar) expect(p.texto).not.toMatch(/^(Guarda|Pulsa|Marca) /);
+      }
+    }
+  });
+
+  // EL INVARIANTE QUE MÁS FÁCIL SE ROMPE al añadir una guía: un paso de acción
+  // cuya pantalla no avisa nunca deja la barra encendida para siempre. Se
+  // comprueba contra el código de verdad, no contra una lista paralela.
+  it('todo paso de acción lo declara alguna pantalla', () => {
+    const raiz = join(__dirname, '..', '..', '..', 'app', '(organizer)');
+    const archivos: string[] = [];
+    const recorrer = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const f = join(d, e.name);
+        if (e.isDirectory()) recorrer(f);
+        else if (e.name.endsWith('.tsx')) archivos.push(f);
+      }
+    };
+    recorrer(raiz);
+    const declarados = new Set<string>();
+    for (const f of archivos) {
+      for (const m of readFileSync(f, 'utf8').matchAll(/cumplirPaso\('([^']+)'\)/g)) {
+        declarados.add(m[1]);
+      }
+    }
+
+    const sinSenal = GUIAS.flatMap((g) => g.pasos)
+      .filter((p) => !p.seCumpleAlMirar && !declarados.has(p.id))
+      .map((p) => p.id);
+    expect(sinSenal).toEqual([]);
+
+    // Y al revés: una pantalla que avisa de un hecho que ninguna guía escucha
+    // es una línea muerta esperando a confundir a alguien.
+    const usados = new Set(GUIAS.flatMap((g) => g.pasos).map((p) => p.id));
+    expect([...declarados].filter((d) => !usados.has(d))).toEqual([]);
   });
 });

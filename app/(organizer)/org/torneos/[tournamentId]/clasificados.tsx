@@ -40,6 +40,7 @@ import {
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -206,6 +207,10 @@ export default function ClasificadosScreen() {
       const prog = await llamar('schedule-knockout', { tournamentId });
       pasos.push(prog ? 'Calendario reprogramado.' : 'El calendario NO se reprogramó: hazlo desde Calendario.');
 
+      // La pantalla DECLARA el hecho, y aquí "guardado" es esto: la RPC dijo
+      // que sí. No hay paso de "elegir" porque se guarda por categoría y
+      // elegir sin guardar no cambia nada.
+      cumplirPaso('clasificados-guardados');
       setAviso(pasos.join(' '));
       setEdicion((prev) => { const { [c.id]: _, ...resto } = prev; return resto; });
       setConfirmar(null);

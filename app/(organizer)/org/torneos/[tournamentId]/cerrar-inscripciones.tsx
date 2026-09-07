@@ -41,6 +41,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import Icon from '@/components/ui/Icon';
 import { computeFormat, type FormatPlan } from '@/lib/engine/format';
 import {
@@ -1057,6 +1058,14 @@ export default function CerrarInscripcionesScreen() {
     return count ?? 0;
   }
 
+  /**
+   * Se cerró al menos una categoría.
+   *
+   * Se declara desde `reportar`, que es el único sitio que sabe la verdad: el
+   * parte se da RELEYENDO la base, no contando respuestas 200. Decirlo antes
+   * —al terminar el bucle— habría marcado el paso con ocho promesas que
+   * podrían no haber cuajado.
+   */
   async function reportar(
     fallos: { nombre: string; motivo: string; queHacer: string | null }[],
     bloques: AvisoBloques[] = [],
@@ -1076,6 +1085,7 @@ export default function CerrarInscripcionesScreen() {
         ? { t: 'incompleto', partidosSinHora: sinHora, grupos: [], categoriasSaltadas: [] }
         : horarios;
 
+    if (real && real.cerradas.length > 0) cumplirPaso('inscripciones-cerradas');
     setFase(real
       ? { t: 'resultado', cerradas: real.cerradas, abiertas: real.abiertas, verificado: true, fallos, bloques, horarios: veredicto }
       : { t: 'resultado', cerradas: [], abiertas: [], verificado: false, fallos, bloques, horarios: veredicto });

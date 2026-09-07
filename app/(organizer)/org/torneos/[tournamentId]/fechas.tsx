@@ -72,7 +72,7 @@ export default function FechasTorneoScreen() {
   useEffect(() => {
     if (cargando) return;   // ver la nota en formato.tsx
     if (rangoCompleto(rango) && hayCambios) {
-      cumplirPaso('cambiar-fechas', 'elegir-rango');
+      cumplirPaso('fechas-elegidas');
     }
   }, [cargando, rango, hayCambios]);
 
@@ -96,7 +96,7 @@ export default function FechasTorneoScreen() {
     }
     // El último paso. Al volver al panel, la barra ya no encuentra pantalla y
     // se apaga sola — no hace falta cerrarla desde aquí.
-    cumplirPaso('cambiar-fechas', 'guardar');
+    cumplirPaso('fechas-guardadas');
     volver();
   }
 

@@ -78,6 +78,19 @@ export interface PasoDeGuia {
    * el panel se dice lo mismo que diría en su sitio.
    */
   comoLlegar?: string;
+  /**
+   * El paso se cumple CON LA VISITA: no hay nada que pulsar.
+   *
+   * "Ve a comprobar si el torneo cabe" se satisface llegando y mirando.
+   * Pedirle una acción que no existe dejaría la barra encendida sin motivo, y
+   * obligaría a la pantalla a inventarse una señal que no tiene.
+   *
+   * SE CUMPLE AL SALIR, NO AL ENTRAR, y la diferencia es todo: marcándolo al
+   * entrar, la guía terminaría en el mismo render en que se llega y el texto
+   * —lo que hay que mirar— no llegaría a leerse nunca. Así se ve mientras está
+   * ahí, y al irse la guía se da por terminada en vez de por abandonada.
+   */
+  seCumpleAlMirar?: boolean;
 }
 
 export interface Guia {
@@ -94,70 +107,220 @@ export interface Guia {
  * toca ningún componente.
  */
 export const GUIAS: Guia[] = [
+  // ── Configuración del torneo ──────────────────────────────────────────────
   {
     id: 'cambiar-fechas',
     desdePregunta: 'fechas',
     pasos: [
-      {
-        id: 'elegir-rango',
-        pantalla: 'fechas',
+      { id: 'fechas-elegidas', pantalla: 'fechas',
         texto: 'Toca el día de inicio y luego el de cierre.',
-      },
-      {
-        id: 'guardar',
-        pantalla: 'fechas',
-        texto: 'Ahora baja y pulsa Guardar fechas.',
-      },
+        comoLlegar: 'Abre "Fechas" para elegir el rango.' },
+      { id: 'fechas-guardadas', pantalla: 'fechas',
+        texto: 'Ahora baja y pulsa Guardar fechas.' },
     ],
   },
-
-  // UNA PANTALLA QUE NO SABÍA SI EL USUARIO HABÍA HECHO ALGO.
-  // `formato.tsx` comparaba contra la base el formato del tercer set, pero NO
-  // el interruptor del tercer lugar — que es justo lo que pregunta la ayuda.
-  // Darle la señal fueron dos líneas: guardar el valor cargado y compararlo.
+  {
+    id: 'poner-sede',
+    desdePregunta: 'sede',
+    pasos: [
+      { id: 'sede-elegida', pantalla: 'sede',
+        texto: 'Busca el club. Si no está, créalo desde aquí.',
+        comoLlegar: 'Abre "Sede" para elegir el club.' },
+      { id: 'sede-guardada', pantalla: 'sede',
+        texto: 'Pulsa Guardar para dejarlo fijado.' },
+    ],
+  },
+  {
+    id: 'armar-categorias',
+    desdePregunta: 'categorias',
+    pasos: [
+      { id: 'categoria-elegida', pantalla: 'categorias',
+        texto: 'Marca las categorías que vas a abrir.',
+        comoLlegar: 'Abre "Categorías" para marcarlas.' },
+      { id: 'categorias-guardadas', pantalla: 'categorias',
+        texto: 'Guarda para crearlas en el torneo.' },
+    ],
+  },
+  {
+    id: 'cambiar-cuota',
+    desdePregunta: 'cuota',
+    pasos: [
+      { id: 'cuota-escrita', pantalla: 'cuota',
+        texto: 'Escribe cuánto cobras por pareja.',
+        comoLlegar: 'Abre "Cuota de inscripción".' },
+      { id: 'cuota-guardada', pantalla: 'cuota',
+        texto: 'Pulsa Guardar para aplicarla.' },
+    ],
+  },
+  {
+    id: 'cuantas-canchas',
+    desdePregunta: 'canchas',
+    pasos: [
+      { id: 'canchas-guardadas', pantalla: 'canchas',
+        texto: 'Sube o baja el número y pulsa Guardar.',
+        comoLlegar: 'Abre "Canchas" y di cuántas usarás.' },
+    ],
+  },
+  {
+    id: 'ventana-horaria',
+    desdePregunta: 'horarios',
+    pasos: [
+      { id: 'horarios-guardados', pantalla: 'horarios',
+        texto: 'Marca los días y pon de qué hora a qué hora. Guarda.',
+        comoLlegar: 'Abre "Horarios" para la ventana de cada día.' },
+    ],
+  },
   {
     id: 'tercer-lugar',
     desdePregunta: 'formato',
     pasos: [
-      {
-        id: 'elegir',
-        pantalla: 'formato',
+      { id: 'formato-cambiado', pantalla: 'formato',
         texto: 'Enciende o apaga el partido por el tercer lugar.',
-        comoLlegar: 'Abre "Formato" para decidir el tercer lugar.',
-      },
-      {
-        id: 'guardar',
-        pantalla: 'formato',
-        texto: 'Baja y pulsa Guardar para aplicarlo.',
-      },
+        comoLlegar: 'Abre "Formato" para decidir el tercer lugar.' },
+      { id: 'formato-guardado', pantalla: 'formato',
+        texto: 'Baja y pulsa Guardar para aplicarlo.' },
+    ],
+  },
+  {
+    id: 'cuantos-clasifican',
+    desdePregunta: 'clasificados',
+    pasos: [
+      { id: 'clasificados-guardados', pantalla: 'clasificados',
+        texto: 'Elige cuántos pasan por grupo y cuántos de repesca. Guarda.',
+        comoLlegar: 'Abre "Cuántos clasifican".' },
     ],
   },
 
-  // DOS PANTALLAS, CON EL PANEL EN MEDIO. La capacidad son dos datos que viven
-  // en dos apartados, y no hay forma de ir del primero al segundo sin pasar por
-  // el panel. Es el caso que obligó a distinguir "de camino" de "se fue".
+  // TRES PANTALLAS, Y LA ÚLTIMA ES DE MIRAR. La capacidad son dos datos que
+  // viven en dos apartados, y la respuesta —si cabe— en un tercero. Es la guía
+  // que obligó a distinguir "de camino" de "se fue", y la que estrena el paso
+  // que se cumple con la visita.
   {
     id: 'cabe-el-torneo',
     desdePregunta: 'cabe',
     pasos: [
-      {
-        id: 'canchas',
-        pantalla: 'canchas',
+      { id: 'canchas-guardadas', pantalla: 'canchas',
         texto: 'Pon cuántas canchas usarás y guarda.',
-        comoLlegar: 'Abre "Canchas" y di cuántas usarás.',
-      },
-      {
-        id: 'horarios',
-        pantalla: 'horarios',
+        comoLlegar: 'Abre "Canchas" y di cuántas usarás.' },
+      { id: 'horarios-guardados', pantalla: 'horarios',
         texto: 'Ahora la ventana de juego de cada día. Guarda al terminar.',
-        comoLlegar: 'Falta la ventana horaria: abre "Horarios".',
-      },
+        comoLlegar: 'Falta la ventana horaria: abre "Horarios".' },
+      { id: 'mirar-bloques', pantalla: 'bloques', seCumpleAlMirar: true,
+        texto: 'Aquí ves si los bloques caben en tus días y canchas.',
+        comoLlegar: 'Abre "Horarios de la fase de grupos" y míralo.' },
+    ],
+  },
+  {
+    id: 'mirar-bloques',
+    desdePregunta: 'bloques',
+    pasos: [
+      { id: 'mirar-bloques', pantalla: 'bloques', seCumpleAlMirar: true,
+        texto: 'Cada grupo es un bloque. Aquí ves si caben todos.',
+        comoLlegar: 'Abre "Horarios de la fase de grupos".' },
+    ],
+  },
+
+  // ── El paso que cambia el torneo de estado ────────────────────────────────
+  {
+    id: 'cerrar-y-sembrar',
+    desdePregunta: 'cerrar-inscripciones',
+    pasos: [
+      { id: 'inscripciones-cerradas', pantalla: 'cerrar-inscripciones',
+        texto: 'Elige la categoría y confirma. Se arman sus grupos.',
+        comoLlegar: 'Abre "Cerrar inscripciones", abajo del todo.' },
+      { id: 'mirar-sembrar', pantalla: 'sembrar', seCumpleAlMirar: true,
+        texto: 'Cuando terminen sus grupos, el cuadro se arma desde aquí.',
+        comoLlegar: 'Abre "Sembrar los cuadros" para ver cómo va.' },
+    ],
+  },
+  {
+    id: 'armar-cuadro',
+    desdePregunta: 'sembrar',
+    pasos: [
+      { id: 'mirar-sembrar', pantalla: 'sembrar', seCumpleAlMirar: true,
+        texto: 'Cada categoría dice si ya se puede sembrar o qué le falta.',
+        comoLlegar: 'Abre "Sembrar los cuadros".' },
+    ],
+  },
+
+  // ── Durante el torneo ─────────────────────────────────────────────────────
+  {
+    id: 'horas-y-canchas',
+    desdePregunta: 'calendario',
+    pasos: [
+      { id: 'mirar-calendario', pantalla: 'calendario', seCumpleAlMirar: true,
+        texto: 'Arrastra un partido para cambiarle hora o cancha.',
+        comoLlegar: 'Abre "Calendario".' },
+    ],
+  },
+  {
+    id: 'tablas-y-resultados',
+    desdePregunta: 'grupos',
+    pasos: [
+      { id: 'mirar-grupos', pantalla: 'grupos', seCumpleAlMirar: true,
+        texto: 'Toca un partido para capturar su marcador.',
+        comoLlegar: 'Abre "Grupos".' },
+    ],
+  },
+  {
+    id: 'ver-el-empate',
+    desdePregunta: 'empate',
+    pasos: [
+      { id: 'mirar-empate', pantalla: 'grupos', seCumpleAlMirar: true,
+        texto: 'La tabla marca el grupo donde el reglamento no separa.',
+        comoLlegar: 'Abre "Grupos" y busca el aviso en la tabla.' },
+    ],
+  },
+  {
+    id: 'poner-juez',
+    desdePregunta: 'jueces',
+    pasos: [
+      { id: 'juez-asignado', pantalla: 'jueces',
+        texto: 'Búscalo por nombre o correo y asígnalo.',
+        comoLlegar: 'Abre "Jueces" para asignar a alguien.' },
+    ],
+  },
+
+  // ── Parejas ───────────────────────────────────────────────────────────────
+  {
+    id: 'pareja-a-mano',
+    desdePregunta: 'agregar-pareja',
+    pasos: [
+      { id: 'pareja-registrada', pantalla: 'agregar-pareja',
+        texto: 'Elige categoría y pon a los dos jugadores. Registra.',
+        comoLlegar: 'Abre "Registrar pareja a mano".' },
+    ],
+  },
+  {
+    id: 'ver-inscritas',
+    desdePregunta: 'parejas',
+    pasos: [
+      { id: 'mirar-parejas', pantalla: 'parejas', seCumpleAlMirar: true,
+        texto: 'Toca una pareja para ver su pago o darla de baja.',
+        comoLlegar: 'Abre "Inscritas".' },
     ],
   },
 ];
 
 export function guiaDePregunta(preguntaId: string): Guia | null {
   return GUIAS.find((g) => g.desdePregunta === preguntaId) ?? null;
+}
+
+/**
+ * El paso que el usuario acaba de satisfacer con solo estar en `pantalla`.
+ *
+ * Lo llama la barra al cambiar de ruta, con la pantalla que se ACABA de dejar.
+ * `null` si ahí no había nada que se cumpliera mirando.
+ */
+export function pasoQueSeCumpleAlSalir(
+  guia: Guia,
+  hechos: ReadonlySet<string>,
+  pantallaQueDeja: string,
+): PasoDeGuia | null {
+  const pendiente = guia.pasos.find((p) => !hechos.has(p.id));
+  if (!pendiente) return null;
+  if (!pendiente.seCumpleAlMirar) return null;
+  return pendiente.pantalla === pantallaQueDeja ? pendiente : null;
 }
 
 /**

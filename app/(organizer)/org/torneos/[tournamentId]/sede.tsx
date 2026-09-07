@@ -10,7 +10,7 @@
  * todavía no está en el catálogo.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
@@ -19,6 +19,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import VenuePicker, { type Venue } from '@/components/organizer/VenuePicker';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
@@ -65,6 +66,12 @@ export default function SedeTorneoScreen() {
   const hayCambios   = (elegida?.id ?? null) !== original;
   const puedeGuardar = elegida !== null && hayCambios && !guardando;
 
+    // La pantalla DECLARA el hecho; la guía no lo adivina. `cargando` fuera:
+    // en el primer render los valores son los de arranque, no los de la base.
+  useEffect(() => {
+    if (!cargando && elegida !== null && hayCambios) cumplirPaso('sede-elegida');
+  }, [cargando, elegida, hayCambios]);
+
   async function guardar() {
     if (!puedeGuardar || !elegida) return;
     setError(null);
@@ -81,6 +88,7 @@ export default function SedeTorneoScreen() {
       setError('No se pudo guardar la sede. Intenta de nuevo.');
       return;
     }
+    cumplirPaso('sede-guardada');
     volver();
   }
 

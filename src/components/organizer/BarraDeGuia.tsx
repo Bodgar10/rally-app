@@ -20,8 +20,9 @@ import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { usePathname } from 'expo-router';
 
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
-import { terminarGuia } from '@/lib/guia-store';
-import { textoDeSituacion } from '@/lib/guia-organizador';
+import { terminarGuia, cumplirPaso, avisoDeRelevoVisto, useGuiaActiva } from '@/lib/guia-store';
+import { textoDeSituacion, pasoQueSeCumpleAlSalir } from '@/lib/guia-organizador';
+import { pantallaDeRuta } from '@/lib/ayuda-organizador';
 import { useGuiaEnPantalla } from '@/hooks/useGuiaEnPantalla';
 
 /**
@@ -30,7 +31,9 @@ import { useGuiaEnPantalla } from '@/hooks/useGuiaEnPantalla';
  * El layout lo usa como `paddingBottom`. Sin esto la barra tapaba el botón que
  * el último paso pide pulsar — ver `useGuiaEnPantalla`.
  */
-export const ALTO_BARRA_GUIA = 76;
+// 88 y no 76: con el texto en dos líneas más el aviso de relevo la barra
+// llega a tres, y medido a 390px eso son ~86px.
+export const ALTO_BARRA_GUIA = 88;
 
 export default function BarraDeGuia() {
   const situacion = useGuiaEnPantalla();
@@ -56,11 +59,33 @@ export default function BarraDeGuia() {
   const pathname = usePathname();
   const rutaPrevia = useRef(pathname);
   const fuera = situacion?.tipo === 'fuera';
+  const { guia, hechos } = useGuiaActiva();
+
   useEffect(() => {
-    const cambio = rutaPrevia.current !== pathname;
+    const previa = rutaPrevia.current;
+    const cambio = previa !== pathname;
     rutaPrevia.current = pathname;
-    if (cambio && fuera) terminarGuia();
-  }, [pathname, fuera]);
+    if (!cambio) return;
+
+    // UN PASO DE SOLO MIRAR SE CUMPLE AL SALIR de su pantalla. Va ANTES de
+    // decidir si se abandonó: irse de un paso que ya estaba satisfecho es
+    // terminar la guía, no dejarla tirada.
+    if (guia) {
+      const visto = pasoQueSeCumpleAlSalir(guia, hechos, pantallaDeRuta(previa));
+      if (visto) { cumplirPaso(visto.id); return; }
+    }
+
+    if (fuera) terminarGuia();
+  }, [pathname, fuera, guia, hechos]);
+
+  // "Dejamos la guía anterior": se dice una vez y se suelta, para que no
+  // acompañe a la guía nueva durante toda su vida.
+  const { pisoAOtra } = useGuiaActiva();
+  useEffect(() => {
+    if (!pisoAOtra) return;
+    const t = setTimeout(avisoDeRelevoVisto, 6000);
+    return () => clearTimeout(t);
+  }, [pisoAOtra]);
 
   const texto = situacion && textoDeSituacion(situacion);
   if (!situacion || !texto || (situacion.tipo !== 'paso' && situacion.tipo !== 'transito')) {
@@ -74,6 +99,9 @@ export default function BarraDeGuia() {
           Paso {situacion.numero} de {situacion.total}
         </Text>
         <Text style={s.texto}>{texto}</Text>
+        {pisoAOtra && (
+          <Text style={s.relevo}>Dejamos la guía anterior.</Text>
+        )}
       </View>
 
       <Pressable
@@ -120,6 +148,10 @@ const s = StyleSheet.create({
   texto: {
     fontFamily: font.body, fontSize: fontSize.caption,
     color: color.text, lineHeight: 18,
+  },
+  relevo: {
+    fontFamily: font.body, fontSize: 11, color: color.muted,
+    marginTop: 2,
   },
   cerrar: { padding: 4 },
   cerrarSigno: { color: color.muted, fontSize: 14 },

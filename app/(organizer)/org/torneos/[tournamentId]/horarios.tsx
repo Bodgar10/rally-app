@@ -208,7 +208,7 @@ export default function HorariosScreen() {
     }
     // El segundo y último paso de la guía de capacidad. Aquí no hizo falta
     // añadir señal ninguna: guardar con éxito ya era un punto del código.
-    cumplirPaso('cabe-el-torneo', 'horarios');
+    cumplirPaso('horarios-guardados');
     volver();
   }
 

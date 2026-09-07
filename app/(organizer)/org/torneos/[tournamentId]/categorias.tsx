@@ -23,7 +23,7 @@
  *   cortesía que evita llegar hasta el error.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView,
@@ -32,6 +32,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import type { Database } from '@/lib/supabase/database.types';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
@@ -184,6 +185,12 @@ export default function CategoriasScreen() {
   }, [seleccion, existentes]);
 
   const hayCambios = aCrear.length > 0 || aBorrar.length > 0;
+
+  // La pantalla DECLARA el hecho; la guía no lo adivina. `cargando` fuera: en
+  // el primer render la selección está vacía y no dice nada del usuario.
+  useEffect(() => {
+    if (!cargando && hayCambios) cumplirPaso('categoria-elegida');
+  }, [cargando, hayCambios]);
   const puedeGuardar = seleccion.size > 0 && hayCambios && !guardando;
 
   /** Primer paso: si hay borrados con contenido, pedir confirmación. */
@@ -231,6 +238,7 @@ export default function CategoriasScreen() {
         if (e) throw e;
       }
 
+      cumplirPaso('categorias-guardadas');
       volver();
     } catch (e: unknown) {
       // El trigger de la migración 033 es la última línea de defensa: si la UI

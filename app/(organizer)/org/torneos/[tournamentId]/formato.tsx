@@ -154,7 +154,7 @@ export default function FormatoScreen() {
   useEffect(() => {
     if (cargando) return;
     if (tercero !== terceroGuardado || cambiaFormato) {
-      cumplirPaso('tercer-lugar', 'elegir');
+      cumplirPaso('formato-cambiado');
     }
   }, [cargando, tercero, terceroGuardado, cambiaFormato]);
   const hayQueAvisar = cambiaFormato && tercerosCapturados > 0;
@@ -181,7 +181,7 @@ export default function FormatoScreen() {
         } as never)
         .eq('id', tournamentId);
       if (e) throw e;
-      cumplirPaso('tercer-lugar', 'guardar');
+      cumplirPaso('formato-guardado');
       volver();
     } catch (e) {
       setError(fallo('formato/guardar', e, 'No se pudo guardar. Intenta de nuevo.', { tournamentId }));

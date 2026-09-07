@@ -91,7 +91,7 @@ export default function CanchasScreen() {
       setError('No se pudo guardar. Intenta de nuevo.');
       return;
     }
-    cumplirPaso('cabe-el-torneo', 'canchas');
+    cumplirPaso('canchas-guardadas');
     volver();
   }
 
