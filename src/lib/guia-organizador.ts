@@ -93,6 +93,53 @@ export interface PasoDeGuia {
   seCumpleAlMirar?: boolean;
 }
 
+/**
+ * PENDIENTE · LOS PASOS NO SABEN DE PRECONDICIONES, Y HAY UNO QUE DUELE
+ *
+ * EL CASO, TAL CUAL SE VE
+ *   Un organizador nuevo pregunta "¿Cómo cambio el precio de la inscripción?".
+ *   La guía lo lleva a Cuota y le dice "Escribe cuánto cobras por pareja". El
+ *   campo está DESHABILITADO: `cuota.tsx` lo bloquea mientras el organizador no
+ *   haya conectado su cuenta de Stripe, y la propia pantalla lo explica arriba
+ *   ("Todavía no puedes cobrar en línea · Conectar pagos →").
+ *
+ *   Así que la barra le manda hacer algo que no puede hacer, y encima el paso
+ *   nunca se cumple: `cuota-escrita` depende de `hayCambios`, que con el campo
+ *   bloqueado no llega a cambiar nunca. La guía se queda encendida hasta que él
+ *   la cierra o se va a otro apartado.
+ *
+ *   No es raro: le pasa a TODO organizador nuevo, porque conectar pagos es de
+ *   las últimas cosas que se hacen. Y no es exclusivo de Cuota — es la forma
+ *   que tiene el problema cuando un apartado depende de otro.
+ *
+ * POR QUÉ NO SE ARREGLÓ AQUÍ
+ *   Porque la solución honesta cambia el modelo: hoy los pasos son DATOS puros
+ *   —texto y pantalla— y por eso `GUIAS` se puede editar sin tocar código y sin
+ *   entender nada. Meterles una condición los vuelve ejecutables, y eso es una
+ *   decisión de diseño, no un parche. Se prefirió dejar 19 guías funcionando y
+ *   un caso mal, a 19 guías con una regla nueva metida a última hora.
+ *
+ * POR DÓNDE ENTRA QUIEN LO RETOME
+ *   El problema real es "este paso todavía no se puede dar", así que lo que
+ *   falta no es esconder el paso: es DECIR QUÉ FALTA ANTES. La forma que menos
+ *   rompe lo que ya hay:
+ *
+ *     1. Un campo opcional en `PasoDeGuia` con el hecho que lo bloquea y qué
+ *        hacer — algo como `{ requiere: 'pagos-conectados', siNo: 'Antes hay
+ *        que conectar pagos.', llevaA: 'planes' }`. Sigue siendo dato.
+ *     2. Quien sabe si se cumple es la PANTALLA, igual que con `cumplirPaso`:
+ *        `cuota.tsx` ya calcula `puedeCobrar`. Un `declararCondicion(nombre,
+ *        secumple)` simétrico a `cumplirPaso` mantiene la regla de que nadie
+ *        infiere desde fuera lo que la pantalla ya sabe.
+ *     3. `situacionDeGuia` gana un caso —'bloqueado'— y la barra pinta el
+ *        `siNo` con su enlace en vez del texto del paso. Ni salta el paso ni
+ *        mata la guía: el organizador conecta pagos, vuelve, y sigue.
+ *
+ *   Lo que NO conviene: que la guía consulte la base por su cuenta para saber
+ *   si puede. Sería la segunda fuente de verdad que este archivo lleva tres
+ *   iteraciones evitando.
+ */
+
 export interface Guia {
   id: string;
   /** La pregunta de `ayuda-organizador` que la lanza. */
