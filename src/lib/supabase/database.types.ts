@@ -2147,10 +2147,6 @@ export type Database = {
         }
         Returns: Json
       }
-      sortear_desempate: {
-        Args: { p_group_id: string; p_orden: Json }
-        Returns: Json
-      }
       apply_tournament_ranking_points: {
         Args: { p_actor: string; p_ledger: Json; p_tournament_id: string }
         Returns: Json
@@ -2271,6 +2267,10 @@ export type Database = {
         Returns: Json
       }
       slugify: { Args: { p_text: string }; Returns: string }
+      sortear_desempate: {
+        Args: { p_group_id: string; p_orden: Json }
+        Returns: Json
+      }
       tournament_category_counts: {
         Args: { p_tournament_id: string }
         Returns: {
