@@ -101,6 +101,16 @@ export default function OrgTournamentScreen() {
 
   const [tournament, setTournament]   = useState<Tournament | null>(null);
   const [categories, setCategories]   = useState<Category[]>([]);
+  /** Cuántas categorías tienen ya su cuadro. El detalle vive en /sembrar. */
+  const [catsSembradas, setCatsSembradas] = useState(0);
+  const [catsConGrupos, setCatsConGrupos] = useState(0);
+  /**
+   * '3 de 8 sembrados'. Sin categorías cerradas todavía no hay nada que
+   * sembrar y se dice, en vez de un '0 de 0' que parece un error.
+   */
+  const resumenSiembra = catsConGrupos === 0
+    ? 'Al cerrar las inscripciones'
+    : `${catsSembradas} de ${catsConGrupos} sembrados`;
   const [judgeCount, setJudgeCount]   = useState(0);
   const [pairCount, setPairCount]     = useState(0);
   const [canCharge, setCanCharge]     = useState(false);
@@ -159,6 +169,19 @@ export default function OrgTournamentScreen() {
     }
 
     if (cats) setCategories(cats as Category[]);
+
+    // Solo los dos números del vistazo. La validación por categoría es cara y
+    // vive en la pantalla de Sembrar, que es donde se va a actuar.
+    const ids = (cats ?? []).map((c: { id: string }) => c.id);
+    if (ids.length > 0) {
+      const [{ data: gs }, { data: cuadro }] = await Promise.all([
+        supabase.from('groups').select('category_id').in('category_id', ids),
+        supabase.from('matches').select('category_id')
+          .eq('tournament_id', tournamentId).neq('stage', 'group'),
+      ]);
+      setCatsConGrupos(new Set((gs ?? []).map((g) => g.category_id)).size);
+      setCatsSembradas(new Set((cuadro ?? []).map((m) => m.category_id)).size);
+    }
     setJudgeCount(jueces ?? 0);
     setPairCount(parejas ?? 0);
     setLoading(false);
@@ -456,6 +479,15 @@ export default function OrgTournamentScreen() {
             title="Formato"
             value={tercerLugar ? 'Con 3.er lugar' : 'Sin 3.er lugar'}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}
+          />
+          {/* El vistazo que no existía: cómo va cada categoría y cuáles se
+              pueden sembrar ya. El detalle vive en su pantalla; aquí solo el
+              número, que es la parte de vistazo. */}
+          <TarjetaAjuste
+            icon="check"
+            title="Sembrar los cuadros"
+            value={resumenSiembra}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sembrar`)}
           />
           {/* La otra palanca del tamaño del último día, y la que faltaba: los
               clasificados solo se podían tocar ANTES de cerrar inscripciones,
