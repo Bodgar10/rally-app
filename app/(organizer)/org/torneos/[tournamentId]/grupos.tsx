@@ -503,23 +503,31 @@ export default function GruposScreen() {
     setAvisoSiembra(null);
     setProblemas(null);
 
-    const veredicto = validarSiembra({
-      grupos: cat.grupos.map((g) => ({
-        groupId: g.id,
-        nombre: g.nombre,
-        pairIds: g.filas.map((f) => f.pair_id),
-        matches: g.entradas,
-        filas: g.filas.map((f) => ({
-          pairId: f.pair_id, groupId: g.id, position: f.position, points: f.points,
-          setsWon: f.sets_won, setsLost: f.sets_lost,
-          gamesWon: f.games_won, gamesLost: f.games_lost,
-          clinchStatus: f.clinch_status,
+    // Si la validación revienta, se dice. Un catch mudo aquí devuelve
+    // exactamente el mismo síntoma que acabamos de arreglar.
+    let veredicto;
+    try {
+      veredicto = validarSiembra({
+        grupos: cat.grupos.map((g) => ({
+          groupId: g.id,
+          nombre: g.nombre,
+          pairIds: g.filas.map((f) => f.pair_id),
+          matches: g.entradas,
+          filas: g.filas.map((f) => ({
+            pairId: f.pair_id, groupId: g.id, position: f.position, points: f.points,
+            setsWon: f.sets_won, setsLost: f.sets_lost,
+            gamesWon: f.games_won, gamesLost: f.games_lost,
+            clinchStatus: f.clinch_status,
+          })),
         })),
-      })),
-      advancePerGroup: cat.pasanPorGrupo,
-      bestExtraQualifiers: cat.repescados,
-      nombres: cat.nombresPorPareja,
-    });
+        advancePerGroup: cat.pasanPorGrupo,
+        bestExtraQualifiers: cat.repescados,
+        nombres: cat.nombresPorPareja,
+      });
+    } catch (e) {
+      setAvisoSiembra(fallo('grupos/validar-siembra', e, 'No se pudo comprobar el cuadro antes de sembrar.', { categoria: cat.id }));
+      return;
+    }
 
     if (veredicto.bloqueantes.length > 0) {
       setProblemas({ cat: cat.id, lista: veredicto.bloqueantes, bloquea: true });
@@ -822,6 +830,65 @@ export default function GruposScreen() {
                         </Text>
                       )}
                     </>
+                  )}
+
+                  {/* LO QUE LA VALIDACIÓN ENCONTRÓ.
+                      Sin este bloque, `setProblemas` guardaba un estado que no
+                      pintaba nadie: la validación cortaba la siembra y el botón
+                      "no hacía nada" — sin petición, sin error y sin una línea
+                      en consola. El caso más difícil de depurar que hay. */}
+                  {problemas?.cat === activa.id && (
+                    <View style={problemas.bloquea ? s.problemasBloqueo : s.problemasAviso}>
+                      <Text style={problemas.bloquea ? s.problemasTituloBloqueo : s.problemasTituloAviso}>
+                        {problemas.bloquea
+                          ? 'No se puede sembrar todavía'
+                          : 'Antes de sembrar, lee esto'}
+                      </Text>
+                      {problemas.lista.map((p, i) => {
+                        const suyo = p.grupo
+                          ? activa.grupos.find((g) => g.nombre === p.grupo)
+                          : undefined;
+                        return (
+                          <View key={i} style={{ gap: space[1] }}>
+                            <Text style={s.problemaTexto}>· {p.mensaje}</Text>
+                            {/* EL ATAJO AL SITIO DONDE SE ARREGLA.
+                                Con diez grupos en pestañas, decir "sortéalo en
+                                el grupo J" y dejar al organizador buscarlo es
+                                la mitad del trabajo: el botón de sorteo vive
+                                dentro de la tarjeta de ESE grupo. */}
+                            {suyo && (
+                              <Pressable
+                                onPress={() => { setGrupoTab(suyo.id); setProblemas(null); }}
+                                style={({ pressed }) => [s.enlace, pressed && { opacity: 0.7 }]}
+                                accessibilityRole="button"
+                              >
+                                <Text style={s.enlaceTexto}>Ir al grupo {p.grupo} →</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        );
+                      })}
+                      <View style={s.problemasBotones}>
+                        <Pressable
+                          onPress={() => setProblemas(null)}
+                          style={s.btnFantasma}
+                          accessibilityRole="button"
+                        >
+                          <Text style={s.btnFantasmaTexto}>
+                            {problemas.bloquea ? 'Entendido' : 'Cancelar'}
+                          </Text>
+                        </Pressable>
+                        {!problemas.bloquea && (
+                          <Pressable
+                            onPress={() => void sembrarCuadro(activa, true)}
+                            style={s.btnSeguir}
+                            accessibilityRole="button"
+                          >
+                            <Text style={s.btnSeguirTexto}>Sembrar de todos modos</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    </View>
                   )}
 
                   {avisoSiembra && <Text style={s.aviso}>{avisoSiembra}</Text>}
