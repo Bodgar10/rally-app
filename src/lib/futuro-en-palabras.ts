@@ -31,7 +31,9 @@
  *   test que lo fija.
  */
 
-import type { AnalisisFuturo, Carrera, PartidoQueImporta } from '@/lib/engine/futuro';
+import type {
+  AnalisisFuturo, Carrera, PartidoQueImporta, PuestoActual,
+} from '@/lib/engine/futuro';
 
 /** Un partido del que depende, ya redactado. */
 export interface PartidoRedactado {
@@ -90,6 +92,35 @@ function redactar(p: PartidoQueImporta): PartidoRedactado {
 }
 
 /**
+ * ¿Esta carrera está ganada?
+ *
+ * `peorPuestoPosible <= plazas` con el peor puesto conocido. Sin peor puesto no
+ * se afirma nada: el motor no pudo enumerar y decir que sí sería inventárselo.
+ */
+function estaGanada(c: Carrera | undefined): boolean {
+  return !!c && c.peorPuestoPosible !== null && c.peorPuestoPosible <= c.plazas;
+}
+
+/** "3.º" — el puesto como se escribe. */
+const puestoNum = (n: number): string => `${n}.º`;
+
+/**
+ * Dónde va, dicho con la precisión que hay.
+ *
+ * `puestoActual` es un PAR a propósito: con empates a puntos no existe un
+ * puesto limpio. `mejor` cuenta solo a quien le saca puntos; `peor` cuenta
+ * también a los empatados, o sea suponiendo que pierde todos los desempates.
+ * Cuando coinciden hay un puesto; cuando no, lo honesto es el rango — "entre
+ * 1.º y 6.º" es exactamente lo que se sabe, y redondearlo a uno de los dos
+ * extremos sería prometer o asustar de más.
+ */
+function fraseDelPuesto(p: PuestoActual): string {
+  return p.mejor === p.peor
+    ? `Vas ${puestoNum(p.mejor)}`
+    : `Vas entre ${puestoNum(p.mejor)} y ${puestoNum(p.peor)}`;
+}
+
+/**
  * HASTA CUÁNTOS RIVALES SE NOMBRAN.
  *
  * Con 12 partidos pendientes la carrera de mejores segundos puede tener a
@@ -107,56 +138,65 @@ function redactar(p: PartidoQueImporta): PartidoRedactado {
 const RIVALES_QUE_SE_NOMBRAN = 3;
 
 /**
- * Dónde va en la carrera, que es lo que el jugador necesita — no la lista de
- * contra quién compite.
+ * Dónde va en la pelea y qué le falta — no contra quién compite.
  *
  * `esDeSegundos` cambia solo el nombre de lo que se reparte: puestos de mejor
- * segundo en la repesca, pases directos en la del bye.
+ * segundo, o pases directos si es la del bye.
  *
- * LO QUE NO SE DICE PORQUE NO SE SABE: el puesto ACTUAL. El motor devuelve
- * `peorPuestoPosible`, que es una cota del peor caso, no dónde va hoy. Decir
- * "vas 4.º" a partir de esa cota sería inventarlo, y además con un criterio
- * distinto del que usa la siembra. Ver la nota del final del archivo.
+ * EL ORDEN ES LA PRIORIDAD. Son tres cifras y la tarjeta tiene que seguir
+ * leyéndose de un vistazo, así que van de más a menos útil: primero dónde va y
+ * cuántas plazas hay —la respuesta—, después lo que ya no alcanza, y al final
+ * los empatados. Si alguna no se sabe, se cae sola y las demás siguen en pie.
  */
 function fraseDeLaCarrera(c: Carrera | undefined, esDeSegundos: boolean): string | null {
   if (!c) return null;
 
   const partes: string[] = [];
 
-  // Cuántas plazas se reparten y cómo va la cosa en el peor caso.
-  if (c.plazas > 0 && c.peorPuestoPosible !== null && c.peorPuestoPosible > c.plazas) {
-    const reparto = esDeSegundos
-      ? `${c.plazas} ${c.plazas === 1 ? 'puesto' : 'puestos'} de mejor segundo`
-      : `${c.plazas} ${c.plazas === 1 ? 'pase directo' : 'pases directos'}`;
+  const reparto = esDeSegundos
+    ? `${c.plazas} ${c.plazas === 1 ? 'puesto' : 'puestos'} de mejor segundo`
+    : `${c.plazas} ${c.plazas === 1 ? 'pase directo' : 'pases directos'}`;
+
+  // 1 · Dónde va, y por cuántas plazas se pelea. La respuesta.
+  if (c.puestoActual && c.plazas > 0) {
+    partes.push(`${fraseDelPuesto(c.puestoActual)} en la pelea por ${reparto}.`);
+  } else if (c.plazas > 0) {
+    // Sin puesto —empate que el reglamento no resuelve— al menos se dice qué
+    // se reparte, en vez de callar la frase entera.
+    partes.push(`Se reparten ${reparto}.`);
+  }
+
+  // 2 · Lo que ya no alcanza. `null` = no se enumeró la categoría, y entonces
+  //     el puesto sí se sabe pero lo inalcanzable no: esta parte se calla.
+  if (c.porDelanteSeguros !== null) {
     partes.push(
-      `Se reparten ${reparto} y en el peor de los casos quedarías ${c.peorPuestoPosible}.º: ` +
-      'por eso todavía no está decidido.',
+      c.porDelanteSeguros === 0
+        // Cero es una buena noticia y se dice como tal: todo el que va delante
+        // sigue estando a tiro. Omitirlo desperdiciaría la única frase de
+        // ánimo que hay en la tarjeta.
+        ? 'Nadie está fuera de tu alcance todavía.'
+        : c.porDelanteSeguros === 1
+          ? 'Hay 1 pareja por delante que ya no puedes alcanzar.'
+          : `Hay ${c.porDelanteSeguros} parejas por delante que ya no puedes alcanzar.`,
     );
   }
 
-  // Los empatados a puntos: nombres si son pocos, número si son muchos.
+  // 3 · Los empatados a puntos: nombres si son pocos, número si son muchos.
   const contra = c.dependeDeGamesContra;
   if (contra.length > 0) {
+    // "Otras" solo si ya se habló de las de delante; si no, empieza la frase.
+    const yaHuboOtras = c.porDelanteSeguros !== null && c.porDelanteSeguros > 0;
     partes.push(
-      contra.length === 1
-        ? `Estás empatado a puntos con ${contra[0]}: los separa la diferencia de games.`
-        : contra.length <= RIVALES_QUE_SE_NOMBRAN
-          ? `Estás empatado a puntos con ${enumerar(contra)}: los separa la diferencia de games.`
+      contra.length <= RIVALES_QUE_SE_NOMBRAN
+        ? `Estás empatado a puntos con ${enumerar(contra)}: los separa la diferencia de games.`
+        // "Otras" solo encaja detrás de las de delante; suelta pide "Hay".
+        : yaHuboOtras
+          ? `Otras ${contra.length} están empatadas contigo a puntos: las separa la diferencia de games.`
           : `Hay ${contra.length} parejas empatadas contigo a puntos: las separa la diferencia de games.`,
     );
   }
 
   return partes.length > 0 ? partes.join(' ') : null;
-}
-
-/**
- * ¿Esta carrera está ganada?
- *
- * `peorPuestoPosible <= plazas` con el peor puesto conocido. Sin peor puesto no
- * se afirma nada: el motor no pudo enumerar y decir que sí sería inventárselo.
- */
-function estaGanada(c: Carrera | undefined): boolean {
-  return !!c && c.peorPuestoPosible !== null && c.peorPuestoPosible <= c.plazas;
 }
 
 /**
@@ -177,10 +217,10 @@ function fraseDelBye(a: AnalisisFuturo, primeraRonda?: string | null): string | 
     return `Y te saltas ${ronda}: entras directo a la siguiente.`;
   }
 
-  // TODAVÍA NO SE SABE. El estado nuevo: la carrera del bye no se puede
-  // resolver aún aunque la clasificación sí. Se dice con los dos números —
-  // cuántos faltan y con cuántos habrá respuesta—, que es lo que convierte una
-  // espera abierta en una acotada.
+  // TODAVÍA NO SE SABE. La carrera del pase directo no se puede resolver aún
+  // aunque la clasificación sí. Se dice con los dos números —cuántos faltan y
+  // con cuántos habrá respuesta—, que es lo que convierte una espera abierta
+  // en una acotada.
   if (b.estado === 'demasiado_pronto') {
     const cuando = a.respondoCuandoQueden !== undefined
       ? ` Faltan ${a.faltan} partidos; te lo digo cuando queden ${a.respondoCuandoQueden}.`
@@ -293,22 +333,22 @@ export function futuroEnPalabras(
 }
 
 /**
- * LO QUE FALTA DEL MOTOR PARA CERRAR ESTA FRASE
+ * DÓNDE VA HOY: `Carrera.puestoActual` y `Carrera.porDelanteSeguros`
  *
- * El jugador querría leer "vas 4.º en la carrera por los 6 puestos de mejor
- * segundo". Hoy no se puede decir: `Carrera` trae `plazas`,
- * `peorPuestoPosible` y `dependeDeGamesContra`, y con eso se sabe cuántas
- * plazas hay y cómo quedaría en el peor caso, pero NO dónde va ahora mismo.
+ * Ya los devuelve el motor, con el MISMO comparador que usa `selectQualifiers`
+ * al sembrar — deducirlos aquí, contando empatados y restando, habría creado
+ * un segundo criterio que se separaría del real a la primera excepción.
  *
- * Deducirlo aquí —contar los empatados y restar— daría un número con un
- * criterio de desempate distinto del que usa `selectQualifiers` al sembrar, y
- * dos criterios sobre lo mismo se separan a la primera excepción. Hace falta
- * que el motor lo devuelva:
+ *   · `puestoActual` NO es un número, es `{ mejor, peor }`, y a propósito. Con
+ *     empates a puntos no hay un puesto limpio: si cinco parejas empatan con
+ *     él, "vas 1.º" promete un desempate por games que no se ha jugado y "vas
+ *     6.º" le esconde que puede ser el primero. Con `mejor === peor` la frase
+ *     es "vas 4.º"; si no, "vas entre 1.º y 6.º", que es lo que se sabe.
  *
- *   · `puestoActual`      — en qué puesto de la carrera va hoy.
- *   · `porDelanteSeguros` — cuántos van delante sin que nada pueda cambiarlo.
+ *   · `porDelanteSeguros` son los que van delante en TODOS los escenarios: los
+ *     que ya no alcanza pase lo que pase. `null` cuando la categoría no se
+ *     pudo enumerar — ahí el puesto de hoy sí se sabe, pero lo inalcanzable no.
  *
- * Con esos dos, esta función pasa de "en el peor de los casos quedarías 9.º" a
- * "vas 4.º y hay 3 por delante que ya no alcanzas", que es la frase que de
- * verdad le dice si pelear o descansar.
+ * Con eso esta función puede pasar de "en el peor de los casos quedarías 9.º"
+ * a "vas 4.º y hay 3 por delante que ya no alcanzas".
  */

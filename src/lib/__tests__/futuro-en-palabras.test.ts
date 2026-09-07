@@ -9,6 +9,8 @@ import type { AnalisisFuturo, Carrera } from '@/lib/engine/futuro';
 
 const carrera = (over: Partial<Carrera> = {}): Carrera => ({
   estado: 'dentro',
+  puestoActual: { mejor: 1, peor: 1 },
+  porDelanteSeguros: 0,
   peorPuestoPosible: 6,
   plazas: 6,
   partidosQueImportan: [],
@@ -370,5 +372,85 @@ describe('el texto está en español de México', () => {
       expect(texto).not.toMatch(/[a-záéíóúñ]+(áis|éis|ís)\b/i);
       expect(texto).not.toMatch(/\bsois\b|\bhabéis\b/i);
     }
+  });
+});
+// ───────────────────────────────────────────
+// Dónde va en la pelea
+// ───────────────────────────────────────────
+//
+// La tarjeta listaba dieciséis nombres. Lo que el jugador necesita es su
+// posición: dónde va, por cuántas plazas se pelea, quién ya no está a su
+// alcance y con quién se juega la diferencia de games.
+
+describe('el puesto en la pelea', () => {
+  const conCarrera = (over: Partial<Carrera>) => futuroEnPalabras(analisis({
+    estado: 'depende',
+    repesca: carrera({ estado: 'depende', ...over }),
+  })).games!;
+
+  // Sin empates a puntos hay un puesto limpio y se dice a secas.
+  it('mejor === peor da un puesto', () => {
+    const t = conCarrera({ puestoActual: { mejor: 3, peor: 3 }, plazas: 6 });
+    expect(t).toContain('Vas 3.º');
+    expect(t).not.toMatch(/entre/i);
+    expect(t).toContain('6 puestos de mejor segundo');
+  });
+
+  // Con empates no existe un puesto limpio: el rango es exactamente lo que se
+  // sabe, y redondearlo a un extremo sería prometer o asustar de más.
+  it('mejor ≠ peor da un rango', () => {
+    const t = conCarrera({ puestoActual: { mejor: 1, peor: 6 }, plazas: 6 });
+    expect(t).toContain('Vas entre 1.º y 6.º');
+  });
+
+  it('el caso de Sergio, entero', () => {
+    const t = conCarrera({
+      puestoActual: { mejor: 1, peor: 6 },
+      porDelanteSeguros: 3,
+      plazas: 6,
+      dependeDeGamesContra: Array.from({ length: 10 }, (_, i) => `P${i} / Q${i}`),
+    });
+    expect(t).toContain('Vas entre 1.º y 6.º en la pelea por 6 puestos de mejor segundo.');
+    expect(t).toContain('Hay 3 parejas por delante que ya no puedes alcanzar.');
+    expect(t).toContain('Otras 10 están empatadas contigo a puntos');
+    // Ni un nombre: son diez.
+    expect(t).not.toContain('P0');
+  });
+
+  // `null` = no se enumeró la categoría. El puesto sí se sabe; lo inalcanzable
+  // no, así que esa parte se calla en vez de inventarse un cero.
+  it('porDelanteSeguros null se calla esa parte', () => {
+    const t = conCarrera({ puestoActual: { mejor: 2, peor: 4 }, porDelanteSeguros: null });
+    expect(t).toContain('Vas entre 2.º y 4.º');
+    expect(t).not.toMatch(/alcanzar|alcance/i);
+  });
+
+  // Cero es la única buena noticia de la tarjeta: no se desperdicia omitiéndola.
+  it('porDelanteSeguros 0 se dice en positivo', () => {
+    const t = conCarrera({ puestoActual: { mejor: 1, peor: 5 }, porDelanteSeguros: 0 });
+    expect(t).toMatch(/nadie está fuera de tu alcance/i);
+    expect(t).not.toMatch(/0 parejas|ya no puedes alcanzar/i);
+  });
+
+  it('una sola pareja por delante va en singular', () => {
+    expect(conCarrera({ porDelanteSeguros: 1 })).toContain('Hay 1 pareja por delante');
+  });
+
+  // Sin puesto —empate que el reglamento no resuelve— al menos se dice qué se
+  // reparte, en vez de callar la frase entera.
+  it('sin puesto, todavía se dice qué se reparte', () => {
+    const t = conCarrera({ puestoActual: null, plazas: 6, porDelanteSeguros: null });
+    expect(t).toContain('Se reparten 6 puestos de mejor segundo');
+    expect(t).not.toMatch(/vas /i);
+  });
+
+  // El orden es la prioridad: primero la respuesta, después lo demás.
+  it('el puesto va antes que todo lo demás', () => {
+    const t = conCarrera({
+      puestoActual: { mejor: 1, peor: 6 }, porDelanteSeguros: 3,
+      dependeDeGamesContra: ['A / B', 'C / D', 'E / F', 'G / H'],
+    });
+    expect(t.indexOf('Vas entre')).toBe(0);
+    expect(t.indexOf('ya no puedes alcanzar')).toBeLessThan(t.indexOf('empatadas contigo'));
   });
 });
