@@ -6,10 +6,19 @@
  * lo que alguien lee a las doce de la noche en el club, que es otra cosa.
  *
  * LA FRASE QUE RESUELVE LA NOCHE DEL SÁBADO
- *   `peorPuestoPosible <= plazas` significa que ya no hay nada que pueda
- *   dejarle fuera. Eso no se dice con un número: se dice "pase lo que pase
- *   entras, ya puedes descansar". El número va detrás, como prueba, no como
- *   respuesta.
+ *   Cuando el motor dice que está dentro, el titular es "Ya clasificaste" y no
+ *   lleva condiciones. El número —"lo peor que te puede tocar es ser el sexto
+ *   mejor segundo"— va detrás, como prueba, no como respuesta.
+ *
+ * TRES PREGUNTAS, TRES ESTADOS
+ *   `analizarFuturo.estado` responde SOLO a "¿clasifico?". El pase directo es
+ *   otra pregunta y trae su propio estado, que puede seguir sin respuesta
+ *   cuando la primera ya la tiene: se es primero de grupo —dentro seguro— y
+ *   todavía faltan 27 partidos para saber si además se salta una ronda.
+ *
+ *   Se cuentan en ese orden: PRIMERO LA CERTEZA, DESPUÉS LO PENDIENTE. Al revés,
+ *   la incertidumbre del bye tapaba la certeza de la clasificación y la pantalla
+ *   decía "todavía es pronto para saberlo" a alguien que ya había clasificado.
  *
  * LO QUE NO SE INVENTA
  *   El motor no calcula probabilidades, así que aquí no hay porcentajes ni
@@ -98,6 +107,38 @@ function estaGanada(c: Carrera | undefined): boolean {
 }
 
 /**
+ * Lo que se sabe del pase directo, que es una pregunta APARTE de la
+ * clasificación.
+ *
+ * `null` cuando no hay nada que decir: sin byes en el cuadro, o cuando al
+ * jugador no le aplica esa carrera.
+ */
+function fraseDelBye(a: AnalisisFuturo, primeraRonda?: string | null): string | null {
+  const b = a.bye;
+  if (!b || !b.aplica) return null;
+
+  const ronda = primeraRonda ?? 'la primera ronda';
+
+  // Ganado: es una segunda buena noticia y va detrás de la primera.
+  if (estaGanada(b)) {
+    return `Y te saltas ${ronda}: entras directo a la siguiente.`;
+  }
+
+  // TODAVÍA NO SE SABE. El estado nuevo: la carrera del bye no se puede
+  // resolver aún aunque la clasificación sí. Se dice con los dos números —
+  // cuántos faltan y con cuántos habrá respuesta—, que es lo que convierte una
+  // espera abierta en una acotada.
+  if (b.estado === 'demasiado_pronto') {
+    const cuando = a.respondoCuandoQueden !== undefined
+      ? ` Faltan ${a.faltan} partidos; te lo digo cuando queden ${a.respondoCuandoQueden}.`
+      : ` Faltan ${a.faltan} partidos.`;
+    return `Todavía no se sabe si te saltas ${ronda}.${cuando}`;
+  }
+
+  return null;
+}
+
+/**
  * El análisis del motor, en palabras.
  *
  * `primeraRonda` es el nombre de la ronda que se salta quien tiene bye
@@ -107,11 +148,12 @@ export function futuroEnPalabras(
   a: AnalisisFuturo,
   primeraRonda?: string | null,
 ): FuturoEnPalabras {
-  const partidos = (a.repesca?.partidosQueImportan ?? a.bye?.partidosQueImportan ?? [])
-    .map(redactar);
-  const games = fraseDeGames(
-    a.repesca?.dependeDeGamesContra ?? a.bye?.dependeDeGamesContra ?? [],
-  );
+  // De qué carrera se habla. `repesca` viene `undefined` cuando el jugador es
+  // primero de su grupo: NO ESTÁ EN ESA CARRERA, así que no se menciona ni se
+  // pintan sus partidos — se cae a la del pase directo, que sí le aplica.
+  const carreraVisible = a.repesca ?? (a.bye?.aplica ? a.bye : undefined);
+  const partidos = (carreraVisible?.partidosQueImportan ?? []).map(redactar);
+  const games = fraseDeGames(carreraVisible?.dependeDeGamesContra ?? []);
 
   // ── Todavía no se puede saber ────────────────────────────────────────────
   if (a.estado === 'demasiado_pronto') {
@@ -153,25 +195,30 @@ export function futuroEnPalabras(
   }
 
   // ── Dentro ───────────────────────────────────────────────────────────────
+  //
+  // PRIMERO LA CERTEZA, DESPUÉS LO PENDIENTE.
+  //   `estado` responde solo a "¿clasifico?", y aquí ya dijo que sí. Lo del bye
+  //   es otra pregunta, con su propio estado, y puede seguir sin respuesta —
+  //   Aldo va primero de su grupo con `advance_per_group` 1, así que está
+  //   dentro seguro, y que se salte octavos o no depende de 27 partidos que no
+  //   se han jugado.
+  //
+  //   Las dos cosas son ciertas a la vez. Contarlas al revés dejaba la
+  //   incertidumbre del bye tapando la certeza de la clasificación, y la
+  //   pantalla decía "todavía es pronto para saberlo" a alguien que ya había
+  //   clasificado.
   if (a.estado === 'dentro') {
-    const conBye = estaGanada(a.bye) && a.bye?.aplica;
+    // La certeza, con su prueba cuando la hay. `repesca` viene `undefined` si
+    // el jugador es primero de grupo: no está en esa carrera, así que no se
+    // habla de ella ni de su peor puesto.
     const peor = a.repesca?.peorPuestoPosible ?? null;
-
-    const pruebas: string[] = [];
-    if (a.repesca && peor !== null) {
-      pruebas.push(`Lo peor que te puede tocar es ser ${puestoDeMejorSegundo(peor)}.`);
-    }
-    if (conBye) {
-      pruebas.push(primeraRonda
-        ? `Y te saltas ${primeraRonda}: entras directo a la siguiente ronda.`
-        : 'Y te saltas la primera ronda: entras directo a la siguiente.');
-    }
+    const certeza = peor !== null
+      ? `Pase lo que pase: lo peor que te puede tocar es ser ${puestoDeMejorSegundo(peor)}. Ya puedes descansar.`
+      : 'Ningún resultado que quede puede dejarte fuera. Ya puedes descansar.';
 
     return {
-      titular: 'Pase lo que pase, entras',
-      detalle: pruebas.length > 0
-        ? `${pruebas.join(' ')} Ya puedes descansar.`
-        : 'Ningún resultado que quede puede dejarte fuera. Ya puedes descansar.',
+      titular: 'Ya clasificaste',
+      detalle: [certeza, fraseDelBye(a, primeraRonda)].filter(Boolean).join(' '),
       tono: 'tranquilo',
       partidos: [],
       games: null,
