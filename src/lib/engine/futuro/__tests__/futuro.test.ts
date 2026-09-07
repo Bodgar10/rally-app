@@ -407,3 +407,119 @@ describe('el eliminado matemático tampoco necesita enumerar', () => {
     expect(r.repesca).toBeUndefined();
   });
 });
+
+/**
+ * DÓNDE VA HOY. `plazas` y `peorPuestoPosible` decían cuántas plazas hay y
+ * cómo acabaría en el peor caso, pero no en qué puesto va ahora — que es la
+ * mitad de la frase que el jugador quiere leer: "vas 4.º de 6, y hay 3 por
+ * delante que ya no alcanzas".
+ */
+describe('puestoActual y porDelanteSeguros', () => {
+  /** Cuatro grupos terminados. Los primeros con 4 puntos, los segundos con 2. */
+  const cuatroTerminados = () => [
+    grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']),
+    grupo('B', ['B1', 'B2', 'B3'], ['B1', 'B1', 'B2']),
+    grupo('C', ['C1', 'C2', 'C3'], ['C1', 'C1', 'C2']),
+    grupo('D', ['D1', 'D2', 'D3'], ['D1', 'D1', 'D2']),
+  ];
+
+  it('un primero va 1.º de la carrera del bye si nadie le saca puntos', () => {
+    const r = analizarFuturo({
+      grupos: cuatroTerminados(), advancePerGroup: 1, bestExtraQualifiers: 2,
+      pairId: 'A1', nombres: nombresDe(TODOS),
+    });
+    // Los cuatro primeros empatan a 4 puntos: nadie le saca ventaja, así que
+    // el mejor puesto es el 1.º; el peor, el 4.º si pierde todos los games.
+    expect(r.bye!.puestoActual).toEqual({ mejor: 1, peor: 4 });
+    expect(r.bye!.porDelanteSeguros).toBe(0);
+  });
+
+  it('con todo jugado, nadie es inalcanzable por puntos si todos empatan', () => {
+    const r = analizarFuturo({
+      grupos: cuatroTerminados(), advancePerGroup: 1, bestExtraQualifiers: 2,
+      pairId: 'A2', nombres: nombresDe(TODOS),
+    });
+    // A2 es segundo: los cuatro segundos empatan a 2 puntos entre ellos.
+    expect(r.repesca!.puestoActual).toEqual({ mejor: 1, peor: 4 });
+    expect(r.repesca!.porDelanteSeguros).toBe(0);
+  });
+
+  /**
+   * Grupo de CUATRO: su segundo gana dos de tres y se planta en 4 puntos, por
+   * encima de los 2 que puede tener el segundo de un grupo de tres. Es la
+   * única forma de que un segundo sea inalcanzable para otro segundo.
+   */
+  const grupo4 = (n: string): GrupoDeCategoria => {
+    const [p1, p2, p3, p4] = [`${n}1`, `${n}2`, `${n}3`, `${n}4`];
+    return {
+      groupId: `g${n}`, nombre: n, pairIds: [p1, p2, p3, p4],
+      matches: [
+        jugado(`${n}a`, p1, p2, p1), jugado(`${n}b`, p1, p3, p1), jugado(`${n}c`, p1, p4, p1),
+        jugado(`${n}d`, p2, p3, p2), jugado(`${n}e`, p2, p4, p2), jugado(`${n}f`, p3, p4, p3),
+      ],
+    };
+  };
+
+  const conGruposDeCuatro = () => [
+    grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']),   // A2: 2 puntos
+    grupo4('B'),                                          // B2: 4 puntos
+    grupo4('C'),                                          // C2: 4 puntos
+  ];
+  const nombres4 = nombresDe([
+    'A1', 'A2', 'A3',
+    ...['B', 'C'].flatMap((n) => [`${n}1`, `${n}2`, `${n}3`, `${n}4`]),
+  ]);
+
+  it('quien le saca puntos SÍ cuenta como inalcanzable', () => {
+    const r = analizarFuturo({
+      grupos: conGruposDeCuatro(), advancePerGroup: 1, bestExtraQualifiers: 1,
+      pairId: 'A2', nombres: nombres4,
+    });
+    // A2 tiene 2 puntos y hay dos segundos con 4: los dos son inalcanzables.
+    expect(r.repesca!.porDelanteSeguros).toBe(2);
+    expect(r.repesca!.puestoActual).toEqual({ mejor: 3, peor: 3 });
+    expect(r.repesca!.estado).toBe('fuera');
+  });
+
+  it('mejor === peor cuando no hay empate: es "vas 3.º" a secas', () => {
+    const r = analizarFuturo({
+      grupos: conGruposDeCuatro(), advancePerGroup: 1, bestExtraQualifiers: 1,
+      pairId: 'A2', nombres: nombres4,
+    });
+    expect(r.repesca!.puestoActual!.mejor).toBe(r.repesca!.puestoActual!.peor);
+    expect(r.repesca!.dependeDeGamesContra).toEqual([]);
+  });
+
+  it('EMPATE MÚLTIPLE: se devuelven los dos extremos, no un número inventado', () => {
+    // Seis grupos terminados igual: los seis segundos empatan a 2 puntos.
+    const seis = ['A', 'B', 'C', 'D', 'E', 'F'].map((n) =>
+      grupo(n, [`${n}1`, `${n}2`, `${n}3`], [`${n}1`, `${n}1`, `${n}2`]));
+    const nombres = nombresDe(['A', 'B', 'C', 'D', 'E', 'F'].flatMap((n) =>
+      [`${n}1`, `${n}2`, `${n}3`]));
+    const r = analizarFuturo({
+      grupos: seis, advancePerGroup: 1, bestExtraQualifiers: 2, pairId: 'A2', nombres,
+    });
+    // Puede ser el 1.º de los seis o el 6.º: solo los games lo dirán, y el
+    // motor no los inventa. La pantalla dirá "vas entre 1.º y 6.º".
+    expect(r.repesca!.puestoActual).toEqual({ mejor: 1, peor: 6 });
+    expect(r.repesca!.porDelanteSeguros).toBe(0);
+    // Y los cinco con los que empata salen por su nombre.
+    expect(r.repesca!.dependeDeGamesContra).toHaveLength(5);
+  });
+
+  it('sin enumerar la categoría, el puesto de hoy sí se sabe; los seguros no', () => {
+    const otros = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].map((n) =>
+      grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
+    const grupos = [grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']), ...otros];
+    const nombres = nombresDe(['A1', 'A2', 'A3', ...['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+      .flatMap((n) => [`${n}1`, `${n}2`, `${n}3`])]);
+    const r = analizarFuturo({
+      grupos, advancePerGroup: 1, bestExtraQualifiers: 6, pairId: 'A2', nombres,
+    });
+    expect(r.repesca!.estado).toBe('demasiado_pronto');
+    // Hoy es el único segundo con puntos: va primero de la carrera.
+    expect(r.repesca!.puestoActual!.mejor).toBe(1);
+    // Pero nadie es inalcanzable todavía: quedan 27 partidos por jugarse.
+    expect(r.repesca!.porDelanteSeguros).toBeNull();
+  });
+});

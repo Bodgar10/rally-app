@@ -98,8 +98,42 @@ export interface PartidoQueImporta {
  */
 export type EstadoCarrera = 'dentro' | 'fuera' | 'depende' | 'demasiado_pronto';
 
+/**
+ * DÓNDE VA HOY, con los resultados que ya existen.
+ *
+ * NO ES UN NÚMERO LIMPIO CUANDO HAY EMPATES A PUNTOS, y fingir que lo es sería
+ * el mismo error que ya se corrigió en la tabla: si diez parejas empatan con
+ * él, decir "vas 4.º" promete un desempate por games que todavía no se ha
+ * jugado, y decir "vas 13.º" le esconde que puede estar cuarto.
+ *
+ * Así que se devuelven los dos extremos del empate y la pantalla elige cómo
+ * contarlo: con `mejor === peor` es "vas 4.º" a secas; con 4 y 13, "vas entre
+ * 4.º y 13.º" — que es exactamente lo que se sabe.
+ *
+ * `mejor` cuenta solo a quien le saca PUNTOS; `peor` cuenta además a los que
+ * empatan a puntos, o sea suponiendo que pierde todos los desempates.
+ */
+export interface PuestoActual {
+  mejor: number;
+  peor: number;
+}
+
 export interface Carrera {
   estado: EstadoCarrera;
+  /**
+   * En qué puesto de la carrera va AHORA. `null` cuando ni eso se puede
+   * afirmar (empate que el reglamento no resuelve).
+   */
+  puestoActual: PuestoActual | null;
+  /**
+   * Cuántas parejas van por delante de forma que NINGÚN resultado pendiente
+   * puede cambiarlo. Es el número que separa "pelea" de "esas ya no las
+   * alcanzas".
+   *
+   * `null` cuando no se enumeró la categoría: sin recorrer los escenarios no
+   * se puede afirmar que algo sea inalcanzable.
+   */
+  porDelanteSeguros: number | null;
   /**
    * El PEOR puesto que puede acabar ocupando en esta carrera, contando que
    * todos los empates a puntos se resuelvan en su contra.
@@ -224,11 +258,14 @@ interface Foto {
   repescaPodrianAdelantarme: number;
   /** Rivales de la repesca que quedan por delante CON CERTEZA (más puntos). */
   repescaSeguroDelante: number;
+  /** Quiénes son. Cruzando escenarios sale quién es INALCANZABLE. */
+  repescaDelanteIds: string[];
   /** Los que empatan a puntos: solo los games los separan. */
   repescaEmpatanAPuntos: string[];
   /** Idem para la carrera del bye, contra todos los clasificados. */
   byePodrianAdelantarme: number;
   byeSeguroDelante: number;
+  byeDelanteIds: string[];
   byeEmpatanAPuntos: string[];
   /** Lo que dice la siembra REAL de este escenario. */
   siembraDaBye: boolean;
@@ -270,6 +307,23 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
   //   que enumerar. Meterlo en el mismo mecanismo caro que la carrera de
   //   segundos era lo que le decía "todavía es pronto, faltan 25 partidos" a
   //   alguien que ya estaba dentro.
+  /**
+   * DÓNDE VA HOY. Es una sola pasada del mismo pipeline —tablas, clasificados,
+   * siembra— sin resolver ningún pendiente, así que siempre cabe en
+   * presupuesto por cara que sea la categoría. Y sale del MISMO comparador que
+   * usa la siembra: contarlo aparte, restando empatados, daría un criterio
+   * distinto que se separaría del real a la primera excepción.
+   */
+  const hoy = fotoDelEscenario(0, [], grupos, advancePerGroup, bestExtra, pairId, cfg, nombres);
+  const puestoRepescaHoy: PuestoActual = {
+    mejor: 1 + hoy.repescaSeguroDelante,
+    peor: 1 + hoy.repescaPodrianAdelantarme,
+  };
+  const puestoByeHoy: PuestoActual = {
+    mejor: 1 + hoy.byeSeguroDelante,
+    peor: 1 + hoy.byePodrianAdelantarme,
+  };
+
   const local = escenariosDeMiGrupo(miGrupo, pairId, cfg);
   const posicionesLocales = [...new Set(local.map((f) => f.posicion))].sort((a, b) => a - b);
 
@@ -287,10 +341,24 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
   const imposible = mejorPosible > advancePerGroup && !puedeRepescar;
 
   const aplicaBye = cuadro.byes > 0;
-  const carreraCiega = (plazas: number): Carrera => ({
-    estado: 'demasiado_pronto', peorPuestoPosible: null, plazas,
+  /**
+   * La carrera que no se pudo enumerar. `puestoActual` SÍ se sabe —es la foto
+   * de hoy, que no cuesta— y `porDelanteSeguros` no: sin recorrer escenarios
+   * no se puede afirmar que alguien sea inalcanzable.
+   */
+  const carreraCiega = (plazas: number, puesto: PuestoActual): Carrera => ({
+    estado: 'demasiado_pronto', puestoActual: puesto, porDelanteSeguros: null,
+    peorPuestoPosible: null, plazas,
     partidosQueImportan: [], dependeDeGamesContra: [],
   });
+
+  /** El hueco cuando la carrera ni siquiera aplica. */
+  const sinCarrera = {
+    aplica: false as const, byesEnElCuadro: 0,
+    estado: 'fuera' as const, puestoActual: null, porDelanteSeguros: null,
+    peorPuestoPosible: null, plazas: 0,
+    partidosQueImportan: [], dependeDeGamesContra: [],
+  };
 
   if (imposible) {
     // Determinista: no hace falta mirar los otros grupos para saber que no.
@@ -309,10 +377,10 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
     return {
       estado: directoSeguro ? 'dentro' : 'demasiado_pronto',
       posicionesPosiblesEnGrupo: posicionesLocales,
-      repesca: puedeRepescar && !directoSeguro ? carreraCiega(bestExtra) : undefined,
+      repesca: puedeRepescar && !directoSeguro ? carreraCiega(bestExtra, puestoRepescaHoy) : undefined,
       bye: aplicaBye
-        ? { aplica: true, byesEnElCuadro: cuadro.byes, ...carreraCiega(cuadro.byes) }
-        : { aplica: false, byesEnElCuadro: 0, estado: 'fuera', peorPuestoPosible: null, plazas: 0, partidosQueImportan: [], dependeDeGamesContra: [] },
+        ? { aplica: true, byesEnElCuadro: cuadro.byes, ...carreraCiega(cuadro.byes, puestoByeHoy) }
+        : sinCarrera,
       faltan: k,
       // Sale del mismo cálculo que acaba de hacerse: no cuesta nada.
       respondoCuandoQueden: kMax,
@@ -326,7 +394,7 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
     return {
       estado: directoSeguro ? 'dentro' : 'depende',
       posicionesPosiblesEnGrupo: posicionesLocales,
-      bye: { aplica: false, byesEnElCuadro: 0, estado: 'fuera', peorPuestoPosible: null, plazas: 0, partidosQueImportan: [], dependeDeGamesContra: [] },
+      bye: sinCarrera,
       faltan: k,
     };
   }
@@ -349,7 +417,7 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
   // ── Carrera A: repesca ─────────────────────────────────────────────────
   const juegaRepesca = bestExtra > 0 && posiciones.includes(advancePerGroup + 1);
   const repesca = juegaRepesca
-    ? carreraDe(fotos, pendientes, bestExtra, 'repesca', grupos, advancePerGroup, bestExtra, pairId, cfg, nombres)
+    ? carreraDe(fotos, pendientes, bestExtra, 'repesca', puestoRepescaHoy, grupos, advancePerGroup, bestExtra, pairId, cfg, nombres)
     : undefined;
 
   // ── Carrera B: bye ─────────────────────────────────────────────────────
@@ -357,9 +425,9 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
     ? {
         aplica: true,
         byesEnElCuadro: cuadro.byes,
-        ...carreraDe(fotos, pendientes, cuadro.byes, 'bye', grupos, advancePerGroup, bestExtra, pairId, cfg, nombres),
+        ...carreraDe(fotos, pendientes, cuadro.byes, 'bye', puestoByeHoy, grupos, advancePerGroup, bestExtra, pairId, cfg, nombres),
       }
-    : { aplica: false, byesEnElCuadro: 0, estado: 'fuera' as const, peorPuestoPosible: null, plazas: 0, partidosQueImportan: [], dependeDeGamesContra: [] };
+    : sinCarrera;
 
   // ── El estado global: clasificar es lo que se pregunta primero ─────────
   const clasificaSiempre = fotos.every((f) => clasificaSeguro(f, advancePerGroup, bestExtra));
@@ -401,6 +469,7 @@ function carreraDe(
   pendientes: { grupo: GrupoDeCategoria; match: MatchResultInput }[],
   plazas: number,
   cual: 'repesca' | 'bye',
+  puestoHoy: PuestoActual,
   grupos: GrupoDeCategoria[],
   advancePerGroup: number,
   bestExtra: number,
@@ -433,7 +502,31 @@ function carreraDe(
     ? pivotes(fotos, pendientes, dentroEn, fueraEn, pairId, nombres)
     : [];
 
-  return { estado, peorPuestoPosible: peor, plazas, partidosQueImportan, dependeDeGamesContra: empatan };
+  /**
+   * INALCANZABLES: los que van por delante en TODOS los escenarios.
+   *
+   *   Se cruzan los conjuntos de "por delante con certeza" de cada escenario.
+   *   Quien sobreviva a la intersección está delante pase lo que pase con los
+   *   partidos que faltan — y ese es el número que separa "pelea por ese
+   *   puesto" de "esos tres ya no los alcanzas". Un rival que en algún
+   *   escenario deja de estar delante, o deja de estar en la carrera, cae solo.
+   */
+  const delantePorEscenario = fotos.map(
+    (f) => new Set(cual === 'repesca' ? f.repescaDelanteIds : f.byeDelanteIds),
+  );
+  const porDelanteSeguros = delantePorEscenario.length === 0
+    ? 0
+    : [...delantePorEscenario[0]].filter((id) => delantePorEscenario.every((s) => s.has(id))).length;
+
+  return {
+    estado,
+    puestoActual: puestoHoy,
+    porDelanteSeguros,
+    peorPuestoPosible: peor,
+    plazas,
+    partidosQueImportan,
+    dependeDeGamesContra: empatan,
+  };
 }
 
 /**
@@ -574,13 +667,16 @@ function fotoDelEscenario(
   const cuenta = (rivales: QualifierStanding[], mejorPosicionCuenta: boolean) => {
     let podrian = 0, seguros = 0;
     const empatan: string[] = [];
+    const delante: string[] = [];
     for (const r of rivales) {
       const porPosicion = mejorPosicionCuenta && r.position < miFila.position;
-      if (porPosicion || r.points > miFila.points) { podrian++; seguros++; continue; }
+      if (porPosicion || r.points > miFila.points) {
+        podrian++; seguros++; delante.push(r.pairId); continue;
+      }
       if (mejorPosicionCuenta && r.position > miFila.position) continue;
       if (r.points === miFila.points) { podrian++; empatan.push(nombreDe(r.pairId, nombres)); }
     }
-    return { podrian, seguros, empatan };
+    return { podrian, seguros, empatan, delante };
   };
 
   // En la repesca todos los rivales están en el mismo puesto de grupo, así que
@@ -594,9 +690,11 @@ function fotoDelEscenario(
     empateSinResolver: miFila.empateSinResolver,
     repescaPodrianAdelantarme: rep.podrian,
     repescaSeguroDelante: rep.seguros,
+    repescaDelanteIds: rep.delante,
     repescaEmpatanAPuntos: rep.empatan,
     byePodrianAdelantarme: byeC.podrian,
     byeSeguroDelante: byeC.seguros,
+    byeDelanteIds: byeC.delante,
     byeEmpatanAPuntos: byeC.empatan,
     siembraDaBye,
     siembraClasifica,
