@@ -3,6 +3,7 @@ import {
   guiaDePregunta,
   situacionDeGuia,
   marcarHecho,
+  textoDeSituacion,
   type Guia,
 } from '../guia-organizador';
 import { PREGUNTAS } from '../ayuda-organizador';
@@ -15,7 +16,7 @@ describe('qué guía lanza cada pregunta', () => {
     expect(guiaDePregunta('fechas')?.id).toBe('cambiar-fechas');
   });
 
-  // Piloto: solo Fechas tiene guía. El resto navega y ya.
+  // No toda pregunta tiene guía; las que no, navegan y ya.
   it('una pregunta sin guía no inventa ninguna', () => {
     expect(guiaDePregunta('jueces')).toBeNull();
   });
@@ -76,7 +77,7 @@ describe('salirse a media guía', () => {
     for (const p of pantallas) {
       for (const h of avances) {
         const s = situacionDeGuia(fechas, h, p);
-        expect(['paso', 'terminada', 'fuera']).toContain(s.tipo);
+        expect(['paso', 'transito', 'terminada', 'fuera']).toContain(s.tipo);
       }
     }
   });
@@ -124,5 +125,111 @@ describe('cómo están escritas las guías', () => {
   // Una guía sin pasos dejaría la barra en 'terminada' desde el primer render.
   it('ninguna guía está vacía', () => {
     for (const g of GUIAS as Guia[]) expect(g.pasos.length).toBeGreaterThan(0);
+  });
+});
+
+// ── LAS DOS PREGUNTAS QUE ABRÍA EL PILOTO ───────────────────────────────────
+
+const formato = GUIAS.find((g) => g.id === 'tercer-lugar')!;
+const capacidad = GUIAS.find((g) => g.id === 'cabe-el-torneo')!;
+
+describe('una guía que cruza dos pantallas', () => {
+  it('empieza en la primera', () => {
+    const s = situacionDeGuia(capacidad, nada, 'canchas');
+    expect(s).toMatchObject({ tipo: 'paso', numero: 1, total: 2 });
+  });
+
+  // LA REGLA: pasar por el panel camino del siguiente paso NO es abandonar.
+  it('el panel es de camino, no una salida', () => {
+    const s = situacionDeGuia(capacidad, new Set(['canchas']), 'panel');
+    expect(s).toMatchObject({ tipo: 'transito', numero: 2, total: 2 });
+  });
+
+  it('y desde el panel se dice CÓMO LLEGAR, no qué hacer', () => {
+    const enPanel = situacionDeGuia(capacidad, new Set(['canchas']), 'panel');
+    const enSitio = situacionDeGuia(capacidad, new Set(['canchas']), 'horarios');
+    expect(textoDeSituacion(enPanel)).toMatch(/abre "Horarios"/i);
+    expect(textoDeSituacion(enSitio)).toMatch(/ventana de juego/i);
+    expect(textoDeSituacion(enPanel)).not.toBe(textoDeSituacion(enSitio));
+  });
+
+  it('llegar a la segunda pantalla vuelve a dar instrucciones', () => {
+    const s = situacionDeGuia(capacidad, new Set(['canchas']), 'horarios');
+    expect(s).toMatchObject({ tipo: 'paso', numero: 2 });
+  });
+
+  // Irse a algo que NO está en el camino sí es abandonar.
+  it('cualquier otro apartado sí es irse', () => {
+    for (const p of ['fechas', 'jueces', 'grupos', 'otra']) {
+      expect(situacionDeGuia(capacidad, new Set(['canchas']), p))
+        .toEqual({ tipo: 'fuera' });
+    }
+  });
+
+  it('terminada manda sobre el tránsito', () => {
+    expect(situacionDeGuia(capacidad, new Set(['canchas', 'horarios']), 'panel'))
+      .toEqual({ tipo: 'terminada' });
+  });
+});
+
+describe('una guía de una sola pantalla en el panel', () => {
+  // Sin `comoLlegar` se dice lo mismo que en su sitio: es mejor que callarse.
+  it('sin comoLlegar, cae al texto del paso', () => {
+    const s = situacionDeGuia(fechas, nada, 'panel');
+    expect(s.tipo).toBe('transito');
+    expect(textoDeSituacion(s)).toBe(fechas.pasos[0].texto);
+  });
+
+  it('con comoLlegar, lo usa', () => {
+    const s = situacionDeGuia(formato, nada, 'panel');
+    expect(textoDeSituacion(s)).toMatch(/abre "Formato"/i);
+  });
+});
+
+describe('sigue sin haber estado colgado, con dos pantallas', () => {
+  it('toda combinación cae en uno de los cuatro', () => {
+    const pantallas = ['canchas', 'horarios', 'panel', 'fechas', 'otra', ''];
+    const avances = [nada, new Set(['canchas']), new Set(['horarios']),
+                     new Set(['canchas', 'horarios'])];
+    for (const p of pantallas) {
+      for (const h of avances) {
+        const s = situacionDeGuia(capacidad, h, p);
+        expect(['paso', 'transito', 'terminada', 'fuera']).toContain(s.tipo);
+        // Y si hay algo que decir, hay texto que decir.
+        if (s.tipo === 'paso' || s.tipo === 'transito') {
+          expect(textoDeSituacion(s)).toBeTruthy();
+        } else {
+          expect(textoDeSituacion(s)).toBeNull();
+        }
+      }
+    }
+  });
+});
+
+describe('las tres guías, juntas', () => {
+  it('cada una cuelga de una pregunta distinta', () => {
+    const desde = GUIAS.map((g) => g.desdePregunta);
+    expect(new Set(desde).size).toBe(GUIAS.length);
+  });
+
+  it('los ids de guía no se repiten', () => {
+    expect(new Set(GUIAS.map((g) => g.id)).size).toBe(GUIAS.length);
+  });
+
+  // Un paso en una pantalla que la ayuda no conoce nunca se pintaría: la ruta
+  // caería en 'otra' y la guía se daría por abandonada al llegar.
+  it('toda pantalla de un paso es una pantalla conocida', () => {
+    const conocidas = new Set(PREGUNTAS.map((p) => p.pantalla));
+    for (const g of GUIAS) {
+      for (const p of g.pasos) expect(conocidas.has(p.pantalla)).toBe(true);
+    }
+  });
+
+  it('los comoLlegar también son de una línea', () => {
+    for (const g of GUIAS) {
+      for (const p of g.pasos) {
+        if (p.comoLlegar) expect(p.comoLlegar.length).toBeLessThanOrEqual(70);
+      }
+    }
   });
 });

@@ -15,11 +15,13 @@
  * component while rendering a different component".
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import { usePathname } from 'expo-router';
 
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { terminarGuia } from '@/lib/guia-store';
+import { textoDeSituacion } from '@/lib/guia-organizador';
 import { useGuiaEnPantalla } from '@/hooks/useGuiaEnPantalla';
 
 /**
@@ -33,20 +35,45 @@ export const ALTO_BARRA_GUIA = 76;
 export default function BarraDeGuia() {
   const situacion = useGuiaEnPantalla();
 
-  const acabo = situacion !== null && situacion.tipo !== 'paso';
+  // ── CUÁNDO SE APAGA ──────────────────────────────────────────────────────
+  //
+  // 'terminada' apaga siempre: no queda nada que decir.
+  const terminada = situacion?.tipo === 'terminada';
   useEffect(() => {
-    if (acabo) terminarGuia();
-  }, [acabo]);
+    if (terminada) terminarGuia();
+  }, [terminada]);
 
-  if (!situacion || situacion.tipo !== 'paso') return null;
+  // 'fuera' apaga SOLO SI LA RUTA CAMBIÓ, y esto no es un detalle: sin la
+  // condición, cumplir el último paso de una pantalla mataba la guía antes de
+  // poder pasar a la siguiente.
+  //
+  //   Guardas las canchas → se cumple el paso 1 → el paso 2 vive en Horarios →
+  //   pero todavía estás en Canchas → 'fuera' → guía muerta, y el organizador
+  //   nunca se entera de que le faltaba la mitad del dato.
+  //
+  // Irse es un acto de navegación, así que se mide en la navegación. Mientras
+  // la ruta no cambie, 'fuera' solo calla la barra.
+  const pathname = usePathname();
+  const rutaPrevia = useRef(pathname);
+  const fuera = situacion?.tipo === 'fuera';
+  useEffect(() => {
+    const cambio = rutaPrevia.current !== pathname;
+    rutaPrevia.current = pathname;
+    if (cambio && fuera) terminarGuia();
+  }, [pathname, fuera]);
+
+  const texto = situacion && textoDeSituacion(situacion);
+  if (!situacion || !texto || (situacion.tipo !== 'paso' && situacion.tipo !== 'transito')) {
+    return null;
+  }
 
   return (
-    <View style={s.barra} accessibilityLiveRegion="polite">
+    <View style={[s.barra, situacion.tipo === 'transito' && s.barraTransito]} accessibilityLiveRegion="polite">
       <View style={s.textos}>
         <Text style={s.contador}>
           Paso {situacion.numero} de {situacion.total}
         </Text>
-        <Text style={s.texto}>{situacion.paso.texto}</Text>
+        <Text style={s.texto}>{texto}</Text>
       </View>
 
       <Pressable
@@ -82,6 +109,8 @@ const s = StyleSheet.create({
       ? { boxShadow: '0 2px 10px rgba(0,0,0,0.45)' }
       : { elevation: 4 }),
   },
+  // En tránsito la barra baja el tono: recuerda dónde ibas, no manda.
+  barraTransito: { borderColor: color.line },
   // minWidth: 0 en el lado que crece, o el texto largo empuja la ✕ fuera.
   textos: { flex: 1, minWidth: 0, gap: 2 },
   contador: {

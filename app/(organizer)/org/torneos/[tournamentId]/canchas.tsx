@@ -19,6 +19,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -33,6 +34,8 @@ export default function CanchasScreen() {
 
   const [nombre, setNombre]     = useState('');
   const [canchas, setCanchas]   = useState<number | null>(null);
+  /** Lo que hay en la base, para saber si de verdad se está cambiando algo. */
+  const [guardado, setGuardado] = useState<number | null>(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError]       = useState<string | null>(null);
@@ -51,20 +54,34 @@ export default function CanchasScreen() {
     if (data) {
       setNombre(data.name);
       setCanchas(data.courts);
+      setGuardado(data.courts);
     }
     setCargando(false);
   }, [tournamentId]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
+  // 4 es lo típico de un club chico, solo como punto de partida. Se calcula
+  // ANTES de `guardar` porque es el valor que la pantalla enseña y, por tanto,
+  // el que el organizador cree que va a guardar.
+  const valor = canchas ?? 4;
+  const hayCambios = valor !== guardado;
+
+  // EL PASO SE CUMPLE AL GUARDAR, no al mover el contador. Lo dice el propio
+  // texto del paso —"y guarda"— y además evita cumplirlo con un número que el
+  // organizador todavía está eligiendo. Ver `cumplirPaso` más abajo.
+
   async function guardar() {
-    if (canchas === null) return;
+    // ANTES ERA `if (canchas === null) return`, y eso era un botón muerto: con
+    // el torneo sin canchas capturadas la pantalla enseñaba 4 y Guardar no
+    // hacía nada. Es justo el estado en el que abre un organizador nuevo — y el
+    // que la guía le pide arreglar. Se guarda lo que se ve.
     setError(null);
     setGuardando(true);
 
     const { error: e } = await supabase
       .from('tournaments')
-      .update({ courts: canchas } as never)
+      .update({ courts: valor } as never)
       .eq('id', tournamentId);
 
     setGuardando(false);
@@ -74,14 +91,13 @@ export default function CanchasScreen() {
       setError('No se pudo guardar. Intenta de nuevo.');
       return;
     }
+    cumplirPaso('cabe-el-torneo', 'canchas');
     volver();
   }
 
   if (cargando) {
     return <View style={s.centro}><ActivityIndicator color={color.gold} /></View>;
   }
-
-  const valor = canchas ?? 4;   // 4 es lo típico de un club chico, solo como punto de partida
 
   return (
     <SafeAreaView style={s.safe}>

@@ -22,6 +22,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import { generarBloques } from '@/lib/engine/schedule/bloques';
 import { parseFechaISO, aFechaISO, formatearConDia } from '@/lib/fechas';
 import { normalizarHora, formatearMientrasEscribe, esHoraValida } from '@/lib/hora-campo';
@@ -205,6 +206,9 @@ export default function HorariosScreen() {
       setError('Los horarios se guardaron, pero no la duración del partido.');
       return;
     }
+    // El segundo y último paso de la guía de capacidad. Aquí no hizo falta
+    // añadir señal ninguna: guardar con éxito ya era un punto del código.
+    cumplirPaso('cabe-el-torneo', 'horarios');
     volver();
   }
 

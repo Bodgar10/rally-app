@@ -17,9 +17,15 @@ describe('de qué pantalla viene una ruta', () => {
     expect(pantallaDeRuta(`${RUTA}/horarios?foo=1`)).toBe('horarios');
   });
 
-  // El índice del torneo no tiene segmento propio: su último segmento es el id.
-  it('el panel no es ninguna pantalla concreta', () => {
-    expect(pantallaDeRuta(RUTA)).toBe('otra');
+  // El panel se distingue de "cualquier otro sitio" porque es el EJE: pasar por
+  // él camino del siguiente paso no es abandonar una guía. Ver `situacionDeGuia`.
+  it('el panel del torneo es su propia cosa', () => {
+    expect(pantallaDeRuta(RUTA)).toBe('panel');
+  });
+
+  it('la lista de torneos NO es el panel', () => {
+    expect(pantallaDeRuta('/(organizer)/org/torneos')).toBe('otra');
+    expect(pantallaDeRuta('/(organizer)/org')).toBe('otra');
   });
 
   // Una pantalla sin preguntas no es un contexto: es una pantalla sin ayuda.

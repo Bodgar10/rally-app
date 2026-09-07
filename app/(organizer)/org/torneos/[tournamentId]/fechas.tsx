@@ -70,10 +70,11 @@ export default function FechasTorneoScreen() {
   // existían para habilitar el botón — no se calcula nada nuevo. Si la guía no
   // está corriendo, `cumplirPaso` no hace nada.
   useEffect(() => {
+    if (cargando) return;   // ver la nota en formato.tsx
     if (rangoCompleto(rango) && hayCambios) {
       cumplirPaso('cambiar-fechas', 'elegir-rango');
     }
-  }, [rango, hayCambios]);
+  }, [cargando, rango, hayCambios]);
 
   async function guardar() {
     // El type guard además de la comprobación de UI: `puedeGuardar` es un

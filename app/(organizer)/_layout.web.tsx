@@ -40,7 +40,8 @@ export default function OrganizerLayoutWeb() {
     check();
   }, []);
 
-  const conGuia = useGuiaEnPantalla()?.tipo === 'paso';
+  const tipoGuia = useGuiaEnPantalla()?.tipo;
+  const conGuia = tipoGuia === 'paso' || tipoGuia === 'transito';
 
   if (!ready) return (
     <View style={{ flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' }}>

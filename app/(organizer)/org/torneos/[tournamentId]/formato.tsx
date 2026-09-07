@@ -18,7 +18,7 @@
  *   3.er lugar a torneos que ya contaban con él.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable,
   ActivityIndicator, StyleSheet, SafeAreaView, Switch, TextInput,
@@ -27,6 +27,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
+import { cumplirPaso } from '@/lib/guia-store';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -48,6 +49,15 @@ export default function FormatoScreen() {
   /** Lo que hay en la base, para saber si de verdad se está cambiando algo. */
   const [formatoGuardado, setFormatoGuardado] = useState<'super_muerte' | 'set_completo'>('super_muerte');
   const [puntosGuardados, setPuntosGuardados] = useState(10);
+  /**
+   * Y lo mismo para el interruptor del tercer lugar, que NO se guardaba.
+   *
+   * La pantalla comparaba contra la base el formato del tercer set —para poder
+   * avisar de que cambiarlo afecta a partidos ya jugados— pero del tercer lugar
+   * solo tenía el valor actual. Así no había forma de distinguir "lo dejó como
+   * estaba" de "lo cambió", que es lo que la guía necesita saber.
+   */
+  const [terceroGuardado, setTerceroGuardado] = useState(false);
   /** El aviso está pendiente de confirmar. No es un impedimento. */
   const [confirmando, setConfirmando] = useState(false);
   const [precio, setPrecio]       = useState<string | null>(null);
@@ -76,6 +86,7 @@ export default function FormatoScreen() {
       // `=== true` y no `!== false`: lo desconocido se lee APAGADO. La regla
       // es que solo esté encendido si alguien lo encendió a propósito.
       setTercero(fila.tercer_lugar === true);
+      setTerceroGuardado(fila.tercer_lugar === true);
       // Un torneo creado antes de la 063 no tiene el dato: súper muerte a 10,
       // que es como se venía jugando.
       setFormato(fila.tercer_set_formato ?? 'super_muerte');
@@ -131,6 +142,21 @@ export default function FormatoScreen() {
 
   /** ¿Se está cambiando la regla con terceros sets ya jugados? */
   const cambiaFormato = formato !== formatoGuardado || Number(puntos) !== puntosGuardados;
+
+  // La pantalla DECLARA lo que hizo el usuario. Con la comparación de arriba ya
+  // hecha, decirlo es una línea. Si no hay guía corriendo, no hace nada.
+  //
+  // `!cargando` NO es defensivo de más: los hooks corren también en el primer
+  // render, cuando los valores son los de arranque y no los de la base. Una
+  // pantalla no puede declarar que el usuario hizo algo antes de saber contra
+  // qué compararlo — y en `canchas.tsx` eso llegó a dar el paso por cumplido
+  // sola, nada más abrirla.
+  useEffect(() => {
+    if (cargando) return;
+    if (tercero !== terceroGuardado || cambiaFormato) {
+      cumplirPaso('tercer-lugar', 'elegir');
+    }
+  }, [cargando, tercero, terceroGuardado, cambiaFormato]);
   const hayQueAvisar = cambiaFormato && tercerosCapturados > 0;
 
   async function guardar() {
@@ -155,6 +181,7 @@ export default function FormatoScreen() {
         } as never)
         .eq('id', tournamentId);
       if (e) throw e;
+      cumplirPaso('tercer-lugar', 'guardar');
       volver();
     } catch (e) {
       setError(fallo('formato/guardar', e, 'No se pudo guardar. Intenta de nuevo.', { tournamentId }));

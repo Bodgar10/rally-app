@@ -106,6 +106,16 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
     enlace: 'Ir a Canchas',
   },
   {
+    id: 'cabe',
+    pregunta: '¿Cómo sé si mi torneo cabe en los días que tengo?',
+    respuesta:
+      'Hacen falta dos datos: cuántas canchas usarás y de qué hora a qué hora ' +
+      'se juega cada día. Con los dos, la app calcula cuántos partidos entran ' +
+      'y te avisa si no alcanzan.',
+    pantalla: 'canchas',
+    enlace: 'Empezar por las canchas',
+  },
+  {
     id: 'horarios',
     pregunta: '¿Qué son los horarios del torneo?',
     respuesta:
@@ -241,9 +251,26 @@ export function pantallaDeRuta(pathname: string): PantallaOrg {
   const conocidas = new Set(
     PREGUNTAS.map((p) => p.pantalla).filter((p): p is string => p !== null),
   );
-  const ultimo = pathname.split('?')[0].split('/').filter(Boolean).pop() ?? '';
-  return conocidas.has(ultimo) ? ultimo : 'otra';
+  const partes = pathname.split('?')[0].split('/').filter(Boolean);
+  const ultimo = partes.at(-1) ?? '';
+  if (conocidas.has(ultimo)) return ultimo;
+
+  // EL PANEL SE DISTINGUE DE "CUALQUIER OTRO SITIO", y no es un matiz: es el
+  // eje del que cuelgan los trece apartados, así que ir de uno a otro pasa
+  // SIEMPRE por aquí. Una guía de dos pantallas necesita saber que estar en el
+  // panel es ir camino del siguiente paso, no haberse ido. Ver
+  // `situacionDeGuia`.
+  //
+  // `/org/torneos/<id>` y nada más: `/org/torneos/<id>/eliminar` tiene un
+  // segmento de más y `/org/torneos` (la lista) uno de menos.
+  const i = partes.indexOf('torneos');
+  if (i >= 0 && partes.length === i + 2) return 'panel';
+
+  return 'otra';
 }
+
+/** El panel del torneo: la única pantalla de paso entre apartados. */
+export const PANTALLA_EJE = 'panel';
 
 /**
  * Las preguntas partidas en dos: las de aquí y todas las demás.
