@@ -60,23 +60,31 @@ export interface BloquesDelDashboard {
 export function bloquesDelDashboard(
   inscrito: boolean,
   { conHorario, pendientes }: ResumenDePartidos,
-  organiza = false,
+  /**
+   * Tiene trabajo en la app que no es jugar: torneos que organiza o que
+   * arbitra. Los dos casos hacen lo mismo aquí —llenan la pantalla— así que
+   * es un solo booleano y no dos.
+   */
+  tieneTrabajo = false,
 ): BloquesDelDashboard {
   if (!inscrito) {
     // La sección SÍ se pinta: para quien no está inscrito, "¿cuándo juego?"
     // tiene respuesta —"no estás inscrito, mira los torneos"— y ahí vive esa
     // llamada a la acción. Lo que no hay es cancha ni torneo por empezar.
     //
-    // SALVO QUE ORGANICE. "Sin partidos programados · Inscríbete a un torneo"
-    // es la respuesta a una pantalla vacía, y la de un organizador con un
-    // torneo en curso no lo está: tiene sus torneos debajo. Ahí esa tarjeta
-    // deja de ser una invitación y pasa a ser una pantalla que no lo reconoce
-    // —fue el síntoma con el que se reportó el bug— así que se va entera,
-    // etiqueta incluida. La invitación a inscribirse sigue viva en el tab de
-    // Torneos y en el acceso rápido del final.
+    // SALVO QUE ORGANICE O ARBITRE. "Sin partidos programados · Inscríbete a
+    // un torneo" es la respuesta a una pantalla vacía, y la de un organizador
+    // con un torneo en curso no lo está: tiene sus torneos debajo. Ahí esa
+    // tarjeta deja de ser una invitación y pasa a ser una pantalla que no lo
+    // reconoce —fue el síntoma con el que se reportó el bug— así que se va
+    // entera, etiqueta incluida. Con el juez pasa lo mismo: no está inscrito,
+    // pero vino a trabajar y la pantalla tiene contenido.
+    //
+    // La invitación a inscribirse sigue viva en el tab de Torneos y en el
+    // acceso rápido del final.
     return {
       torneoPorEmpezar: false,
-      proximoPartido: !organiza,
+      proximoPartido: !tieneTrabajo,
       enMiCancha: false,
     };
   }

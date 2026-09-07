@@ -59,7 +59,7 @@ describe('el dashboard del jugador', () => {
  * programados · Inscríbete a un torneo". No es la respuesta a una pantalla
  * vacía cuando la pantalla no lo está.
  */
-describe('cuando además organiza', () => {
+describe('cuando además organiza o arbitra', () => {
   const nada = { conHorario: 0, pendientes: 0 };
 
   it('sin estar inscrito, la sección de próximo partido sobra', () => {
@@ -69,7 +69,12 @@ describe('cuando además organiza', () => {
   });
 
   // Sin organizar nada, la invitación a inscribirse sigue siendo lo correcto.
-  it('sin organizar nada, la invitación se mantiene', () => {
+  // Un juez que no juega tampoco tiene la pantalla vacía: vino a trabajar.
+  it('arbitrar cuenta igual que organizar', () => {
+    expect(bloquesDelDashboard(false, nada, true).proximoPartido).toBe(false);
+  });
+
+  it('sin organizar ni arbitrar, la invitación se mantiene', () => {
     expect(bloquesDelDashboard(false, nada).proximoPartido).toBe(true);
     expect(bloquesDelDashboard(false, nada, false).proximoPartido).toBe(true);
   });

@@ -26,6 +26,10 @@
  * consulta vive en `useOrganizerTournaments`; esto se puede probar sin red.
  */
 
+import type { AvisoDeTorneo } from './tarjeta-de-torneo';
+
+export type { AvisoDeTorneo };
+
 /** Estados en los que un torneo todavía le pide algo al organizador. */
 const ESTADOS_VIVOS = [
   'draft',
@@ -59,12 +63,6 @@ export interface TorneoOrganizado {
   partidosSinCapturar: number;
 }
 
-/** La única cosa que se le dice de un torneo, además del nombre y las fechas. */
-export interface AvisoDeTorneo {
-  texto: string;
-  /** `true` pinta el aviso en oro: hay gente esperando ahora mismo. */
-  urge: boolean;
-}
 
 /** ¿Este torneo sigue pidiendo algo? */
 export function estaVivo(status: string): boolean {
