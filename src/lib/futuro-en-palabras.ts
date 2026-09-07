@@ -99,6 +99,9 @@ const ORDINAL = [
 
 /** "el sexto mejor segundo" / "el 12.º mejor segundo" cuando se sale de la tabla. */
 function puestoDeMejorSegundo(n: number): string {
+  // "el primer mejor segundo" es un trabalenguas: siendo el primero, lo que se
+  // es es EL mejor segundo, sin ordinal delante.
+  if (n === 1) return 'el mejor segundo';
   return ORDINAL[n] ? `el ${ORDINAL[n]} mejor segundo` : `el ${n}.º mejor segundo`;
 }
 
@@ -211,13 +214,26 @@ function carreraEnCifras(
     });
   }
 
-  // 3 · CUÁNTOS EMPATADOS. El número, no los nombres — los nombres van a la
-  //     nota cuando son pocos (ver RIVALES_QUE_SE_NOMBRAN).
-  const contra = c.dependeDeGamesContra;
-  if (contra.length > 0) {
+  // 3 · CON CUÁNTAS SE JUEGA EL PUESTO. Son DOS cosas distintas y no se suman:
+  //
+  //     · `dependeDeGamesContra` — todavía puede cambiar, porque a ellas (o a
+  //       él) les quedan partidos.
+  //     · `empatadosSinDesempate` — ya está todo jugado y salen exactamente
+  //       iguales hasta el último criterio.
+  //
+  //     Solo una llega al tile, porque la fila es de TRES y una cuarta cifra la
+  //     partía en dos líneas — que es justo lo que se acaba de arreglar. Manda
+  //     lo que todavía se puede mover: es sobre lo que el jugador puede hacer
+  //     algo. Las dos se cuentan en su nota, que es donde se explican.
+  const enDisputa = c.dependeDeGamesContra;
+  const igualadas = c.empatadosSinDesempate;
+
+  if (enDisputa.length > 0) {
+    cifras.push({ valor: String(enDisputa.length), etiqueta: 'en disputa' });
+  } else if (igualadas.length > 0) {
     cifras.push({
-      valor: String(contra.length),
-      etiqueta: contra.length === 1 ? 'empatada' : 'empatadas',
+      valor: String(igualadas.length),
+      etiqueta: igualadas.length === 1 ? 'igualada' : 'igualadas',
     });
   }
 
@@ -236,13 +252,29 @@ function carreraEnCifras(
     );
   }
 
-  if (contra.length > 0) {
+  // LO QUE TODAVÍA PUEDE CAMBIAR. A esas parejas les quedan partidos, así que
+  // sus sets y sus games aún se mueven: no hay nada que afirmar todavía.
+  if (enDisputa.length > 0) {
     notas.push(
-      contra.length <= RIVALES_QUE_SE_NOMBRAN
-        // Pocos: los nombres son accionables, sabe quiénes son.
-        ? `Estás empatado a puntos con ${enumerar(contra)}: los separa la diferencia de games.`
-        // Muchos: la cifra ya está arriba; aquí solo el matiz de qué los separa.
-        : 'A los que están empatados contigo los separa la diferencia de games.',
+      enDisputa.length <= RIVALES_QUE_SE_NOMBRAN
+        // Pocos: los nombres son accionables, sabe a quién mirar.
+        ? `Con ${enumerar(enDisputa)} todavía puede cambiar: depende de cómo terminen sus partidos.`
+        : `Con ${enDisputa.length} parejas todavía puede cambiar: depende de cómo terminen sus partidos.`,
+    );
+  }
+
+  // LO QUE YA NO SE PUEDE DECIDIR. Datos definitivos e idénticos hasta el
+  // último criterio.
+  //
+  // AQUÍ NO SE PROMETE NINGÚN ORDEN. `selectQualifiers` sí las ordena —la
+  // siembra necesita un orden total y cae a `pairId`—, pero eso es una decisión
+  // técnica, no un hecho deportivo. Decirle al jugador que va por delante
+  // porque su id ordena antes sería mentirle.
+  if (igualadas.length > 0) {
+    notas.push(
+      igualadas.length <= RIVALES_QUE_SE_NOMBRAN
+        ? `${enumerar(igualadas)} ${igualadas.length === 1 ? 'está' : 'están'} exactamente igual que tú: mismos puntos, sets y games. El reglamento no las separa de ti.`
+        : `Hay ${igualadas.length} parejas exactamente igual que tú: mismos puntos, sets y games. El reglamento no las separa.`,
     );
   }
 

@@ -15,6 +15,7 @@ const carrera = (over: Partial<Carrera> = {}): Carrera => ({
   plazas: 6,
   partidosQueImportan: [],
   dependeDeGamesContra: [],
+  empatadosSinDesempate: [],
   ...over,
 });
 
@@ -119,7 +120,7 @@ describe('cuando depende', () => {
       repesca: carrera({ estado: 'depende', dependeDeGamesContra: ['Luis / Pedro'] }),
     }));
     const t = textoDeCarrera(f);
-    expect(t).toMatch(/diferencia de games/i);
+    expect(t).toMatch(/todavía puede cambiar/i);
     expect(t).toContain('Luis / Pedro');
     expect(t).not.toMatch(/%|probab|posibilidad/i);
   });
@@ -144,7 +145,7 @@ describe('cuando depende', () => {
     }));
     // La cifra va suelta, con su etiqueta — no dentro de una frase.
     expect(f.carrera!.cifras).toEqual(expect.arrayContaining([
-      { valor: '16', etiqueta: 'empatadas' },
+      { valor: '16', etiqueta: 'en disputa' },
       { valor: '6', etiqueta: 'cupos' },
     ]));
     // Ni un solo nombre en ninguna parte.
@@ -160,7 +161,7 @@ describe('cuando depende', () => {
     })));
     expect(con(3)).toContain('P0');
     expect(con(4)).not.toContain('P0');
-    expect(con(4)).toContain('4 empatadas');
+    expect(con(4)).toContain('4 en disputa');
   });
 
   // La carrera del pase directo reparte otra cosa, y se llama por su nombre.
@@ -424,11 +425,11 @@ describe('el puesto en la pelea', () => {
     expect(c.cifras).toEqual([
       { valor: '6', etiqueta: 'cupos' },
       { valor: '1.º–6.º', etiqueta: 'tu posición' },
-      { valor: '10', etiqueta: 'empatadas' },
+      { valor: '10', etiqueta: 'en disputa' },
     ]);
     // Y en prosa solo lo que no es número.
     expect(c.notas.join(' ')).toContain('Hay 3 parejas por delante que ya no puedes alcanzar.');
-    expect(c.notas.join(' ')).toMatch(/diferencia de games/i);
+    expect(c.notas.join(' ')).toMatch(/todavía puede cambiar/i);
     // Ni un nombre: son diez.
     expect(c.notas.join(' ')).not.toContain('P0');
   });
@@ -469,7 +470,7 @@ describe('el puesto en la pelea', () => {
     });
     // Cupos primero —la referencia—, después dónde va, después los empatados.
     expect(c.cifras.map((x) => x.etiqueta)).toEqual([
-      'cupos', 'tu posición', 'empatadas',
+      'cupos', 'tu posición', 'en disputa',
     ]);
   });
 });
@@ -544,5 +545,112 @@ describe('el aviso de que la app avisa sola', () => {
   it('NO aparece cuando ya no queda nada que esperar', () => {
     expect(futuroEnPalabras(analisis({ estado: 'dentro', repesca: carrera() })).aviso).toBeNull();
     expect(futuroEnPalabras(analisis({ estado: 'fuera' })).aviso).toBeNull();
+  });
+});
+
+// ───────────────────────────────────────────
+// Dos empates que no son el mismo
+// ───────────────────────────────────────────
+//
+// `dependeDeGamesContra` son rivales con partidos por jugar: sus sets y games
+// aún pueden cambiar. `empatadosSinDesempate` son datos definitivos e idénticos
+// hasta el último criterio. Contarlos juntos mezclaba "todavía se puede mover"
+// con "esto ya no lo decide el reglamento".
+
+describe('lo que puede cambiar y lo que ya no', () => {
+  const con = (over: Partial<Carrera>) => futuroEnPalabras(analisis({
+    estado: 'depende',
+    repesca: carrera({ estado: 'depende', ...over }),
+  })).carrera!;
+
+  it('los dos campos se cuentan por separado', () => {
+    const c = con({
+      dependeDeGamesContra: ['A / B', 'C / D'],
+      empatadosSinDesempate: ['E / F', 'G / H', 'I / J'],
+    });
+    const notas = c.notas.join(' | ');
+    // Dos notas distintas, cada una con su cifra.
+    expect(notas).toMatch(/A \/ B y C \/ D todavía puede cambiar/i);
+    expect(notas).toMatch(/E \/ F, G \/ H y I \/ J.*exactamente igual que tú/i);
+    // Y NO se suman en una sola cifra de 5.
+    expect(c.cifras).not.toContainEqual({ valor: '5', etiqueta: 'en disputa' });
+  });
+
+  it('lo que puede cambiar dice que depende de sus partidos', () => {
+    const notas = con({ dependeDeGamesContra: ['A / B'] }).notas.join(' ');
+    expect(notas).toMatch(/depende de cómo terminen sus partidos/i);
+    // Ya no se habla de "diferencia de games": eso era del significado viejo.
+    expect(notas).not.toMatch(/los separa la diferencia de games/i);
+  });
+
+  // El punto entero: la siembra cae a `pairId` para tener un orden total, pero
+  // eso es una decisión técnica y no un hecho deportivo.
+  it('empatadosSinDesempate NO promete ningún orden', () => {
+    for (const n of [1, 3, 7]) {
+      const notas = con({
+        empatadosSinDesempate: Array.from({ length: n }, (_, i) => `P${i} / Q${i}`),
+      }).notas.join(' ');
+      expect(notas).toMatch(/exactamente igual que tú/i);
+      expect(notas).toMatch(/el reglamento no las separa/i);
+      // Ni por delante, ni por detrás, ni antes, ni después.
+      expect(notas).not.toMatch(/por delante|por detrás|vas antes|quedas antes|te adelanta/i);
+    }
+  });
+
+  // El corte de tres vale para los DOS.
+  it('el corte de tres nombres se mantiene en los dos casos', () => {
+    const pocos = con({
+      dependeDeGamesContra: ['A / B', 'C / D', 'E / F'],
+      empatadosSinDesempate: ['G / H', 'I / J', 'K / L'],
+    }).notas.join(' ');
+    expect(pocos).toContain('A / B, C / D y E / F');
+    expect(pocos).toContain('G / H, I / J y K / L');
+
+    const muchos = con({
+      dependeDeGamesContra: Array.from({ length: 4 }, (_, i) => `A${i}`),
+      empatadosSinDesempate: Array.from({ length: 5 }, (_, i) => `B${i}`),
+    }).notas.join(' ');
+    expect(muchos).toContain('Con 4 parejas todavía puede cambiar');
+    expect(muchos).toContain('Hay 5 parejas exactamente igual que tú');
+    expect(muchos).not.toContain('A0');
+    expect(muchos).not.toContain('B0');
+  });
+
+  // La fila es de tres cifras: una cuarta la partía en dos líneas. Manda lo que
+  // todavía se puede mover, que es sobre lo que puede hacer algo.
+  it('solo una de las dos llega al tile, y manda lo que aún se mueve', () => {
+    const ambas = con({
+      dependeDeGamesContra: ['A / B'],
+      empatadosSinDesempate: ['C / D', 'E / F'],
+    });
+    expect(ambas.cifras).toHaveLength(3);
+    expect(ambas.cifras[2]).toEqual({ valor: '1', etiqueta: 'en disputa' });
+
+    // Sin nada en disputa, el tile lo ocupan las igualadas.
+    const soloIgualadas = con({ empatadosSinDesempate: ['C / D', 'E / F'] });
+    expect(soloIgualadas.cifras[2]).toEqual({ valor: '2', etiqueta: 'igualadas' });
+  });
+});
+
+// EL CASO DE SERGIO tras el cambio: `dependeDeGamesContra` viene vacío y
+// `puestoActual.mejor === peor`, así que la frase tiene que adaptarse sola.
+describe('cuando ya no queda nada por definirse', () => {
+  it('un puesto exacto, no un rango', () => {
+    const c = futuroEnPalabras(analisis({
+      estado: 'depende',
+      repesca: carrera({
+        estado: 'depende', plazas: 6,
+        puestoActual: { mejor: 9, peor: 9 },
+        porDelanteSeguros: 8,
+        dependeDeGamesContra: [],
+        empatadosSinDesempate: [],
+      }),
+    })).carrera!;
+
+    expect(c.cifras).toContainEqual({ valor: '9.º', etiqueta: 'tu posición' });
+    // Nada de "entre X y Y" cuando ya se sabe.
+    expect(c.cifras.some((x) => x.valor.includes('–'))).toBe(false);
+    // Y sin tercera cifra: no hay nadie en disputa ni igualado.
+    expect(c.cifras).toHaveLength(2);
   });
 });
