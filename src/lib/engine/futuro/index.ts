@@ -87,7 +87,16 @@ export interface PartidoQueImporta {
   meConviene: string | null;
 }
 
-export type EstadoCarrera = 'dentro' | 'fuera' | 'depende';
+/**
+ * 'demasiado_pronto' es un estado DE CARRERA, no del análisis entero.
+ *
+ * Enumerar la categoría es caro y a veces no cabe, pero eso solo ciega las
+ * carreras que dependen de los otros grupos. Cortarlo todo hacía que a alguien
+ * que ya había clasificado —primero de su grupo, con `advance_per_group` 1— se
+ * le dijera "todavía es pronto, faltan 25 partidos". Era falso: ya estaba
+ * dentro; lo único que no se sabía era si se saltaba octavos.
+ */
+export type EstadoCarrera = 'dentro' | 'fuera' | 'depende' | 'demasiado_pronto';
 
 export interface Carrera {
   estado: EstadoCarrera;
@@ -110,8 +119,20 @@ export interface Carrera {
 }
 
 export interface AnalisisFuturo {
+  /**
+   * ¿CLASIFICO? Y solo eso.
+   *
+   * Era un estado único para las tres preguntas y no podía expresar el caso
+   * más común: dentro por ser primero de grupo, y todavía sin saber si te
+   * saltas una ronda. Ahora cada carrera trae el suyo, y este responde la
+   * pregunta que se hace primero.
+   *
+   * Se resuelve SIN enumerar la categoría siempre que se pueda: ser primero
+   * con `advance_per_group` 1 depende solo de los partidos del propio grupo,
+   * que son tres.
+   */
   estado: 'dentro' | 'fuera' | 'depende' | 'empate_sin_resolver' | 'demasiado_pronto';
-  /** Puestos que puede acabar ocupando en SU grupo. Vacío si no se enumeró. */
+  /** Puestos que puede acabar ocupando en SU grupo. Siempre se sabe: es barato. */
   posicionesPosiblesEnGrupo: number[];
   /** La carrera de mejores segundos. Ausente si no le aplica. */
   repesca?: Carrera;
@@ -120,7 +141,7 @@ export interface AnalisisFuturo {
   /** Partidos de la categoría que faltan por jugarse. */
   faltan: number;
   /**
-   * Con cuántos pendientes podrá responder. Solo con 'demasiado_pronto'.
+   * Con cuántos pendientes podrá responder LO QUE FALTE por responder.
    * "Faltan 23; te digo algo cuando queden 6" es accionable; "faltan 23" no.
    */
   respondoCuandoQueden?: number;
@@ -238,14 +259,75 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
   const coste = costeDeUnEscenario(grupos, cuadro.bracketSize);
   const kMax = kMaximo(coste, entrada.presupuesto ?? PRESUPUESTO);
 
-  if (k > kMax) {
+  // ── PRIMERO LO BARATO ──────────────────────────────────────────────────
+  //
+  //   Qué puesto puede acabar teniendo en SU grupo depende solo de los
+  //   partidos de su grupo: tres, o seis si el grupo es de cuatro. Eso se
+  //   enumera siempre, cueste lo que cueste la categoría entera.
+  //
+  //   Y muchas veces con eso basta. Ser primero con `advance_per_group` 1
+  //   clasifica SIEMPRE: no depende de ningún otro grupo, así que no hay nada
+  //   que enumerar. Meterlo en el mismo mecanismo caro que la carrera de
+  //   segundos era lo que le decía "todavía es pronto, faltan 25 partidos" a
+  //   alguien que ya estaba dentro.
+  const local = escenariosDeMiGrupo(miGrupo, pairId, cfg);
+  const posicionesLocales = [...new Set(local.map((f) => f.posicion))].sort((a, b) => a - b);
+
+  if (local.every((f) => f.empateSinResolver)) {
+    return { estado: 'empate_sin_resolver', posicionesPosiblesEnGrupo: posicionesLocales, faltan: k };
+  }
+
+  const mejorPosible = Math.min(...posicionesLocales);
+  const peorPosible = Math.max(...posicionesLocales);
+  /** Pase lo que pase termina dentro del corte de su grupo: clasifica directo. */
+  const directoSeguro = peorPosible <= advancePerGroup;
+  /** Puede llegar al puesto que da derecho a repesca. */
+  const puedeRepescar = bestExtra > 0 && posicionesLocales.includes(advancePerGroup + 1);
+  /** Ni directo ni repescable en ningún desenlace de su grupo: fuera, y punto. */
+  const imposible = mejorPosible > advancePerGroup && !puedeRepescar;
+
+  const aplicaBye = cuadro.byes > 0;
+  const carreraCiega = (plazas: number): Carrera => ({
+    estado: 'demasiado_pronto', peorPuestoPosible: null, plazas,
+    partidosQueImportan: [], dependeDeGamesContra: [],
+  });
+
+  if (imposible) {
+    // Determinista: no hace falta mirar los otros grupos para saber que no.
+    return { estado: 'fuera', posicionesPosiblesEnGrupo: posicionesLocales, faltan: k };
+  }
+
+  // ── ¿Hace falta la enumeración cara? ───────────────────────────────────
+  //   Solo la piden las carreras que dependen de OTROS grupos: la de mejores
+  //   segundos y la del bye. Si ninguna aplica, se responde ya.
+  const necesitaGlobal = (!directoSeguro && puedeRepescar) || aplicaBye;
+
+  if (necesitaGlobal && k > kMax) {
+    // EL RESULTADO ES MIXTO, y ese es el punto de este arreglo: "ya
+    // clasificaste" en firme, y el matiz honesto de que aún no se sabe si te
+    // saltas una ronda.
     return {
-      estado: 'demasiado_pronto',
-      posicionesPosiblesEnGrupo: [],
+      estado: directoSeguro ? 'dentro' : 'demasiado_pronto',
+      posicionesPosiblesEnGrupo: posicionesLocales,
+      repesca: puedeRepescar && !directoSeguro ? carreraCiega(bestExtra) : undefined,
+      bye: aplicaBye
+        ? { aplica: true, byesEnElCuadro: cuadro.byes, ...carreraCiega(cuadro.byes) }
+        : { aplica: false, byesEnElCuadro: 0, estado: 'fuera', peorPuestoPosible: null, plazas: 0, partidosQueImportan: [], dependeDeGamesContra: [] },
       faltan: k,
-      // Sale del mismo cálculo que acaba de hacerse: no cuesta nada, y
-      // "faltan 23; te digo algo cuando queden 6" sí se puede usar.
+      // Sale del mismo cálculo que acaba de hacerse: no cuesta nada.
       respondoCuandoQueden: kMax,
+    };
+  }
+
+  if (!necesitaGlobal) {
+    // Sin repesca en juego y sin byes que repartir, la respuesta depende solo
+    // de su propio grupo — y eso ya está enumerado. 'depende' aquí significa
+    // "depende de tus partidos", no "de los otros nueve grupos".
+    return {
+      estado: directoSeguro ? 'dentro' : 'depende',
+      posicionesPosiblesEnGrupo: posicionesLocales,
+      bye: { aplica: false, byesEnElCuadro: 0, estado: 'fuera', peorPuestoPosible: null, plazas: 0, partidosQueImportan: [], dependeDeGamesContra: [] },
+      faltan: k,
     };
   }
 
@@ -271,7 +353,6 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
     : undefined;
 
   // ── Carrera B: bye ─────────────────────────────────────────────────────
-  const aplicaBye = cuadro.byes > 0;
   const bye = aplicaBye
     ? {
         aplica: true,
@@ -405,6 +486,33 @@ function pivotes(
       parejaB: nombreDe(match.pairBId, nombres),
       meConviene: conviene,
     });
+  }
+  return out;
+}
+
+/**
+ * Los desenlaces posibles DENTRO del propio grupo. Barato por definición: un
+ * grupo de tres tiene tres partidos.
+ */
+function escenariosDeMiGrupo(
+  miGrupo: GrupoDeCategoria,
+  pairId: string,
+  cfg: StandingsConfig,
+): { posicion: number; empateSinResolver: boolean }[] {
+  const pend = miGrupo.matches.filter((m) => !m.played || m.winnerPairId == null);
+  const total = 1 << pend.length;
+  const out: { posicion: number; empateSinResolver: boolean }[] = [];
+  for (let mask = 0; mask < total; mask++) {
+    const decidido = new Map(
+      pend.map((m, bit) => [m.matchId, conEscenario(m, !!((mask >> bit) & 1))]),
+    );
+    const tabla = computeStandings(
+      miGrupo.pairIds,
+      miGrupo.matches.map((m) => decidido.get(m.matchId) ?? m),
+      cfg,
+    );
+    const mia = tabla.find((r) => r.pairId === pairId)!;
+    out.push({ posicion: mia.position, empateSinResolver: mia.empateSinResolver });
   }
   return out;
 }

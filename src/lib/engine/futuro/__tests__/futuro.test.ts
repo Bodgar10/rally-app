@@ -61,7 +61,9 @@ describe('el corte de coste sale del presupuesto, no de un número escrito a man
     const grupos = ['A', 'B', 'C', 'D'].map((n) =>
       grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
     const r = analizarFuturo({
-      grupos, advancePerGroup: 1, bestExtraQualifiers: 0,
+      // Con repesca y byes en juego, la respuesta SÍ depende de los otros
+      // grupos: es el único caso en que el presupuesto puede cegar algo.
+      grupos, advancePerGroup: 1, bestExtraQualifiers: 2,
       pairId: 'A1', nombres: nombresDe(TODOS),
       presupuesto: 1,
     });
@@ -302,5 +304,106 @@ describe('el empate perfecto no se responde: hace falta sorteo', () => {
       pairId: 'A1', nombres: nombresDe(TODOS),
     });
     expect(r.estado).toBe('empate_sin_resolver');
+  });
+});
+
+/**
+ * EL CASO DE ALDO. 5ª Varonil, 10 grupos, pasa 1 por grupo. Ganó sus dos
+ * partidos y va primero: con `advance_per_group` 1 eso clasifica SIEMPRE, sin
+ * depender de nadie. La app le decía "todavía es pronto, faltan 25 partidos;
+ * podré decirte algo cuando queden 12". Era falso.
+ *
+ * Lo que de verdad no se sabía es si se salta octavos, que es otra pregunta y
+ * ahora tiene su propio estado.
+ */
+describe('primero de grupo con la categoría entera por jugar', () => {
+  /** 10 grupos: el de Aldo terminado, los otros nueve sin empezar. */
+  const categoria = (): GrupoDeCategoria[] => {
+    const otros = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].map((n) =>
+      grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
+    return [grupo('A', ['ALDO', 'A2', 'A3'], ['ALDO', 'ALDO', 'A2']), ...otros];
+  };
+
+  const nombres = {
+    ALDO: 'Aldo / Compañero',
+    ...nombresDe(['A2', 'A3', ...['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+      .flatMap((n) => [`${n}1`, `${n}2`, `${n}3`])]),
+  };
+
+  const r = analizarFuturo({
+    grupos: categoria(),
+    advancePerGroup: 1, bestExtraQualifiers: 6,
+    pairId: 'ALDO', nombres,
+  });
+
+  it('YA CLASIFICÓ, sin enumerar la categoría', () => {
+    expect(r.estado).toBe('dentro');
+  });
+
+  it('y se sabe aunque falten 27 partidos', () => {
+    expect(r.faltan).toBe(27);
+  });
+
+  it('su puesto en el grupo es uno solo: primero', () => {
+    expect(r.posicionesPosiblesEnGrupo).toEqual([1]);
+  });
+
+  it('no entra en la carrera de repesca: es primero, no segundo', () => {
+    expect(r.repesca).toBeUndefined();
+  });
+
+  it('lo del bye SÍ queda en demasiado_pronto: eso depende de los otros', () => {
+    // 10 × 1 + 6 = 16 clasificados en cuadro de 16: sin byes. Con 6 repescados
+    // menos, sí los habría. Se comprueba el caso con byes aparte.
+    expect(r.bye!.aplica).toBe(false);
+  });
+
+  it('con byes en el cuadro, el estado es MIXTO: dentro y bye por saber', () => {
+    const mixto = analizarFuturo({
+      grupos: categoria(),
+      advancePerGroup: 1, bestExtraQualifiers: 2,   // 12 clasificados → cuadro 16 → 4 byes
+      pairId: 'ALDO', nombres,
+    });
+    expect(mixto.estado).toBe('dentro');            // "Ya clasificaste", en verde
+    expect(mixto.bye!.aplica).toBe(true);
+    expect(mixto.bye!.byesEnElCuadro).toBe(4);
+    expect(mixto.bye!.estado).toBe('demasiado_pronto');
+    expect(mixto.respondoCuandoQueden).toBeLessThan(mixto.faltan);
+  });
+});
+
+describe('lo que de verdad necesita los otros grupos sigue esperando', () => {
+  it('un segundo con la categoría por jugar sigue en demasiado_pronto', () => {
+    const otros = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].map((n) =>
+      grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
+    const grupos = [grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']), ...otros];
+    const nombres = nombresDe(['A1', 'A2', 'A3', ...['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+      .flatMap((n) => [`${n}1`, `${n}2`, `${n}3`])]);
+
+    const r = analizarFuturo({
+      grupos, advancePerGroup: 1, bestExtraQualifiers: 6, pairId: 'A2', nombres,
+    });
+    // A2 es segundo: su suerte está en manos de los otros nueve grupos.
+    expect(r.estado).toBe('demasiado_pronto');
+    expect(r.repesca!.estado).toBe('demasiado_pronto');
+    expect(r.respondoCuandoQueden).toBeLessThan(r.faltan);
+  });
+});
+
+describe('el eliminado matemático tampoco necesita enumerar', () => {
+  it('tercero de grupo terminado, sin repesca: fuera y ya', () => {
+    const otros = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].map((n) =>
+      grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
+    const grupos = [grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']), ...otros];
+    const nombres = nombresDe(['A1', 'A2', 'A3', ...['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+      .flatMap((n) => [`${n}1`, `${n}2`, `${n}3`])]);
+
+    const r = analizarFuturo({
+      grupos, advancePerGroup: 1, bestExtraQualifiers: 6, pairId: 'A3', nombres,
+    });
+    expect(r.estado).toBe('fuera');
+    expect(r.posicionesPosiblesEnGrupo).toEqual([3]);
+    // No se le ofrece ninguna carrera: no hay nada que esperar.
+    expect(r.repesca).toBeUndefined();
   });
 });
