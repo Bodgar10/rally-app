@@ -43,6 +43,8 @@ import { useProActivation } from '@/hooks/useProActivation';
 import { useURL, parse } from 'expo-linking';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { useIsOrganizerOwner } from '@/hooks/useIsOrganizerOwner';
+import { useOrganizerTournaments } from '@/hooks/useOrganizerTournaments';
+import MisTorneosOrganizados from '@/components/organizer/MisTorneosOrganizados';
 import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
@@ -56,6 +58,11 @@ export default function DashboardScreen() {
 
   const [user, setUser]           = useState<User | null>(null);
   const isOwner                   = useIsOrganizerOwner();
+  /**
+   * Los torneos que ORGANIZA. `undefined` mientras se resuelve — que es
+   * distinto de "no organiza nada" y por eso no pinta la sección todavía.
+   */
+  const organizados               = useOrganizerTournaments();
   const [loading, setLoading]     = useState(true);
   const [torneoProximo, setTorneoProximo] = useState<TorneoInscrito | null>(null);
   const [pairIds, setPairIds]     = useState<string[]>([]);
@@ -196,7 +203,29 @@ export default function DashboardScreen() {
    * Qué bloques se pintan. Cada uno responde una pregunta, y solo se pinta si
    * tiene respuesta — ver `bloquesDelDashboard`.
    */
-  const bloques = bloquesDelDashboard(pairIds.length > 0, resumen);
+  const torneosOrganizados = organizados ?? [];
+  const esOrganizador = torneosOrganizados.length > 0;
+
+  const bloques = bloquesDelDashboard(pairIds.length > 0, resumen, esOrganizador);
+
+  /**
+   * LAS DOS FACETAS, Y CUÁL VA PRIMERO.
+   *
+   * Un organizador juega sus propios torneos, así que esto no es un "o lo uno
+   * o lo otro". El orden lo decide la urgencia:
+   *
+   *   · Con partido por jugar, el partido manda. Es lo que pasa en la próxima
+   *     hora y es por lo que abrió la app: la hora y la cancha no esperan.
+   *   · Sin partido, lo que organiza sube al hueco. Es el caso del bug —un
+   *     owner con un torneo en curso y sin jugar— y ahí sus torneos no son un
+   *     extra al final de la página: son la pantalla.
+   */
+  const organizadosPrimero = esOrganizador && !bloques.proximoPartido && !bloques.enMiCancha;
+
+  const seccionOrganizador = esOrganizador
+    ? <MisTorneosOrganizados torneos={torneosOrganizados} />
+    : null;
+
 
   if (loading) {
     return (
@@ -247,6 +276,11 @@ export default function DashboardScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* ── MIS TORNEOS (los que organiza), arriba ──────────────
+             Solo cuando no hay nada de jugador que le urja más. Ver
+             `organizadosPrimero`. */}
+        {organizadosPrimero && seccionOrganizador}
 
         {/* ── QUÉ PASA EN MI CANCHA ───────────────────────────────
              Justo debajo del próximo partido, porque es su continuación: la
@@ -388,6 +422,12 @@ export default function DashboardScreen() {
             </Text>
           </Pressable>
         )}
+
+        {/* ── MIS TORNEOS (los que organiza), abajo ───────────────
+             Cuando sí tiene partido, esto va detrás de todo lo suyo como
+             jugador pero DELANTE del acceso genérico a torneos: es su
+             trabajo, no un enlace de navegación. */}
+        {!organizadosPrimero && seccionOrganizador}
 
         {/* ── Acceso rápido a torneos ──────────────────────────── */}
         <View style={styles.sectionLabel}>

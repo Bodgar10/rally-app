@@ -53,3 +53,37 @@ describe('el dashboard del jugador', () => {
     }
   });
 });
+
+/**
+ * EL BUG: un owner con un torneo EN CURSO abría la app y leía "Sin partidos
+ * programados · Inscríbete a un torneo". No es la respuesta a una pantalla
+ * vacía cuando la pantalla no lo está.
+ */
+describe('cuando además organiza', () => {
+  const nada = { conHorario: 0, pendientes: 0 };
+
+  it('sin estar inscrito, la sección de próximo partido sobra', () => {
+    expect(bloquesDelDashboard(false, nada, true)).toEqual({
+      torneoPorEmpezar: false, proximoPartido: false, enMiCancha: false,
+    });
+  });
+
+  // Sin organizar nada, la invitación a inscribirse sigue siendo lo correcto.
+  it('sin organizar nada, la invitación se mantiene', () => {
+    expect(bloquesDelDashboard(false, nada).proximoPartido).toBe(true);
+    expect(bloquesDelDashboard(false, nada, false).proximoPartido).toBe(true);
+  });
+
+  // Las dos facetas conviven: organizar no le quita al organizador su condición
+  // de jugador ni le esconde su propio partido.
+  it('si además juega, sus partidos siguen enteros', () => {
+    const b = bloquesDelDashboard(true, { conHorario: 3, pendientes: 1 }, true);
+    expect(b).toEqual({
+      torneoPorEmpezar: false, proximoPartido: true, enMiCancha: true,
+    });
+  });
+
+  it('y "empieza mañana" sigue saliendo si su torneo no tiene calendario', () => {
+    expect(bloquesDelDashboard(true, nada, true).torneoPorEmpezar).toBe(true);
+  });
+});
