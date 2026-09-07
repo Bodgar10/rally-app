@@ -145,7 +145,7 @@ describe('cuando depende', () => {
     }));
     // La cifra va suelta, con su etiqueta — no dentro de una frase.
     expect(f.carrera!.cifras).toEqual(expect.arrayContaining([
-      { valor: '16', etiqueta: 'en disputa' },
+      { valor: '16', etiqueta: 'parejas por jugar' },
       { valor: '6', etiqueta: 'cupos' },
     ]));
     // Ni un solo nombre en ninguna parte.
@@ -161,7 +161,7 @@ describe('cuando depende', () => {
     })));
     expect(con(3)).toContain('P0');
     expect(con(4)).not.toContain('P0');
-    expect(con(4)).toContain('4 en disputa');
+    expect(con(4)).toContain('4 parejas por jugar');
   });
 
   // La carrera del pase directo reparte otra cosa, y se llama por su nombre.
@@ -425,7 +425,7 @@ describe('el puesto en la pelea', () => {
     expect(c.cifras).toEqual([
       { valor: '6', etiqueta: 'cupos' },
       { valor: '1.º–6.º', etiqueta: 'tu posición' },
-      { valor: '10', etiqueta: 'en disputa' },
+      { valor: '10', etiqueta: 'parejas por jugar' },
     ]);
     // Y en prosa solo lo que no es número.
     expect(c.notas.join(' ')).toContain('Hay 3 parejas por delante que ya no puedes alcanzar.');
@@ -470,7 +470,7 @@ describe('el puesto en la pelea', () => {
     });
     // Cupos primero —la referencia—, después dónde va, después los empatados.
     expect(c.cifras.map((x) => x.etiqueta)).toEqual([
-      'cupos', 'tu posición', 'en disputa',
+      'cupos', 'tu posición', 'parejas por jugar',
     ]);
   });
 });
@@ -563,6 +563,8 @@ describe('lo que puede cambiar y lo que ya no', () => {
     repesca: carrera({ estado: 'depende', ...over }),
   })).carrera!;
 
+  const rivales = (n: number) => Array.from({ length: n }, (_, i) => `P${i} / Q${i}`);
+
   it('los dos campos se cuentan por separado', () => {
     const c = con({
       dependeDeGamesContra: ['A / B', 'C / D'],
@@ -570,15 +572,15 @@ describe('lo que puede cambiar y lo que ya no', () => {
     });
     const notas = c.notas.join(' | ');
     // Dos notas distintas, cada una con su cifra.
-    expect(notas).toMatch(/A \/ B y C \/ D todavía puede cambiar/i);
-    expect(notas).toMatch(/E \/ F, G \/ H y I \/ J.*exactamente igual que tú/i);
+    expect(notas).toMatch(/todavía puede cambiar: a A \/ B y C \/ D les faltan partidos/i);
+    expect(notas).toMatch(/E \/ F, G \/ H y I \/ J terminaron con tus mismos puntos/i);
     // Y NO se suman en una sola cifra de 5.
-    expect(c.cifras).not.toContainEqual({ valor: '5', etiqueta: 'en disputa' });
+    expect(c.cifras).not.toContainEqual({ valor: '5', etiqueta: 'parejas igualadas' });
   });
 
   it('lo que puede cambiar dice que depende de sus partidos', () => {
     const notas = con({ dependeDeGamesContra: ['A / B'] }).notas.join(' ');
-    expect(notas).toMatch(/depende de cómo terminen sus partidos/i);
+    expect(notas).toMatch(/les faltan partidos/i);
     // Ya no se habla de "diferencia de games": eso era del significado viejo.
     expect(notas).not.toMatch(/los separa la diferencia de games/i);
   });
@@ -590,11 +592,56 @@ describe('lo que puede cambiar y lo que ya no', () => {
       const notas = con({
         empatadosSinDesempate: Array.from({ length: n }, (_, i) => `P${i} / Q${i}`),
       }).notas.join(' ');
-      expect(notas).toMatch(/exactamente igual que tú/i);
+      expect(notas).toMatch(/termin(ó|aron) con tus mismos puntos, sets y games/i);
       expect(notas).toMatch(/el reglamento no las separa/i);
       // Ni por delante, ni por detrás, ni antes, ni después.
       expect(notas).not.toMatch(/por delante|por detrás|vas antes|quedas antes|te adelanta/i);
     }
+  });
+
+  // ── QUÉ SE CUENTA ────────────────────────────────────────────────────────
+  //
+  // "10 EN DISPUTA" no decía ni que fueran parejas ni que les faltaran
+  // partidos: el 10 podía leerse como diez partidos pendientes. La etiqueta
+  // tiene que entenderse SIN la nota de abajo.
+  describe('las etiquetas dicen que son parejas', () => {
+    // Las cuatro que el módulo puede emitir en el tercer tile: singular y
+    // plural de los dos conceptos.
+    const casos = [
+      { campo: 'dependeDeGamesContra', n: 1 },
+      { campo: 'dependeDeGamesContra', n: 4 },
+      { campo: 'empatadosSinDesempate', n: 1 },
+      { campo: 'empatadosSinDesempate', n: 4 },
+    ] as const;
+
+    it.each(casos)('$campo con $n dice "pareja"', ({ campo, n }) => {
+      const c = con({ [campo]: rivales(n) });
+      expect(c.cifras[2].etiqueta).toMatch(/^pareja/);
+    });
+
+    it('lo que aún se puede mover dice que les faltan partidos', () => {
+      expect(con({ dependeDeGamesContra: rivales(4) }).cifras[2].etiqueta)
+        .toBe('parejas por jugar');
+      expect(con({ dependeDeGamesContra: rivales(1) }).cifras[2].etiqueta)
+        .toBe('pareja por jugar');
+    });
+
+    it('lo que ya no se mueve no dice que falte nada', () => {
+      const e = con({ empatadosSinDesempate: rivales(4) }).cifras[2].etiqueta;
+      expect(e).toBe('parejas igualadas');
+      expect(e).not.toMatch(/jugar|falta|pendiente/i);
+    });
+
+    // La nota explica; no vuelve a decir el número que ya está en el tile.
+    it('la nota no repite el número que ya está en la cifra', () => {
+      const c = con({ dependeDeGamesContra: rivales(9) });
+      expect(c.cifras[2].valor).toBe('9');
+      expect(c.notas.join(' ')).not.toMatch(/\b9\b/);
+
+      const i = con({ empatadosSinDesempate: rivales(9) });
+      expect(i.cifras[2].valor).toBe('9');
+      expect(i.notas.join(' ')).not.toMatch(/\b9\b/);
+    });
   });
 
   // El corte de tres vale para los DOS.
@@ -610,8 +657,8 @@ describe('lo que puede cambiar y lo que ya no', () => {
       dependeDeGamesContra: Array.from({ length: 4 }, (_, i) => `A${i}`),
       empatadosSinDesempate: Array.from({ length: 5 }, (_, i) => `B${i}`),
     }).notas.join(' ');
-    expect(muchos).toContain('Con 4 parejas todavía puede cambiar');
-    expect(muchos).toContain('Hay 5 parejas exactamente igual que tú');
+    expect(muchos).toContain('a esas parejas les faltan partidos');
+    expect(muchos).toContain('Terminaron con tus mismos puntos, sets y games');
     expect(muchos).not.toContain('A0');
     expect(muchos).not.toContain('B0');
   });
@@ -624,11 +671,11 @@ describe('lo que puede cambiar y lo que ya no', () => {
       empatadosSinDesempate: ['C / D', 'E / F'],
     });
     expect(ambas.cifras).toHaveLength(3);
-    expect(ambas.cifras[2]).toEqual({ valor: '1', etiqueta: 'en disputa' });
+    expect(ambas.cifras[2]).toEqual({ valor: '1', etiqueta: 'pareja por jugar' });
 
     // Sin nada en disputa, el tile lo ocupan las igualadas.
     const soloIgualadas = con({ empatadosSinDesempate: ['C / D', 'E / F'] });
-    expect(soloIgualadas.cifras[2]).toEqual({ valor: '2', etiqueta: 'igualadas' });
+    expect(soloIgualadas.cifras[2]).toEqual({ valor: '2', etiqueta: 'parejas igualadas' });
   });
 });
 

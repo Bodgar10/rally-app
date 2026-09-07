@@ -228,12 +228,19 @@ function carreraEnCifras(
   const enDisputa = c.dependeDeGamesContra;
   const igualadas = c.empatadosSinDesempate;
 
+  //     LA ETIQUETA DICE QUÉ SE CUENTA. "en disputa" no decía ni que fueran
+  //     parejas ni que les faltaran partidos: el 10 podía leerse como diez
+  //     partidos pendientes. Ahora las dos empiezan por "parejas" y se separan
+  //     por lo único que las distingue — si todavía se pueden mover o ya no.
   if (enDisputa.length > 0) {
-    cifras.push({ valor: String(enDisputa.length), etiqueta: 'en disputa' });
+    cifras.push({
+      valor: String(enDisputa.length),
+      etiqueta: enDisputa.length === 1 ? 'pareja por jugar' : 'parejas por jugar',
+    });
   } else if (igualadas.length > 0) {
     cifras.push({
       valor: String(igualadas.length),
-      etiqueta: igualadas.length === 1 ? 'igualada' : 'igualadas',
+      etiqueta: igualadas.length === 1 ? 'pareja igualada' : 'parejas igualadas',
     });
   }
 
@@ -258,8 +265,10 @@ function carreraEnCifras(
     notas.push(
       enDisputa.length <= RIVALES_QUE_SE_NOMBRAN
         // Pocos: los nombres son accionables, sabe a quién mirar.
-        ? `Con ${enumerar(enDisputa)} todavía puede cambiar: depende de cómo terminen sus partidos.`
-        : `Con ${enDisputa.length} parejas todavía puede cambiar: depende de cómo terminen sus partidos.`,
+        ? `Tu posición todavía puede cambiar: a ${enumerar(enDisputa)} les faltan partidos.`
+        // Muchos: el número ya está en el tile, así que la nota no lo repite —
+        // solo dice por qué está ahí.
+        : 'Tu posición todavía puede cambiar: a esas parejas les faltan partidos.',
     );
   }
 
@@ -273,8 +282,9 @@ function carreraEnCifras(
   if (igualadas.length > 0) {
     notas.push(
       igualadas.length <= RIVALES_QUE_SE_NOMBRAN
-        ? `${enumerar(igualadas)} ${igualadas.length === 1 ? 'está' : 'están'} exactamente igual que tú: mismos puntos, sets y games. El reglamento no las separa de ti.`
-        : `Hay ${igualadas.length} parejas exactamente igual que tú: mismos puntos, sets y games. El reglamento no las separa.`,
+        ? `${enumerar(igualadas)} ${igualadas.length === 1 ? 'terminó' : 'terminaron'} con tus mismos puntos, sets y games. El reglamento no las separa de ti.`
+        // Sin repetir el número, que ya está en el tile de arriba.
+        : 'Terminaron con tus mismos puntos, sets y games. El reglamento no las separa de ti.',
     );
   }
 

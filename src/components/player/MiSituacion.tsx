@@ -518,7 +518,13 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
           style={{
             flexDirection: 'row',
             flexWrap: 'wrap',
-            gap: space[4],
+            // HUECO DE 12 Y NO DE 16. Medido a 390px: en el peor caso de la fila
+            // —"PASES DIRECTOS" (93px) y un rango de dos ordinales de dos cifras,
+            // "10.º–16.º" (79px)— con 16 quedaban 116px para la tercera etiqueta
+            // y "PAREJAS POR JUGAR" ocupa 114. Dos píxeles no son un margen, y
+            // esta fila ya se ha partido en dos líneas dos veces. Con 12 quedan
+            // 124 y la etiqueta más larga que usamos cabe con 10 de sobra.
+            gap: space[3],
             marginTop: space[2],
             paddingVertical: space[2],
             borderTopWidth: 1,
