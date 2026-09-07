@@ -91,7 +91,7 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
         grupo: g.nombre,
         mensaje: `El grupo ${g.nombre} tiene ${sinJugar.length} ` +
           `${sinJugar.length === 1 ? 'partido sin resultado' : 'partidos sin resultado'}. ` +
-          `Sembrar ahora repartiría plazas que todavía se están jugando.`,
+          `Definirlos ahora repartiría plazas que todavía se están jugando.`,
       });
     }
   }
@@ -107,7 +107,7 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
         grupo: g.nombre,
         mensaje: `Las posiciones del grupo ${g.nombre} no son 1…${g.pairIds.length} ` +
           `sin repetir: hay ${g.filas.length} filas con posiciones ${reales || '—'}. ` +
-          `La tabla está a medias y la siembra leería de ahí.`,
+          `La tabla está a medias y los enfrentamientos saldrían de ahí.`,
       });
     }
   }
@@ -128,7 +128,7 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
         mensaje: `En el grupo ${g.nombre}, ${quienes.join(', ')} quedaron iguales en todo: ` +
           `puntos, partidos entre ellas, sets y games. El reglamento no las separa, así que ` +
           `el orden que se ve ahora NO es deportivo — sale de un desempate técnico. ` +
-          `Sortéalo antes de sembrar, o el primero del grupo lo elige el sistema.`,
+          `Sortéalo antes de definirlos, o el primero del grupo lo elige el sistema.`,
       });
     }
   }
@@ -148,7 +148,7 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
       mensaje: `Salen ${clasificados.length} clasificados y deberían ser ${esperados} ` +
         `(${grupos.length} grupos × ${advancePerGroup}` +
         `${bestExtraQualifiers > 0 ? ` + ${bestExtraQualifiers} de repesca` : ''}). ` +
-        `El cuadro se sembraría con un tamaño que no corresponde.`,
+        `El cuadro quedaría con un tamaño que no corresponde.`,
     });
   }
 
@@ -185,7 +185,7 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
       gravedad: 'bloqueante',
       parejas: quienes,
       mensaje: `A ${quienes.join(', ')} la app ${quienes.length === 1 ? 'le dijo' : 'les dijo'} ` +
-        `que ${quienes.length === 1 ? 'estaba eliminada' : 'estaban eliminadas'}, y la siembra ` +
+        `que ${quienes.length === 1 ? 'estaba eliminada' : 'estaban eliminadas'}, y el reparto ` +
         `${quienes.length === 1 ? 'la mete' : 'las mete'} en el cuadro.`,
     });
   }
@@ -196,7 +196,7 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
       gravedad: 'bloqueante',
       parejas: quienes,
       mensaje: `A ${quienes.join(', ')} la app ${quienes.length === 1 ? 'le dijo' : 'les dijo'} ` +
-        `que ya ${quienes.length === 1 ? 'había clasificado' : 'habían clasificado'}, y la siembra ` +
+        `que ya ${quienes.length === 1 ? 'había clasificado' : 'habían clasificado'}, y el reparto ` +
         `${quienes.length === 1 ? 'la deja' : 'las deja'} fuera.`,
     });
   }

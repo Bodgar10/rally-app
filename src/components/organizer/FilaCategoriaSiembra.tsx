@@ -11,7 +11,7 @@ import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-
 import type { EstadoDeCategoria } from '@/lib/siembra-lote';
 
 export const etiquetaDeEstado = (e: EstadoDeCategoria): string => {
-  if (e.cuadroSembrado) return 'SEMBRADA';
+  if (e.cuadroSembrado) return 'DEFINIDA';
   if (e.motivoFuera === 'grupos_incompletos') return 'EN JUEGO';
   if (e.motivoFuera === 'bloqueantes') return 'REVISAR';
   if (e.motivoFuera === 'avisos') return 'DECIDE TÚ';

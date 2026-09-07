@@ -525,7 +525,7 @@ export default function GruposScreen() {
         nombres: cat.nombresPorPareja,
       });
     } catch (e) {
-      setAvisoSiembra(fallo('grupos/validar-siembra', e, 'No se pudo comprobar el cuadro antes de sembrar.', { categoria: cat.id }));
+      setAvisoSiembra(fallo('grupos/validar-siembra', e, 'No se pudo comprobar el cuadro antes de definir los enfrentamientos.', { categoria: cat.id }));
       return;
     }
 
@@ -560,12 +560,12 @@ export default function GruposScreen() {
         setAvisoSiembra(
           cuerpo?.detail ??
           cuerpo?.error ??
-          'No se pudo sembrar el cuadro.',
+          'No se pudieron definir los enfrentamientos.',
         );
         return;
       }
 
-      setAvisoSiembra(`Cuadro de ${cat.nombre} sembrado: ${cuerpo?.bracket_size ?? '?'} llaves.`);
+      setAvisoSiembra(`Enfrentamientos de ${cat.nombre} definidos: ${cuerpo?.bracket_size ?? '?'} llaves.`);
       await cargar();
     } catch (e) {
       setAvisoSiembra(e instanceof Error ? e.message : String(e));
@@ -785,7 +785,7 @@ export default function GruposScreen() {
                        terminó la fase de grupos, se sembró el cuadro, aquí se
                        ve quién juega contra quién. */
                     <Text style={s.siembraHecha}>
-                      ✓ El cuadro de esta categoría ya está sembrado: se ve abajo.
+                      ✓ Los enfrentamientos de esta categoría ya están definidos: se ven abajo.
                     </Text>
                   ) : (
                     <>
@@ -807,18 +807,18 @@ export default function GruposScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={
                           todosCompletos(activa)
-                            ? `Sembrar cuadro de ${activa.nombre}`
-                            : `Sembrar cuadro de ${activa.nombre}. Bloqueado: ${activa.gruposCompletos} de ${activa.grupos.length} grupos listos.`
+                            ? `Definir los enfrentamientos de ${activa.nombre}`
+                            : `Definir los enfrentamientos de ${activa.nombre}. Bloqueado: ${activa.gruposCompletos} de ${activa.grupos.length} grupos listos.`
                         }
                         accessibilityState={{ disabled: !todosCompletos(activa) }}
                       >
                         {sembrando === activa.id ? (
                           <ActivityIndicator color={todosCompletos(activa) ? color.onGold : color.goldMuted} />
                         ) : todosCompletos(activa) ? (
-                          <Text style={s.botonSembrarTexto}>Sembrar cuadro →</Text>
+                          <Text style={s.botonSembrarTexto}>Definir enfrentamientos →</Text>
                         ) : (
                           <Text style={s.botonSembrarTextoOff}>
-                            🔒 Sembrar cuadro · {activa.gruposCompletos} de {activa.grupos.length}{' '}
+                            🔒 Definir enfrentamientos · {activa.gruposCompletos} de {activa.grupos.length}{' '}
                             {activa.grupos.length === 1 ? 'grupo listo' : 'grupos listos'}
                           </Text>
                         )}
@@ -841,8 +841,8 @@ export default function GruposScreen() {
                     <View style={problemas.bloquea ? s.problemasBloqueo : s.problemasAviso}>
                       <Text style={problemas.bloquea ? s.problemasTituloBloqueo : s.problemasTituloAviso}>
                         {problemas.bloquea
-                          ? 'No se puede sembrar todavía'
-                          : 'Antes de sembrar, lee esto'}
+                          ? 'Todavía no se pueden definir'
+                          : 'Antes de definirlos, lee esto'}
                       </Text>
                       {problemas.lista.map((p, i) => {
                         const suyo = p.grupo
@@ -884,7 +884,7 @@ export default function GruposScreen() {
                             style={s.btnSeguir}
                             accessibilityRole="button"
                           >
-                            <Text style={s.btnSeguirTexto}>Sembrar de todos modos</Text>
+                            <Text style={s.btnSeguirTexto}>Definirlos de todos modos</Text>
                           </Pressable>
                         )}
                       </View>

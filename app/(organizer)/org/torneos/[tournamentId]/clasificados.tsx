@@ -199,7 +199,9 @@ export default function ClasificadosScreen() {
       // Resembrar el cuadro que acabamos de borrar.
       if (r?.hay_que_resembrar) {
         const ok = await llamar('generate-bracket', { action: 'seed', category_id: c.id });
-        pasos.push(ok ? 'Cuadro resembrado.' : 'El cuadro NO se pudo resembrar: hazlo desde Grupos.');
+        pasos.push(ok
+          ? 'Enfrentamientos definidos de nuevo.'
+          : 'Los enfrentamientos NO se pudieron volver a definir: hazlo desde Grupos.');
       }
 
       // Y reprogramar el día de eliminatorias: cambiar los clasificados cambia
@@ -332,8 +334,8 @@ export default function ClasificadosScreen() {
                   {/* Situación 2: se avisa ANTES de tocar nada. */}
                   {c.situacion === 'resembrar' && cambiada(c) && (
                     <Text style={s.aviso}>
-                      Esta categoría ya tiene el cuadro sembrado ({c.cuadro} partidos,
-                      ninguno jugado). Guardar lo borra y lo vuelve a sembrar con el
+                      Esta categoría ya tiene sus enfrentamientos definidos ({c.cuadro} partidos,
+                      ninguno jugado). Guardar los borra y los vuelve a definir con el
                       número nuevo.
                     </Text>
                   )}
@@ -342,7 +344,7 @@ export default function ClasificadosScreen() {
                     <View style={s.confirmar}>
                       <Text style={s.confirmarTexto}>
                         Se van a borrar los {c.cuadro} partidos del cuadro de{' '}
-                        {c.nombre} y se sembrará uno nuevo. ¿Seguimos?
+                        {c.nombre} y se definirán de nuevo. ¿Seguimos?
                       </Text>
                       <View style={s.confirmarBotones}>
                         <Pressable
@@ -357,7 +359,7 @@ export default function ClasificadosScreen() {
                           style={s.btnPeligro}
                           accessibilityRole="button"
                         >
-                          <Text style={s.btnPeligroTexto}>Borrar y resembrar</Text>
+                          <Text style={s.btnPeligroTexto}>Borrar y volver a definir</Text>
                         </Pressable>
                       </View>
                     </View>

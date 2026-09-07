@@ -1386,8 +1386,9 @@ export default function CerrarInscripcionesScreen() {
               {fase.horarios.categoriasSaltadas.length > 0 && (
                 <Text style={[s.resumenLinea, { marginTop: space[2] }]}>
                   · <Text style={s.resumenNegrita}>Eliminatorias</Text> — sin hora en{' '}
-                  {fase.horarios.categoriasSaltadas.join(', ')}. El cuadro sembrado y el
-                  plan no tienen el mismo número de partidos: vuelve a sembrarlo.
+                  {fase.horarios.categoriasSaltadas.join(', ')}. Los enfrentamientos
+                  definidos y el plan no tienen el mismo número de partidos:
+                  vuelve a definirlos.
                 </Text>
               )}
 

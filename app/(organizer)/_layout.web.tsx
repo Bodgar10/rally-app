@@ -50,7 +50,10 @@ export default function OrganizerLayoutWeb() {
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    // `backgroundColor` en el contenedor de fuera: el hueco que se le reserva a
+    // la tarjeta de guía queda por DEBAJO del Stack, y sin esto se veía el
+    // fondo del navegador — una franja clara bajo una app oscura.
+    <View style={{ flex: 1, backgroundColor: color.bg }}>
       {/* El hueco que la barra necesita, y solo mientras hay guía. */}
       <View style={{ flex: 1, paddingBottom: conGuia ? ALTO_BARRA_GUIA : 0 }}>
         <CenteredContainer>

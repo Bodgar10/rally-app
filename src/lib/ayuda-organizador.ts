@@ -47,7 +47,31 @@ export interface PreguntaDeAyuda {
   pantalla: string | null;
   /** Texto del enlace: "Ir a Fechas". */
   enlace: string;
+  /** En qué momento del torneo se hace esto. Ver `MOMENTOS`. */
+  momento: Momento;
 }
+
+/**
+ * LOS CUATRO MOMENTOS, EN EL ORDEN EN QUE PASAN
+ *
+ * Diecinueve preguntas seguidas no son una lista, son un muro: están bien
+ * escritas y aun así hay que leerlas todas para encontrar una. Agrupadas por
+ * MOMENTO, el organizador salta directo al tercio que le toca — sabe
+ * perfectamente si está montando el torneo, si está cobrando inscripciones o
+ * si es sábado y hay gente en la cancha.
+ *
+ * Se agrupa por momento y no por apartado del panel a propósito: el panel ya
+ * está agrupado así, y repetir esa estructura aquí solo serviría a quien ya
+ * sabe dónde mirar — que es justo quien no abre la ayuda.
+ */
+export type Momento = 'montar' | 'inscripciones' | 'jugando' | 'cuadro';
+
+export const MOMENTOS: Array<{ id: Momento; titulo: string }> = [
+  { id: 'montar',        titulo: 'Antes de abrir inscripciones' },
+  { id: 'inscripciones', titulo: 'Con las inscripciones abiertas' },
+  { id: 'jugando',       titulo: 'Durante el torneo' },
+  { id: 'cuadro',        titulo: 'Al terminar los grupos' },
+];
 
 /**
  * Las preguntas.
@@ -66,6 +90,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'calendario después.',
     pantalla: 'fechas',
     enlace: 'Ir a Fechas',
+    momento: 'montar',
   },
   {
     id: 'sede',
@@ -76,6 +101,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'mismo.',
     pantalla: 'sede',
     enlace: 'Ir a Sede',
+    momento: 'montar',
   },
   {
     id: 'categorias',
@@ -86,6 +112,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'tenga parejas.',
     pantalla: 'categorias',
     enlace: 'Ir a Categorías',
+    momento: 'montar',
   },
   {
     id: 'cuota',
@@ -95,6 +122,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'distinta en una categoría concreta sin tocar las demás.',
     pantalla: 'cuota',
     enlace: 'Ir a Cuota de inscripción',
+    momento: 'montar',
   },
   {
     id: 'canchas',
@@ -104,6 +132,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'días que le diste. Sin ese dato no puede avisarte de que no cabe.',
     pantalla: 'canchas',
     enlace: 'Ir a Canchas',
+    momento: 'montar',
   },
   {
     id: 'cabe',
@@ -114,6 +143,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'y te avisa si no alcanzan.',
     pantalla: 'canchas',
     enlace: 'Empezar por las canchas',
+    momento: 'montar',
   },
   {
     id: 'horarios',
@@ -124,6 +154,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'duración de cada uno.',
     pantalla: 'horarios',
     enlace: 'Ir a Horarios',
+    momento: 'montar',
   },
   {
     id: 'formato',
@@ -134,6 +165,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'más apretado va.',
     pantalla: 'formato',
     enlace: 'Ir a Formato',
+    momento: 'montar',
   },
   {
     id: 'clasificados',
@@ -143,6 +175,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'mejores que no pasaron. Los dos números deciden el tamaño del cuadro.',
     pantalla: 'clasificados',
     enlace: 'Ir a Cuántos clasifican',
+    momento: 'montar',
   },
   {
     id: 'bloques',
@@ -152,6 +185,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'Aquí se ve si los bloques caben en los días y las canchas que tienes.',
     pantalla: 'bloques',
     enlace: 'Ir a Horarios de la fase de grupos',
+    momento: 'montar',
   },
 
   // ── El paso que cambia el torneo de estado ────────────────────────────────
@@ -164,6 +198,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'categoría, no el torneo entero de golpe.',
     pantalla: 'cerrar-inscripciones',
     enlace: 'Ir a Cerrar inscripciones',
+    momento: 'inscripciones',
   },
   {
     id: 'sembrar',
@@ -173,7 +208,8 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'posiciones no dependan de ningún partido pendiente. La pantalla te dice ' +
       'cuáles están listas y qué le falta a las demás.',
     pantalla: 'sembrar',
-    enlace: 'Ir a Sembrar los cuadros',
+    enlace: 'Ir a Definir enfrentamientos',
+    momento: 'cuadro',
   },
 
   // ── Durante el torneo ─────────────────────────────────────────────────────
@@ -186,6 +222,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'enciman.',
     pantalla: 'calendario',
     enlace: 'Ir a Calendario',
+    momento: 'jugando',
   },
   {
     id: 'grupos',
@@ -195,6 +232,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'capturar un marcador desde ahí sin ser el juez asignado.',
     pantalla: 'grupos',
     enlace: 'Ir a Grupos',
+    momento: 'jugando',
   },
   {
     id: 'empate',
@@ -205,6 +243,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'la app te lo marca en la tabla del grupo para que lo resuelvas tú.',
     pantalla: 'grupos',
     enlace: 'Ir a Grupos',
+    momento: 'jugando',
   },
   {
     id: 'jueces',
@@ -215,6 +254,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'cuenta.',
     pantalla: 'jueces',
     enlace: 'Ir a Jueces',
+    momento: 'jugando',
   },
 
   // ── Parejas ───────────────────────────────────────────────────────────────
@@ -226,6 +266,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'nombre y quedan igual que si se hubieran inscrito solos.',
     pantalla: 'agregar-pareja',
     enlace: 'Ir a Registrar pareja a mano',
+    momento: 'inscripciones',
   },
   {
     id: 'parejas',
@@ -235,6 +276,7 @@ export const PREGUNTAS: PreguntaDeAyuda[] = [
       'también se da de baja a una pareja.',
     pantalla: 'parejas',
     enlace: 'Ir a Inscritas',
+    momento: 'inscripciones',
   },
 ];
 
@@ -288,6 +330,30 @@ export function preguntasPorContexto(pantalla: PantallaOrg): {
     aqui: PREGUNTAS.filter((p) => p.pantalla === pantalla),
     resto: PREGUNTAS.filter((p) => p.pantalla !== pantalla),
   };
+}
+
+/**
+ * Las preguntas repartidas por momento, en el orden de `MOMENTOS` y sin grupos
+ * vacíos. `dentro` filtra por texto cuando el organizador está buscando.
+ */
+export function preguntasPorMomento(
+  busqueda = '',
+): Array<{ id: Momento; titulo: string; preguntas: PreguntaDeAyuda[] }> {
+  const q = normalizar(busqueda);
+  const cabe = (p: PreguntaDeAyuda) =>
+    q === '' || normalizar(`${p.pregunta} ${p.respuesta} ${p.enlace}`).includes(q);
+
+  return MOMENTOS
+    .map((m) => ({ ...m, preguntas: PREGUNTAS.filter((p) => p.momento === m.id && cabe(p)) }))
+    .filter((m) => m.preguntas.length > 0);
+}
+
+/**
+ * Sin tildes y en minúsculas, para que "cuanto clasifican" encuentre "¿Cuántos
+ * clasifican?". Quien busca con prisa no pone acentos.
+ */
+export function normalizar(t: string): string {
+  return t.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 /** La ruta a la que lleva el enlace de una pregunta. */

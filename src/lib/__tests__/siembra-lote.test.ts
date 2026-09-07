@@ -51,7 +51,7 @@ describe('el checklist dice cómo va cada categoría', () => {
     const [e] = checklistDeSiembra([cat({ id: 'A' })]);
     expect(e.seSiembraEnLote).toBe(true);
     expect(e.motivoFuera).toBeNull();
-    expect(e.resumen).toBe('Lista para sembrar');
+    expect(e.resumen).toBe('Lista para definirlos');
     expect(e.gruposCompletos).toBe(2);
     expect(e.totalGrupos).toBe(2);
   });

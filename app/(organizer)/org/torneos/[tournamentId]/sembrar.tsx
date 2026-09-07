@@ -184,7 +184,7 @@ export default function SembrarScreen() {
           const cuerpo = await res.json().catch(() => null);
           out.push(res.ok
             ? { id: e.id, nombre: e.nombre, ok: true, detalle: `${cuerpo?.bracket_size ?? '?'} llaves` }
-            : { id: e.id, nombre: e.nombre, ok: false, detalle: cuerpo?.detail ?? cuerpo?.error ?? 'no se pudo sembrar' });
+            : { id: e.id, nombre: e.nombre, ok: false, detalle: cuerpo?.detail ?? cuerpo?.error ?? 'no se pudieron definir' });
         } catch (err) {
           out.push({
             id: e.id, nombre: e.nombre, ok: false,
@@ -193,7 +193,7 @@ export default function SembrarScreen() {
         }
       }
     } catch (e) {
-      setError(fallo('sembrar/lote', e, 'No se pudo sembrar.'));
+      setError(fallo('sembrar/lote', e, 'No se pudieron definir los enfrentamientos.'));
     }
     setResultados(out);
     setSembrando(false);
@@ -216,7 +216,7 @@ export default function SembrarScreen() {
       <BotonVolver texto={nombre || 'Torneo'} />
       <ScrollView contentContainerStyle={s.contenido} showsVerticalScrollIndicator={false}>
         <Text style={s.eyebrow}>FASE FINAL</Text>
-        <Text style={s.titulo}>Sembrar los cuadros</Text>
+        <Text style={s.titulo}>Definir enfrentamientos</Text>
 
         {estados.length === 0 ? (
           <Text style={s.vacio}>
@@ -227,7 +227,7 @@ export default function SembrarScreen() {
           <Text style={s.entradilla}>
             {listas.length === 0
               ? 'Ninguna categoría está lista todavía.'
-              : `${listas.length} de ${estados.length} ${listas.length === 1 ? 'lista' : 'listas'} para sembrar.`}
+              : `${listas.length} de ${estados.length} ${listas.length === 1 ? 'lista' : 'listas'} para definirlos.`}
           </Text>
         )}
 
@@ -245,7 +245,7 @@ export default function SembrarScreen() {
             disabled={listas.length === 0 || sembrando}
             style={[s.boton, (listas.length === 0 || sembrando) && s.botonOff]}
             accessibilityRole="button"
-            accessibilityLabel={`Sembrar ${listas.length} categorías`}
+            accessibilityLabel={`Definir los enfrentamientos de ${listas.length} categorías`}
             accessibilityState={{ disabled: listas.length === 0 || sembrando }}
           >
             {sembrando ? (
@@ -253,8 +253,8 @@ export default function SembrarScreen() {
             ) : (
               <Text style={listas.length > 0 ? s.botonTexto : s.botonTextoOff}>
                 {listas.length === 0
-                  ? '🔒 Sembrar · ninguna lista todavía'
-                  : `Sembrar ${listas.length} ${listas.length === 1 ? 'cuadro' : 'cuadros'} →`}
+                  ? '🔒 Definir enfrentamientos · ninguna lista todavía'
+                  : `Definir ${listas.length} ${listas.length === 1 ? 'cuadro' : 'cuadros'} →`}
               </Text>
             )}
           </Pressable>
@@ -264,7 +264,7 @@ export default function SembrarScreen() {
         {resultados && (
           <View style={s.resultados}>
             <Text style={s.resultadosTitulo}>
-              {resultados.filter((r) => r.ok).length} de {resultados.length} sembrados
+              {resultados.filter((r) => r.ok).length} de {resultados.length} definidos
             </Text>
             {resultados.map((r) => (
               <Text key={r.id} style={r.ok ? s.resOk : s.resMal}>

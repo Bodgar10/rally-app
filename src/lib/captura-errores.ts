@@ -34,9 +34,9 @@ const MENSAJES: Record<string, string> = {
   bracket_busy:             'Otro juez está capturando en este cuadro. Espera unos segundos y reintenta.',
 
   // Eliminatorias: capturar avanza el cuadro en el mismo paso.
-  is_a_bye:                 'Ese cruce es un bye: se resolvió al sembrar el cuadro y no se captura.',
+  is_a_bye:                 'Ese cruce es un bye: se resolvió al definir los enfrentamientos y no se captura.',
   winner_not_in_match:      'El ganador no es ninguna de las dos parejas de este partido.',
-  bracket_empty:            'La categoría todavía no tiene cuadro sembrado.',
+  bracket_empty:            'La categoría todavía no tiene enfrentamientos definidos.',
   bracket_read_failed:      'No se pudo leer el cuadro. No se guardó nada; reintenta.',
   downstream_already_played:
     'No se puede corregir: cambiaría quién juega un partido que ya se jugó. Resuélvelo como organizador.',

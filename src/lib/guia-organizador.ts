@@ -269,24 +269,24 @@ export const GUIAS: Guia[] = [
 
   // ── El paso que cambia el torneo de estado ────────────────────────────────
   {
-    id: 'cerrar-y-sembrar',
+    id: 'cerrar-y-definir',
     desdePregunta: 'cerrar-inscripciones',
     pasos: [
       { id: 'inscripciones-cerradas', pantalla: 'cerrar-inscripciones',
         texto: 'Elige la categoría y confirma. Se arman sus grupos.',
         comoLlegar: 'Abre "Cerrar inscripciones", abajo del todo.' },
-      { id: 'mirar-sembrar', pantalla: 'sembrar', seCumpleAlMirar: true,
+      { id: 'mirar-definir', pantalla: 'sembrar', seCumpleAlMirar: true,
         texto: 'Cuando terminen sus grupos, el cuadro se arma desde aquí.',
-        comoLlegar: 'Abre "Sembrar los cuadros" para ver cómo va.' },
+        comoLlegar: 'Abre "Definir enfrentamientos" para ver cómo va.' },
     ],
   },
   {
     id: 'armar-cuadro',
     desdePregunta: 'sembrar',
     pasos: [
-      { id: 'mirar-sembrar', pantalla: 'sembrar', seCumpleAlMirar: true,
-        texto: 'Cada categoría dice si ya se puede sembrar o qué le falta.',
-        comoLlegar: 'Abre "Sembrar los cuadros".' },
+      { id: 'mirar-definir', pantalla: 'sembrar', seCumpleAlMirar: true,
+        texto: 'Cada categoría dice si ya se pueden definir o qué le falta.',
+        comoLlegar: 'Abre "Definir enfrentamientos".' },
     ],
   },
 

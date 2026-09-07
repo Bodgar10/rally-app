@@ -158,7 +158,7 @@ describe('5 · empate sin resolver: AVISO, no bloqueo', () => {
     expect(a.grupo).toBe('J');
     expect(a.parejas).toHaveLength(3);
     expect(a.mensaje).toMatch(/NO es deportivo/);
-    expect(a.mensaje).toMatch(/Sortéalo antes de sembrar/);
+    expect(a.mensaje).toMatch(/Sortéalo antes de definirlos/);
   });
 
   it('con el sorteo hecho, el aviso desaparece', () => {

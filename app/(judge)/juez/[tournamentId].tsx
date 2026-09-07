@@ -517,7 +517,7 @@ export default function JudgeTournamentScreen() {
                         "ningún partido coincide" es cierto y no sirve: lo que el
                         juez quiere saber es cuándo le va a tocar. */}
                     {fase === 'eliminatorias' && cuadroPlaneado
-                      ? `Todavía no hay cruces: se siembran al terminar los grupos. Están programadas para ${fechaHoraDeTorneo(cuadroPlaneado)}.`
+                      ? `Todavía no hay cruces: se definen al terminar los grupos. Están programadas para ${fechaHoraDeTorneo(cuadroPlaneado)}.`
                       : estado === 'pendientes'
                         ? 'No hay partidos pendientes con estos filtros.'
                         : 'Ningún partido coincide con los filtros elegidos.'}

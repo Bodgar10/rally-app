@@ -47,7 +47,7 @@ export interface EstadoDeCategoria {
   cuadroSembrado: boolean;
   bloqueantes: Problema[];
   avisos: Problema[];
-  /** Entra en "Sembrar todas". */
+  /** Entra en "Definir todas". */
   seSiembraEnLote: boolean;
   motivoFuera: MotivoFuera | null;
   /**
@@ -71,7 +71,7 @@ export function checklistDeSiembra(cats: CategoriaParaSembrar[]): EstadoDeCatego
         id: c.id, nombre: c.nombre, gruposCompletos: hechos, totalGrupos: total,
         cuadroSembrado: true, bloqueantes: [], avisos: [],
         seSiembraEnLote: false, motivoFuera: 'ya_sembrada',
-        resumen: 'Cuadro ya sembrado',
+        resumen: 'Enfrentamientos ya definidos',
       };
     }
 
@@ -100,8 +100,8 @@ export function checklistDeSiembra(cats: CategoriaParaSembrar[]): EstadoDeCatego
         cuadroSembrado: false, bloqueantes: v.bloqueantes, avisos: v.avisos,
         seSiembraEnLote: false, motivoFuera: 'bloqueantes',
         resumen: v.bloqueantes.length === 1
-          ? 'Hay algo que revisar antes de sembrar'
-          : `Hay ${v.bloqueantes.length} cosas que revisar antes de sembrar`,
+          ? 'Hay algo que revisar antes de definirlos'
+          : `Hay ${v.bloqueantes.length} cosas que revisar antes de definirlos`,
       };
     }
 
@@ -110,7 +110,7 @@ export function checklistDeSiembra(cats: CategoriaParaSembrar[]): EstadoDeCatego
         id: c.id, nombre: c.nombre, gruposCompletos: hechos, totalGrupos: total,
         cuadroSembrado: false, bloqueantes: [], avisos: v.avisos,
         seSiembraEnLote: false, motivoFuera: 'avisos',
-        resumen: 'Empate sin sortear: decide tú antes de sembrar',
+        resumen: 'Empate sin sortear: decide tú antes de definirlos',
       };
     }
 
@@ -118,7 +118,7 @@ export function checklistDeSiembra(cats: CategoriaParaSembrar[]): EstadoDeCatego
       id: c.id, nombre: c.nombre, gruposCompletos: hechos, totalGrupos: total,
       cuadroSembrado: false, bloqueantes: [], avisos: [],
       seSiembraEnLote: true, motivoFuera: null,
-      resumen: 'Lista para sembrar',
+      resumen: 'Lista para definirlos',
     };
   });
 }

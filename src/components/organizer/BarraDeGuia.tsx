@@ -1,9 +1,15 @@
 /**
- * RALLY · La barra de la guía activa
+ * RALLY · La tarjeta de la guía activa
  *
- * Se pinta abajo, sobre la pantalla, y dice el paso que toca. Vive en el layout
- * junto a la interrogación: si viviera dentro de cada pantalla habría que
- * acordarse de ponerla trece veces, y la mitad de las veces se olvidaría.
+ * Dice el paso que toca, abajo y sobre la pantalla. Vive en el layout junto a
+ * la interrogación: si viviera dentro de cada pantalla habría que acordarse de
+ * ponerla trece veces, y la mitad de las veces se olvidaría.
+ *
+ * ES UNA TARJETA, con el lenguaje del resto de la app: esquinas redondeadas,
+ * `color.surface`, separada del borde y con la barra de acento en oro. Antes
+ * era una franja pegada al borde inferior con borde claro — funcionaba, pero
+ * no se parecía a nada de lo que tiene alrededor y se leía como un aviso del
+ * sistema en vez de como parte del producto.
  *
  * SE ABANDONA POR PANTALLA, NO POR TIEMPO. Si la ruta actual no es la del paso
  * pendiente, la guía se apaga sola: el usuario se fue a otro sitio y seguir
@@ -31,9 +37,9 @@ import { useGuiaEnPantalla } from '@/hooks/useGuiaEnPantalla';
  * El layout lo usa como `paddingBottom`. Sin esto la barra tapaba el botón que
  * el último paso pide pulsar — ver `useGuiaEnPantalla`.
  */
-// 88 y no 76: con el texto en dos líneas más el aviso de relevo la barra
-// llega a tres, y medido a 390px eso son ~86px.
-export const ALTO_BARRA_GUIA = 88;
+// Medido a 390px con el peor caso: acento (3) + texto en dos líneas + el
+// aviso de relevo + los dos paddings, y el hueco que la separa del borde.
+export const ALTO_BARRA_GUIA = 108;
 
 export default function BarraDeGuia() {
   const situacion = useGuiaEnPantalla();
@@ -93,58 +99,83 @@ export default function BarraDeGuia() {
   }
 
   return (
-    <View style={[s.barra, situacion.tipo === 'transito' && s.barraTransito]} accessibilityLiveRegion="polite">
-      <View style={s.textos}>
-        <Text style={s.contador}>
-          Paso {situacion.numero} de {situacion.total}
-        </Text>
-        <Text style={s.texto}>{texto}</Text>
-        {pisoAOtra && (
-          <Text style={s.relevo}>Dejamos la guía anterior.</Text>
-        )}
-      </View>
+    // TARJETA, NO FRANJA. Antes era una banda pegada al borde inferior con
+    // borde claro: no se parecía a nada del resto de la app, que está hecha de
+    // tarjetas con esquinas redondeadas separadas del borde. Ahora usa lo
+    // mismo — `radius.lg`, `color.surface`, el oro solo para lo activo — y se
+    // lee como una tarjeta más, que es lo que es.
+    <View
+      style={s.tarjeta}
+      accessibilityLiveRegion="polite"
+    >
+      {/* La barra de acento del proyecto: oro para el paso que toca, apagada
+          cuando solo se está diciendo por dónde se va. */}
+      <View style={[s.acento, situacion.tipo === 'transito' && s.acentoApagado]} />
 
-      <Pressable
-        onPress={terminarGuia}
-        hitSlop={10}
-        accessibilityRole="button"
-        accessibilityLabel="Salir de la guía"
-        style={({ pressed }) => [s.cerrar, pressed && { opacity: 0.7 }]}
-      >
-        <Text style={s.cerrarSigno}>✕</Text>
-      </Pressable>
+      <View style={s.cuerpo}>
+        <View style={s.textos}>
+          <Text style={[s.contador, situacion.tipo === 'transito' && s.contadorApagado]}>
+            Paso {situacion.numero} de {situacion.total}
+          </Text>
+          <Text style={s.texto}>{texto}</Text>
+          {pisoAOtra && (
+            <Text style={s.relevo}>Dejamos la guía anterior.</Text>
+          )}
+        </View>
+
+        <Pressable
+          onPress={terminarGuia}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Salir de la guía"
+          style={({ pressed }) => [s.cerrar, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={s.cerrarSigno}>✕</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  barra: {
+  tarjeta: {
     position: 'absolute',
     left: space[4],
     // A la izquierda de la interrogación flotante, que ocupa la esquina.
     right: space[4] + touchTarget + space[3],
-    bottom: Platform.OS === 'web' ? space[2] : space[4],
+    // Separada del borde, como cualquier tarjeta de la app.
+    bottom: Platform.OS === 'web' ? space[5] : space[6],
+    backgroundColor: color.surface,
+    // Borde discreto y ACENTO en oro, que es como el dashboard marca sus
+    // tarjetas destacadas. El oro por los cuatro lados competía con el botón
+    // dorado de la pantalla, que suele ser justo lo que el paso pide pulsar.
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.lg,
+    // La barra de acento llega hasta el borde redondeado.
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }
+      : { elevation: 6 }),
+  },
+
+  acento: { height: 3, backgroundColor: color.gold },
+  acentoApagado: { backgroundColor: color.line },
+
+  cuerpo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[3],
-    backgroundColor: color.surface2,
-    borderWidth: 1,
-    borderColor: color.gold,
-    borderRadius: radius.lg,
     paddingVertical: space[3],
     paddingHorizontal: space[4],
-    ...(Platform.OS === 'web'
-      ? { boxShadow: '0 2px 10px rgba(0,0,0,0.45)' }
-      : { elevation: 4 }),
   },
-  // En tránsito la barra baja el tono: recuerda dónde ibas, no manda.
-  barraTransito: { borderColor: color.line },
   // minWidth: 0 en el lado que crece, o el texto largo empuja la ✕ fuera.
   textos: { flex: 1, minWidth: 0, gap: 2 },
   contador: {
-    fontFamily: font.body, fontSize: 10, color: color.gold,
-    textTransform: 'uppercase', letterSpacing: 0.6,
+    fontFamily: font.display, fontSize: 10, color: color.gold,
+    textTransform: 'uppercase', letterSpacing: 1.4,
   },
+  contadorApagado: { color: color.muted },
   texto: {
     fontFamily: font.body, fontSize: fontSize.caption,
     color: color.text, lineHeight: 18,
@@ -153,6 +184,10 @@ const s = StyleSheet.create({
     fontFamily: font.body, fontSize: 11, color: color.muted,
     marginTop: 2,
   },
-  cerrar: { padding: 4 },
+  cerrar: {
+    backgroundColor: color.surface2,
+    borderRadius: radius.md,
+    padding: 6,
+  },
   cerrarSigno: { color: color.muted, fontSize: 14 },
 });

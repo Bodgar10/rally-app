@@ -101,16 +101,24 @@ export default function OrgTournamentScreen() {
 
   const [tournament, setTournament]   = useState<Tournament | null>(null);
   const [categories, setCategories]   = useState<Category[]>([]);
-  /** Cuántas categorías tienen ya su cuadro. El detalle vive en /sembrar. */
-  const [catsSembradas, setCatsSembradas] = useState(0);
+  /**
+   * Cuántas categorías TERMINARON su fase de grupos, sobre las que la tienen.
+   *
+   * ANTES DECÍA '2 de 8 sembrados', y contaba lo ya hecho. El organizador no
+   * abre este panel para saber cuántos cuadros lleva armados: lo abre para
+   * saber si YA PUEDE avanzar, y eso lo contesta cuántas categorías tienen los
+   * grupos terminados. Es además la única precondición del paso siguiente, así
+   * que el número y la decisión son el mismo.
+   */
+  const [catsConGruposListos, setCatsConGruposListos] = useState(0);
   const [catsConGrupos, setCatsConGrupos] = useState(0);
   /**
-   * '3 de 8 sembrados'. Sin categorías cerradas todavía no hay nada que
-   * sembrar y se dice, en vez de un '0 de 0' que parece un error.
+   * '3 de 8 con los grupos terminados'. Sin categorías cerradas todavía no hay
+   * grupos que terminar y se dice, en vez de un '0 de 0' que parece un error.
    */
   const resumenSiembra = catsConGrupos === 0
     ? 'Al cerrar las inscripciones'
-    : `${catsSembradas} de ${catsConGrupos} sembrados`;
+    : `${catsConGruposListos} de ${catsConGrupos} con los grupos terminados`;
   const [judgeCount, setJudgeCount]   = useState(0);
   const [pairCount, setPairCount]     = useState(0);
   const [canCharge, setCanCharge]     = useState(false);
@@ -171,16 +179,27 @@ export default function OrgTournamentScreen() {
     if (cats) setCategories(cats as Category[]);
 
     // Solo los dos números del vistazo. La validación por categoría es cara y
-    // vive en la pantalla de Sembrar, que es donde se va a actuar.
+    // vive en la pantalla de Definir enfrentamientos, que es donde se actúa.
     const ids = (cats ?? []).map((c: { id: string }) => c.id);
     if (ids.length > 0) {
-      const [{ data: gs }, { data: cuadro }] = await Promise.all([
+      const [{ data: gs }, { data: dePartidos }] = await Promise.all([
         supabase.from('groups').select('category_id').in('category_id', ids),
-        supabase.from('matches').select('category_id')
-          .eq('tournament_id', tournamentId).neq('stage', 'group'),
+        // Los partidos DE GRUPO con su estado: una categoría tiene los grupos
+        // terminados cuando ninguno le queda sin resultado. Se cuenta aquí y no
+        // con un agregado en la base porque son las filas de un torneo, y el
+        // panel ya trae otras tres consultas del mismo tamaño.
+        supabase.from('matches').select('category_id, status')
+          .eq('tournament_id', tournamentId).eq('stage', 'group'),
       ]);
       setCatsConGrupos(new Set((gs ?? []).map((g) => g.category_id)).size);
-      setCatsSembradas(new Set((cuadro ?? []).map((m) => m.category_id)).size);
+
+      const conPartidos = new Set<string>();
+      const aMedias = new Set<string>();
+      for (const m of dePartidos ?? []) {
+        conPartidos.add(m.category_id);
+        if (m.status !== 'finished') aMedias.add(m.category_id);
+      }
+      setCatsConGruposListos([...conPartidos].filter((id) => !aMedias.has(id)).length);
     }
     setJudgeCount(jueces ?? 0);
     setPairCount(parejas ?? 0);
@@ -481,11 +500,11 @@ export default function OrgTournamentScreen() {
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}
           />
           {/* El vistazo que no existía: cómo va cada categoría y cuáles se
-              pueden sembrar ya. El detalle vive en su pantalla; aquí solo el
+              pueden definir ya. El detalle vive en su pantalla; aquí solo el
               número, que es la parte de vistazo. */}
           <TarjetaAjuste
             icon="check"
-            title="Sembrar los cuadros"
+            title="Definir enfrentamientos"
             value={resumenSiembra}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sembrar`)}
           />
