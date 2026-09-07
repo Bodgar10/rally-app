@@ -48,6 +48,30 @@ export interface PartidoRedactado {
 
 export type TonoFuturo = 'tranquilo' | 'espera' | 'fuera';
 
+/**
+ * Una cifra suelta, para pintarla como dato y no dentro de una frase.
+ *
+ * La tarjeta decía "Vas entre 1.º y 6.º en la pelea por 6 puestos de mejor
+ * segundo. […] Hay 17 parejas empatadas contigo a puntos". Todo cierto, pero
+ * había que leer el párrafo entero para sacar tres números — y es lo primero
+ * que se ve al abrir la app, con el teléfono en una mano.
+ */
+export interface CifraDeCarrera {
+  /** "6", "1.º–6.º", "17". */
+  valor: string;
+  /** "cupos", "tu posición", "empatados". */
+  etiqueta: string;
+}
+
+export interface CarreraEnCifras {
+  cifras: CifraDeCarrera[];
+  /**
+   * Lo que NO es un número y por eso sigue siendo prosa: quién ya está fuera de
+   * su alcance, y qué separa a los empatados.
+   */
+  notas: string[];
+}
+
 export interface FuturoEnPalabras {
   /** La frase principal. Sustituye al texto genérico. */
   titular: string;
@@ -56,8 +80,16 @@ export interface FuturoEnPalabras {
   tono: TonoFuturo;
   /** Los partidos que de verdad cambian su suerte. Vacío si no hay ninguno. */
   partidos: PartidoRedactado[];
-  /** "Dependes de la diferencia de games contra…", o null. */
-  games: string | null;
+  /** Las cifras de la pelea, para pintarlas sueltas. `null` si no hay carrera. */
+  carrera: CarreraEnCifras | null;
+  /**
+   * El cierre accionable: que la app avisa sola.
+   *
+   * Solo cuando su suerte depende de resultados que NO controla, que es el
+   * problema de origen — el jugador persiguiendo al organizador para saber si
+   * le toca. Con la situación ya resuelta no hay nada que esperar y sobra.
+   */
+  aviso: string | null;
 }
 
 const ORDINAL = [
@@ -148,32 +180,55 @@ const RIVALES_QUE_SE_NOMBRAN = 3;
  * cuántas plazas hay —la respuesta—, después lo que ya no alcanza, y al final
  * los empatados. Si alguna no se sabe, se cae sola y las demás siguen en pie.
  */
-function fraseDeLaCarrera(c: Carrera | undefined, esDeSegundos: boolean): string | null {
-  if (!c) return null;
+function carreraEnCifras(
+  c: Carrera | undefined,
+  esDeSegundos: boolean,
+): CarreraEnCifras | null {
+  if (!c || c.plazas <= 0) return null;
 
-  const partes: string[] = [];
+  const cifras: CifraDeCarrera[] = [];
+  const notas: string[] = [];
 
-  const reparto = esDeSegundos
-    ? `${c.plazas} ${c.plazas === 1 ? 'puesto' : 'puestos'} de mejor segundo`
-    : `${c.plazas} ${c.plazas === 1 ? 'pase directo' : 'pases directos'}`;
+  // 1 · CUÁNTOS CUPOS HAY. La referencia contra la que se lee todo lo demás.
+  cifras.push({
+    valor: String(c.plazas),
+    // ETIQUETAS CORTAS A PROPÓSITO: "cupos de mejor segundo" partía la fila de
+    // tres cifras en dos líneas y se perdía el vistazo. Qué son esos cupos ya
+    // lo dice la línea de reparto de arriba —"clasifican los 10 primeros de
+    // grupo y los 6 mejores segundos"—, así que aquí sobra repetirlo.
+    etiqueta: esDeSegundos
+      ? (c.plazas === 1 ? 'cupo' : 'cupos')
+      : (c.plazas === 1 ? 'pase directo' : 'pases directos'),
+  });
 
-  // 1 · Dónde va, y por cuántas plazas se pelea. La respuesta.
-  if (c.puestoActual && c.plazas > 0) {
-    partes.push(`${fraseDelPuesto(c.puestoActual)} en la pelea por ${reparto}.`);
-  } else if (c.plazas > 0) {
-    // Sin puesto —empate que el reglamento no resuelve— al menos se dice qué
-    // se reparte, en vez de callar la frase entera.
-    partes.push(`Se reparten ${reparto}.`);
+  // 2 · EN QUÉ POSICIÓN VA. Un puesto si los empates lo permiten; si no, el
+  //     rango, que es exactamente lo que se sabe.
+  if (c.puestoActual) {
+    const { mejor, peor } = c.puestoActual;
+    cifras.push({
+      valor: mejor === peor ? puestoNum(mejor) : `${puestoNum(mejor)}–${puestoNum(peor)}`,
+      etiqueta: 'tu posición',
+    });
   }
 
-  // 2 · Lo que ya no alcanza. `null` = no se enumeró la categoría, y entonces
-  //     el puesto sí se sabe pero lo inalcanzable no: esta parte se calla.
+  // 3 · CUÁNTOS EMPATADOS. El número, no los nombres — los nombres van a la
+  //     nota cuando son pocos (ver RIVALES_QUE_SE_NOMBRAN).
+  const contra = c.dependeDeGamesContra;
+  if (contra.length > 0) {
+    cifras.push({
+      valor: String(contra.length),
+      etiqueta: contra.length === 1 ? 'empatada' : 'empatadas',
+    });
+  }
+
+  // ── Lo que no es un número ───────────────────────────────────────────────
+
+  // `null` = no se enumeró la categoría, y entonces el puesto sí se sabe pero
+  // lo inalcanzable no: esta nota se calla.
   if (c.porDelanteSeguros !== null) {
-    partes.push(
+    notas.push(
       c.porDelanteSeguros === 0
-        // Cero es una buena noticia y se dice como tal: todo el que va delante
-        // sigue estando a tiro. Omitirlo desperdiciaría la única frase de
-        // ánimo que hay en la tarjeta.
+        // Cero es la única buena noticia de la tarjeta: se dice en positivo.
         ? 'Nadie está fuera de tu alcance todavía.'
         : c.porDelanteSeguros === 1
           ? 'Hay 1 pareja por delante que ya no puedes alcanzar.'
@@ -181,22 +236,53 @@ function fraseDeLaCarrera(c: Carrera | undefined, esDeSegundos: boolean): string
     );
   }
 
-  // 3 · Los empatados a puntos: nombres si son pocos, número si son muchos.
-  const contra = c.dependeDeGamesContra;
   if (contra.length > 0) {
-    // "Otras" solo si ya se habló de las de delante; si no, empieza la frase.
-    const yaHuboOtras = c.porDelanteSeguros !== null && c.porDelanteSeguros > 0;
-    partes.push(
+    notas.push(
       contra.length <= RIVALES_QUE_SE_NOMBRAN
+        // Pocos: los nombres son accionables, sabe quiénes son.
         ? `Estás empatado a puntos con ${enumerar(contra)}: los separa la diferencia de games.`
-        // "Otras" solo encaja detrás de las de delante; suelta pide "Hay".
-        : yaHuboOtras
-          ? `Otras ${contra.length} están empatadas contigo a puntos: las separa la diferencia de games.`
-          : `Hay ${contra.length} parejas empatadas contigo a puntos: las separa la diferencia de games.`,
+        // Muchos: la cifra ya está arriba; aquí solo el matiz de qué los separa.
+        : 'A los que están empatados contigo los separa la diferencia de games.',
     );
   }
 
-  return partes.length > 0 ? partes.join(' ') : null;
+  return { cifras, notas };
+}
+
+/**
+ * CÓMO SE CLASIFICA EN ESTA CATEGORÍA. Faltaba por completo.
+ *
+ * "Pasan los primeros de cada grupo y 6 mejores segundos" y "pasan primeros,
+ * segundos y algunos terceros" son torneos distintos, y el jugador leía su
+ * posición sin saber cuál de los dos estaba jugando. Cada categoría del mismo
+ * torneo puede repartir de otra forma, así que no vale con saberlo una vez.
+ *
+ * Sale de las mismas perillas que ya usa todo lo demás: grupos, cuántos pasan
+ * por grupo y cuántos se repescan.
+ */
+export function comoSeClasifica(args: {
+  categoria: string;
+  grupos: number;
+  pasanPorGrupo: number;
+  repescados: number;
+}): string | null {
+  const { categoria, grupos, pasanPorGrupo, repescados } = args;
+  if (grupos <= 0 || pasanPorGrupo <= 0) return null;
+
+  const directos = pasanPorGrupo === 1
+    ? `${grupos === 1 ? 'el primero' : `los ${grupos} primeros`} de grupo`
+    : pasanPorGrupo === 2
+      ? `los ${grupos * 2} primeros y segundos de grupo`
+      : `los ${grupos * pasanPorGrupo} que pasan de cada grupo`;
+
+  // La posición de los repescados sale de cuántos pasan directo: con 1 por
+  // grupo son los mejores SEGUNDOS; con 2, los mejores terceros.
+  const posicion = pasanPorGrupo === 1 ? 'segundos' : pasanPorGrupo === 2 ? 'terceros' : 'siguientes';
+  const extra = repescados > 0
+    ? ` y ${repescados === 1 ? `el mejor ${posicion.slice(0, -1)}` : `los ${repescados} mejores ${posicion}`}`
+    : '';
+
+  return `En ${categoria} clasifican ${directos}${extra}.`;
 }
 
 /**
@@ -246,7 +332,23 @@ export function futuroEnPalabras(
   // pintan sus partidos — se cae a la del pase directo, que sí le aplica.
   const carreraVisible = a.repesca ?? (a.bye?.aplica ? a.bye : undefined);
   const partidos = (carreraVisible?.partidosQueImportan ?? []).map(redactar);
-  const games = fraseDeLaCarrera(carreraVisible, carreraVisible === a.repesca);
+  const carrera = carreraEnCifras(carreraVisible, carreraVisible === a.repesca);
+
+  /**
+   * EL CIERRE ACCIONABLE.
+   *
+   * Es el problema de origen: el jugador que persigue al organizador para saber
+   * si le toca. Decirle que la app avisa sola es lo que le deja guardar el
+   * teléfono. Solo cuando de verdad hay algo que esperar — con la situación
+   * resuelta no hay nada que avisar y sobraría.
+   */
+  const dependeDeOtros = a.estado === 'depende'
+    || a.estado === 'demasiado_pronto'
+    || a.estado === 'empate_sin_resolver'
+    || (a.estado === 'dentro' && a.bye?.aplica === true && !estaGanada(a.bye));
+  const aviso = dependeDeOtros
+    ? 'No hace falta que preguntes: en cuanto se sepa, te lo decimos aquí.'
+    : null;
 
   // ── Todavía no se puede saber ────────────────────────────────────────────
   if (a.estado === 'demasiado_pronto') {
@@ -259,7 +361,8 @@ export function futuroEnPalabras(
         : `Faltan ${a.faltan} partidos en tu categoría.`,
       tono: 'espera',
       partidos: [],
-      games: null,
+      carrera: null,
+      aviso,
     };
   }
 
@@ -272,7 +375,8 @@ export function futuroEnPalabras(
         + 'puesto lo decide un sorteo del organizador. En cuanto lo haga, aparece aquí.',
       tono: 'espera',
       partidos,
-      games,
+      carrera,
+      aviso,
     };
   }
 
@@ -283,7 +387,8 @@ export function futuroEnPalabras(
         + 'Gracias por jugar.',
       tono: 'fuera',
       partidos: [],
-      games: null,
+      carrera: null,
+      aviso,
     };
   }
 
@@ -314,7 +419,8 @@ export function futuroEnPalabras(
       detalle: [certeza, fraseDelBye(a, primeraRonda)].filter(Boolean).join(' '),
       tono: 'tranquilo',
       partidos: [],
-      games: null,
+      carrera: null,
+      aviso,
     };
   }
 
@@ -328,7 +434,8 @@ export function futuroEnPalabras(
       : null,
     tono: 'espera',
     partidos,
-    games,
+    carrera,
+    aviso,
   };
 }
 

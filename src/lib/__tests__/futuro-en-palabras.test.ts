@@ -4,7 +4,7 @@
 // carreras, peorPuestoPosible, plazas. Lo que se prueba aquí es la traducción —
 // que es lo que alguien lee a las doce de la noche en el club.
 
-import { futuroEnPalabras } from '@/lib/futuro-en-palabras';
+import { futuroEnPalabras, comoSeClasifica } from '@/lib/futuro-en-palabras';
 import type { AnalisisFuturo, Carrera } from '@/lib/engine/futuro';
 
 const carrera = (over: Partial<Carrera> = {}): Carrera => ({
@@ -24,6 +24,12 @@ const analisis = (over: Partial<AnalisisFuturo> = {}): AnalisisFuturo => ({
   faltan: 4,
   ...over,
 });
+
+/** Todo lo que sale de la carrera, para las aserciones de texto. */
+const textoDeCarrera = (f: { carrera: { cifras: Array<{ valor: string; etiqueta: string }>; notas: string[] } | null }) =>
+  f.carrera
+    ? [...f.carrera.cifras.map((c) => `${c.valor} ${c.etiqueta}`), ...f.carrera.notas].join(' ')
+    : '';
 
 describe('la frase que resuelve la noche del sábado', () => {
   // peorPuestoPosible <= plazas: ya no hay nada que pueda dejarle fuera.
@@ -112,9 +118,10 @@ describe('cuando depende', () => {
       estado: 'depende',
       repesca: carrera({ estado: 'depende', dependeDeGamesContra: ['Luis / Pedro'] }),
     }));
-    expect(f.games).toMatch(/diferencia de games/i);
-    expect(f.games).toContain('Luis / Pedro');
-    expect(f.games).not.toMatch(/%|probab|posibilidad/i);
+    const t = textoDeCarrera(f);
+    expect(t).toMatch(/diferencia de games/i);
+    expect(t).toContain('Luis / Pedro');
+    expect(t).not.toMatch(/%|probab|posibilidad/i);
   });
 
   // Pocos rivales: los nombres son accionables — sabe quiénes son y puede
@@ -124,7 +131,7 @@ describe('cuando depende', () => {
       estado: 'depende',
       repesca: carrera({ estado: 'depende', dependeDeGamesContra: ['A / B', 'C / D', 'E / F'] }),
     }));
-    expect(f.games).toContain('A / B, C / D y E / F');
+    expect(textoDeCarrera(f)).toContain('A / B, C / D y E / F');
   });
 
   // MUCHOS rivales: la lista es un volcado. Decirle a alguien que compite
@@ -135,22 +142,25 @@ describe('cuando depende', () => {
       estado: 'depende',
       repesca: carrera({ estado: 'depende', plazas: 6, peorPuestoPosible: 9, dependeDeGamesContra: dieciseis }),
     }));
-    expect(f.games).toContain('16 parejas empatadas');
-    // Ni un solo nombre.
-    expect(f.games).not.toContain('Pareja 1');
-    expect(f.games).not.toContain('Pareja 16');
-    // Y sí lo que sustituye a la lista: cuántas plazas se reparten.
-    expect(f.games).toMatch(/6 puestos de mejor segundo/i);
+    // La cifra va suelta, con su etiqueta — no dentro de una frase.
+    expect(f.carrera!.cifras).toEqual(expect.arrayContaining([
+      { valor: '16', etiqueta: 'empatadas' },
+      { valor: '6', etiqueta: 'cupos' },
+    ]));
+    // Ni un solo nombre en ninguna parte.
+    const t = textoDeCarrera(f);
+    expect(t).not.toContain('Pareja 1');
+    expect(t).not.toContain('Pareja 16');
   });
 
   it('el corte está en cuatro', () => {
-    const con = (n: number) => futuroEnPalabras(analisis({
+    const con = (n: number) => textoDeCarrera(futuroEnPalabras(analisis({
       estado: 'depende',
       repesca: carrera({ estado: 'depende', dependeDeGamesContra: Array.from({ length: n }, (_, i) => `P${i}`) }),
-    })).games!;
+    })));
     expect(con(3)).toContain('P0');
     expect(con(4)).not.toContain('P0');
-    expect(con(4)).toContain('4 parejas empatadas');
+    expect(con(4)).toContain('4 empatadas');
   });
 
   // La carrera del pase directo reparte otra cosa, y se llama por su nombre.
@@ -163,8 +173,9 @@ describe('cuando depende', () => {
         aplica: true, byesEnElCuadro: 4,
       },
     }));
-    expect(f.games).toMatch(/4 pases directos/i);
-    expect(f.games).not.toMatch(/mejor segundo/i);
+    const t = textoDeCarrera(f);
+    expect(t).toMatch(/4 pases directos/i);
+    expect(t).not.toMatch(/mejor segundo/i);
   });
 });
 
@@ -223,7 +234,7 @@ describe('nada de vocabulario de motor', () => {
     for (const a of todos) {
       const f = futuroEnPalabras(a, 'octavos');
       const texto = [
-        f.titular, f.detalle ?? '', f.games ?? '',
+        f.titular, f.detalle ?? '', f.aviso ?? '', textoDeCarrera(f),
         ...f.partidos.flatMap((p) => [p.partido, p.grupo, p.meConviene ?? '']),
       ].join(' ');
 
@@ -293,7 +304,7 @@ describe('dentro, con el pase directo todavía sin resolver', () => {
     const f = futuroEnPalabras(aldo(), 'octavos');
     expect(f.detalle).not.toMatch(/mejor segundo/i);
     expect(f.partidos).toEqual([]);
-    expect(f.games).toBeNull();
+    expect(f.carrera).toBeNull();
   });
 
   it('con el pase directo YA ganado, dice que se salta la ronda', () => {
@@ -361,7 +372,7 @@ describe('el texto está en español de México', () => {
     for (const a of conListas) {
       const f = futuroEnPalabras(a, 'octavos');
       const texto = [
-        f.titular, f.detalle ?? '', f.games ?? '',
+        f.titular, f.detalle ?? '', f.aviso ?? '', textoDeCarrera(f),
         ...f.partidos.flatMap((p) => [p.partido, p.grupo, p.meConviene ?? '']),
       ].join(' ');
 
@@ -386,71 +397,152 @@ describe('el puesto en la pelea', () => {
   const conCarrera = (over: Partial<Carrera>) => futuroEnPalabras(analisis({
     estado: 'depende',
     repesca: carrera({ estado: 'depende', ...over }),
-  })).games!;
+  })).carrera!;
 
   // Sin empates a puntos hay un puesto limpio y se dice a secas.
   it('mejor === peor da un puesto', () => {
-    const t = conCarrera({ puestoActual: { mejor: 3, peor: 3 }, plazas: 6 });
-    expect(t).toContain('Vas 3.º');
-    expect(t).not.toMatch(/entre/i);
-    expect(t).toContain('6 puestos de mejor segundo');
+    const c = conCarrera({ puestoActual: { mejor: 3, peor: 3 }, plazas: 6 });
+    expect(c.cifras).toContainEqual({ valor: '3.º', etiqueta: 'tu posición' });
+    expect(c.cifras).toContainEqual({ valor: '6', etiqueta: 'cupos' });
   });
 
   // Con empates no existe un puesto limpio: el rango es exactamente lo que se
   // sabe, y redondearlo a un extremo sería prometer o asustar de más.
   it('mejor ≠ peor da un rango', () => {
-    const t = conCarrera({ puestoActual: { mejor: 1, peor: 6 }, plazas: 6 });
-    expect(t).toContain('Vas entre 1.º y 6.º');
+    const c = conCarrera({ puestoActual: { mejor: 1, peor: 6 }, plazas: 6 });
+    expect(c.cifras).toContainEqual({ valor: '1.º–6.º', etiqueta: 'tu posición' });
   });
 
   it('el caso de Sergio, entero', () => {
-    const t = conCarrera({
+    const c = conCarrera({
       puestoActual: { mejor: 1, peor: 6 },
       porDelanteSeguros: 3,
       plazas: 6,
       dependeDeGamesContra: Array.from({ length: 10 }, (_, i) => `P${i} / Q${i}`),
     });
-    expect(t).toContain('Vas entre 1.º y 6.º en la pelea por 6 puestos de mejor segundo.');
-    expect(t).toContain('Hay 3 parejas por delante que ya no puedes alcanzar.');
-    expect(t).toContain('Otras 10 están empatadas contigo a puntos');
+    // Las TRES cifras, sueltas y en orden: cupos, posición, empatados.
+    expect(c.cifras).toEqual([
+      { valor: '6', etiqueta: 'cupos' },
+      { valor: '1.º–6.º', etiqueta: 'tu posición' },
+      { valor: '10', etiqueta: 'empatadas' },
+    ]);
+    // Y en prosa solo lo que no es número.
+    expect(c.notas.join(' ')).toContain('Hay 3 parejas por delante que ya no puedes alcanzar.');
+    expect(c.notas.join(' ')).toMatch(/diferencia de games/i);
     // Ni un nombre: son diez.
-    expect(t).not.toContain('P0');
+    expect(c.notas.join(' ')).not.toContain('P0');
   });
 
   // `null` = no se enumeró la categoría. El puesto sí se sabe; lo inalcanzable
   // no, así que esa parte se calla en vez de inventarse un cero.
   it('porDelanteSeguros null se calla esa parte', () => {
-    const t = conCarrera({ puestoActual: { mejor: 2, peor: 4 }, porDelanteSeguros: null });
-    expect(t).toContain('Vas entre 2.º y 4.º');
-    expect(t).not.toMatch(/alcanzar|alcance/i);
+    const c = conCarrera({ puestoActual: { mejor: 2, peor: 4 }, porDelanteSeguros: null });
+    expect(c.cifras).toContainEqual({ valor: '2.º–4.º', etiqueta: 'tu posición' });
+    expect(c.notas.join(' ')).not.toMatch(/alcanzar|alcance/i);
   });
 
   // Cero es la única buena noticia de la tarjeta: no se desperdicia omitiéndola.
   it('porDelanteSeguros 0 se dice en positivo', () => {
-    const t = conCarrera({ puestoActual: { mejor: 1, peor: 5 }, porDelanteSeguros: 0 });
-    expect(t).toMatch(/nadie está fuera de tu alcance/i);
-    expect(t).not.toMatch(/0 parejas|ya no puedes alcanzar/i);
+    const c = conCarrera({ puestoActual: { mejor: 1, peor: 5 }, porDelanteSeguros: 0 });
+    expect(c.notas.join(' ')).toMatch(/nadie está fuera de tu alcance/i);
+    expect(c.notas.join(' ')).not.toMatch(/0 parejas|ya no puedes alcanzar/i);
   });
 
   it('una sola pareja por delante va en singular', () => {
-    expect(conCarrera({ porDelanteSeguros: 1 })).toContain('Hay 1 pareja por delante');
+    expect(conCarrera({ porDelanteSeguros: 1 }).notas.join(' ')).toContain('Hay 1 pareja por delante');
   });
 
   // Sin puesto —empate que el reglamento no resuelve— al menos se dice qué se
   // reparte, en vez de callar la frase entera.
   it('sin puesto, todavía se dice qué se reparte', () => {
-    const t = conCarrera({ puestoActual: null, plazas: 6, porDelanteSeguros: null });
-    expect(t).toContain('Se reparten 6 puestos de mejor segundo');
-    expect(t).not.toMatch(/vas /i);
+    // Sin puesto no hay cifra de posición, pero los cupos siguen ahí.
+    const c = conCarrera({ puestoActual: null, plazas: 6, porDelanteSeguros: null });
+    expect(c.cifras).toContainEqual({ valor: '6', etiqueta: 'cupos' });
+    expect(c.cifras.some((x) => x.etiqueta === 'tu posición')).toBe(false);
   });
 
   // El orden es la prioridad: primero la respuesta, después lo demás.
   it('el puesto va antes que todo lo demás', () => {
-    const t = conCarrera({
+    const c = conCarrera({
       puestoActual: { mejor: 1, peor: 6 }, porDelanteSeguros: 3,
       dependeDeGamesContra: ['A / B', 'C / D', 'E / F', 'G / H'],
     });
-    expect(t.indexOf('Vas entre')).toBe(0);
-    expect(t.indexOf('ya no puedes alcanzar')).toBeLessThan(t.indexOf('empatadas contigo'));
+    // Cupos primero —la referencia—, después dónde va, después los empatados.
+    expect(c.cifras.map((x) => x.etiqueta)).toEqual([
+      'cupos', 'tu posición', 'empatadas',
+    ]);
+  });
+});
+
+// ───────────────────────────────────────────
+// Cómo se clasifica en esta categoría
+// ───────────────────────────────────────────
+//
+// Faltaba por completo. "Pasan los primeros de cada grupo y 6 mejores segundos"
+// y "pasan primeros, segundos y algunos terceros" son torneos distintos, y el
+// jugador leía su posición sin saber cuál estaba jugando.
+
+describe('comoSeClasifica', () => {
+  it('el caso de 5a Varonil: 10 grupos, uno por grupo y 6 repescados', () => {
+    expect(comoSeClasifica({
+      categoria: '5a Varonil', grupos: 10, pasanPorGrupo: 1, repescados: 6,
+    })).toBe('En 5a Varonil clasifican los 10 primeros de grupo y los 6 mejores segundos.');
+  });
+
+  // Con dos por grupo los repescados son los mejores TERCEROS, no segundos.
+  it('con dos por grupo, los repescados son terceros', () => {
+    const t = comoSeClasifica({
+      categoria: 'Mixta B', grupos: 8, pasanPorGrupo: 2, repescados: 4,
+    })!;
+    expect(t).toContain('los 16 primeros y segundos de grupo');
+    expect(t).toContain('los 4 mejores terceros');
+  });
+
+  it('sin repescados no se inventa la coletilla', () => {
+    const t = comoSeClasifica({
+      categoria: '3a Mixto', grupos: 4, pasanPorGrupo: 1, repescados: 0,
+    })!;
+    expect(t).toBe('En 3a Mixto clasifican los 4 primeros de grupo.');
+  });
+
+  it('un solo repescado va en singular', () => {
+    expect(comoSeClasifica({
+      categoria: 'X', grupos: 5, pasanPorGrupo: 1, repescados: 1,
+    })).toContain('el mejor segundo');
+  });
+
+  it('sin grupos o sin clasificados, nada', () => {
+    expect(comoSeClasifica({ categoria: 'X', grupos: 0, pasanPorGrupo: 1, repescados: 0 })).toBeNull();
+    expect(comoSeClasifica({ categoria: 'X', grupos: 4, pasanPorGrupo: 0, repescados: 0 })).toBeNull();
+  });
+});
+
+// ───────────────────────────────────────────
+// El cierre accionable
+// ───────────────────────────────────────────
+//
+// El problema de origen: el jugador que persigue al organizador para saber si
+// le toca. Decirle que la app avisa sola es lo que le deja guardar el teléfono.
+
+describe('el aviso de que la app avisa sola', () => {
+  it('aparece cuando depende de resultados que no controla', () => {
+    for (const estado of ['depende', 'demasiado_pronto', 'empate_sin_resolver'] as const) {
+      const f = futuroEnPalabras(analisis({ estado, faltan: 10, respondoCuandoQueden: 5 }));
+      expect(f.aviso).toMatch(/no hace falta que preguntes/i);
+    }
+  });
+
+  it('también cuando ya clasificó pero el pase directo sigue en el aire', () => {
+    const f = futuroEnPalabras(analisis({
+      estado: 'dentro', repesca: undefined,
+      bye: { ...carrera({ estado: 'demasiado_pronto', peorPuestoPosible: null }), aplica: true, byesEnElCuadro: 4 },
+    }), 'octavos');
+    expect(f.aviso).toBeTruthy();
+  });
+
+  // Con todo resuelto no hay nada que esperar, y una promesa de aviso sobraría.
+  it('NO aparece cuando ya no queda nada que esperar', () => {
+    expect(futuroEnPalabras(analisis({ estado: 'dentro', repesca: carrera() })).aviso).toBeNull();
+    expect(futuroEnPalabras(analisis({ estado: 'fuera' })).aviso).toBeNull();
   });
 });

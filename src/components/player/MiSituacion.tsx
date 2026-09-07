@@ -35,7 +35,9 @@ import {
 } from '@/lib/situacion-jugador';
 import { avisosPorCambio, type EstadoDelJugador } from '@/lib/avisos-jugador';
 import { analizarFuturo, type GrupoDeCategoria } from '@/lib/engine/futuro';
-import { futuroEnPalabras, type FuturoEnPalabras } from '@/lib/futuro-en-palabras';
+import {
+  futuroEnPalabras, comoSeClasifica, type FuturoEnPalabras,
+} from '@/lib/futuro-en-palabras';
 import { cuadroDe } from '@/lib/cuadro-tamano';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import {
@@ -75,6 +77,13 @@ export interface SituacionResuelta {
    * había antes de que existiera este análisis.
    */
   futuro: FuturoEnPalabras | null;
+  /**
+   * "En 5a Varonil clasifican los 10 primeros de grupo y los 6 mejores
+   * segundos." Faltaba por completo: el jugador leía su posición sin saber
+   * cómo se reparten los cupos en SU categoría, y cada una del mismo torneo
+   * puede repartir distinto.
+   */
+  comoClasifica: string | null;
 }
 
 interface Props {
@@ -297,6 +306,12 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
       .map((m) => m.scheduled_at as string)
       .sort()[0] ?? null,
     terminados: mios.filter((m) => m.status === 'finished').length,
+    comoClasifica: comoSeClasifica({
+      categoria: c?.display_name ?? '',
+      grupos: (gruposCat ?? []).length,
+      pasanPorGrupo: c?.advance_per_group ?? 0,
+      repescados: c?.best_extra_qualifiers ?? 0,
+    }),
     futuro: await analizarConElMotor({
       categoryId,
       pairId: elegida.pair_id,
@@ -479,14 +494,72 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
         )}
       </View>
 
+      {/* CÓMO SE REPARTEN LOS CUPOS EN SU CATEGORÍA.
+          Va arriba y en gris pequeño: es el marco con el que se lee todo lo
+          demás, no la noticia. Sin esto, "vas 1.º–6.º de 6 cupos" no se puede
+          interpretar — no es lo mismo que pasen los primeros y 6 segundos que
+          que pasen primeros, segundos y algunos terceros. */}
+      {situacion.comoClasifica && (
+        <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, lineHeight: 15 }}>
+          {situacion.comoClasifica}
+        </Text>
+      )}
+
       <Text style={{ fontFamily: font.display, fontSize: fontSize.h1Inline, color: tinte }}>
         {f ? f.titular : s.titulo}
       </Text>
+      {/* LAS CIFRAS, SUELTAS Y NO DENTRO DE UN PÁRRAFO.
+          Eran cuatro números enterrados en prosa —"vas entre 1.º y 6.º en la
+          pelea por 6 puestos… hay 17 parejas empatadas"— y había que leerlo
+          entero para sacarlos. Es lo primero que se ve al abrir la app, con el
+          teléfono en una mano: cada dato con su etiqueta y a su tamaño. */}
+      {f?.carrera && f.carrera.cifras.length > 0 && (
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: space[4],
+            marginTop: space[2],
+            paddingVertical: space[2],
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: color.lineSoft,
+          }}
+        >
+          {f.carrera.cifras.map((c) => (
+            <View key={c.etiqueta} style={{ minWidth: 0, flexShrink: 1 }}>
+              <Text style={{ fontFamily: font.display, fontSize: 22, fontWeight: '600', color: tinte }}>
+                {c.valor}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: font.body, fontSize: 10, color: color.muted,
+                  textTransform: 'uppercase', letterSpacing: 0.6,
+                }}
+              >
+                {c.etiqueta}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {(f ? f.detalle : s.detalle) ? (
         <Text style={{ fontFamily: font.body, fontSize: fontSize.body, color: color.text, lineHeight: 21 }}>
           {f ? f.detalle : s.detalle}
         </Text>
       ) : null}
+
+      {/* Lo que NO es un número sigue siendo prosa: quién está fuera de su
+          alcance, y qué separa a los empatados. */}
+      {f?.carrera?.notas.map((n) => (
+        <Text
+          key={n}
+          style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 18 }}
+        >
+          {n}
+        </Text>
+      ))}
 
       {/* LOS PARTIDOS DE LOS QUE DEPENDE.
           Son los únicos que pueden cambiar su suerte: el motor ya filtró los
@@ -515,10 +588,18 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
         </View>
       ))}
 
-      {/* La diferencia de games, sin porcentajes: el motor no los calcula. */}
-      {f?.games && (
-        <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, marginTop: space[2], lineHeight: 18 }}>
-          {f.games}
+      {/* EL CIERRE ACCIONABLE.
+          El problema de origen es el jugador persiguiendo al organizador para
+          saber si le toca. Decirle que la app avisa sola es lo que le deja
+          guardar el teléfono. Solo cuando de verdad hay algo que esperar. */}
+      {f?.aviso && (
+        <Text
+          style={{
+            fontFamily: font.body, fontSize: fontSize.caption, color: color.muted,
+            marginTop: space[2], lineHeight: 18,
+          }}
+        >
+          {f.aviso}
         </Text>
       )}
 
