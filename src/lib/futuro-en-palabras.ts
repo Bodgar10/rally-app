@@ -89,11 +89,64 @@ function redactar(p: PartidoQueImporta): PartidoRedactado {
   };
 }
 
-function fraseDeGames(contra: string[]): string | null {
-  if (contra.length === 0) return null;
-  return contra.length === 1
-    ? `Estás empatado a puntos con ${contra[0]}: os separa la diferencia de games.`
-    : `Estás empatado a puntos con ${enumerar(contra)}: os separa la diferencia de games.`;
+/**
+ * HASTA CUÁNTOS RIVALES SE NOMBRAN.
+ *
+ * Con 12 partidos pendientes la carrera de mejores segundos puede tener a
+ * dieciséis parejas empatadas a puntos, y la tarjeta las listaba todas:
+ * "estás empatado con Alejandro Castro / Bruno Ruiz, Alejandro Sánchez /
+ * Bruno Rivera, …" — dieciséis nombres. Es cierto y no sirve de nada: decirle
+ * a alguien que compite contra dieciséis parejas es decirle que compite contra
+ * todo el mundo, que ya lo sabía, y además no puede seguirle la pista a
+ * dieciséis nombres.
+ *
+ * Con dos o tres, los nombres SÍ son accionables: son rivales concretos, sabe
+ * quiénes son y puede mirar sus partidos. A partir de ahí el número informa y
+ * la lista abruma, así que se dice cuántos son y se acabó.
+ */
+const RIVALES_QUE_SE_NOMBRAN = 3;
+
+/**
+ * Dónde va en la carrera, que es lo que el jugador necesita — no la lista de
+ * contra quién compite.
+ *
+ * `esDeSegundos` cambia solo el nombre de lo que se reparte: puestos de mejor
+ * segundo en la repesca, pases directos en la del bye.
+ *
+ * LO QUE NO SE DICE PORQUE NO SE SABE: el puesto ACTUAL. El motor devuelve
+ * `peorPuestoPosible`, que es una cota del peor caso, no dónde va hoy. Decir
+ * "vas 4.º" a partir de esa cota sería inventarlo, y además con un criterio
+ * distinto del que usa la siembra. Ver la nota del final del archivo.
+ */
+function fraseDeLaCarrera(c: Carrera | undefined, esDeSegundos: boolean): string | null {
+  if (!c) return null;
+
+  const partes: string[] = [];
+
+  // Cuántas plazas se reparten y cómo va la cosa en el peor caso.
+  if (c.plazas > 0 && c.peorPuestoPosible !== null && c.peorPuestoPosible > c.plazas) {
+    const reparto = esDeSegundos
+      ? `${c.plazas} ${c.plazas === 1 ? 'puesto' : 'puestos'} de mejor segundo`
+      : `${c.plazas} ${c.plazas === 1 ? 'pase directo' : 'pases directos'}`;
+    partes.push(
+      `Se reparten ${reparto} y en el peor de los casos quedarías ${c.peorPuestoPosible}.º: ` +
+      'por eso todavía no está decidido.',
+    );
+  }
+
+  // Los empatados a puntos: nombres si son pocos, número si son muchos.
+  const contra = c.dependeDeGamesContra;
+  if (contra.length > 0) {
+    partes.push(
+      contra.length === 1
+        ? `Estás empatado a puntos con ${contra[0]}: los separa la diferencia de games.`
+        : contra.length <= RIVALES_QUE_SE_NOMBRAN
+          ? `Estás empatado a puntos con ${enumerar(contra)}: los separa la diferencia de games.`
+          : `Hay ${contra.length} parejas empatadas contigo a puntos: las separa la diferencia de games.`,
+    );
+  }
+
+  return partes.length > 0 ? partes.join(' ') : null;
 }
 
 /**
@@ -153,7 +206,7 @@ export function futuroEnPalabras(
   // pintan sus partidos — se cae a la del pase directo, que sí le aplica.
   const carreraVisible = a.repesca ?? (a.bye?.aplica ? a.bye : undefined);
   const partidos = (carreraVisible?.partidosQueImportan ?? []).map(redactar);
-  const games = fraseDeGames(carreraVisible?.dependeDeGamesContra ?? []);
+  const games = fraseDeLaCarrera(carreraVisible, carreraVisible === a.repesca);
 
   // ── Todavía no se puede saber ────────────────────────────────────────────
   if (a.estado === 'demasiado_pronto') {
@@ -238,3 +291,24 @@ export function futuroEnPalabras(
     games,
   };
 }
+
+/**
+ * LO QUE FALTA DEL MOTOR PARA CERRAR ESTA FRASE
+ *
+ * El jugador querría leer "vas 4.º en la carrera por los 6 puestos de mejor
+ * segundo". Hoy no se puede decir: `Carrera` trae `plazas`,
+ * `peorPuestoPosible` y `dependeDeGamesContra`, y con eso se sabe cuántas
+ * plazas hay y cómo quedaría en el peor caso, pero NO dónde va ahora mismo.
+ *
+ * Deducirlo aquí —contar los empatados y restar— daría un número con un
+ * criterio de desempate distinto del que usa `selectQualifiers` al sembrar, y
+ * dos criterios sobre lo mismo se separan a la primera excepción. Hace falta
+ * que el motor lo devuelva:
+ *
+ *   · `puestoActual`      — en qué puesto de la carrera va hoy.
+ *   · `porDelanteSeguros` — cuántos van delante sin que nada pueda cambiarlo.
+ *
+ * Con esos dos, esta función pasa de "en el peor de los casos quedarías 9.º" a
+ * "vas 4.º y hay 3 por delante que ya no alcanzas", que es la frase que de
+ * verdad le dice si pelear o descansar.
+ */

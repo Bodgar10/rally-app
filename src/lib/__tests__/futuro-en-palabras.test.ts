@@ -115,12 +115,54 @@ describe('cuando depende', () => {
     expect(f.games).not.toMatch(/%|probab|posibilidad/i);
   });
 
-  it('con varios rivales de games, se enumeran de forma legible', () => {
+  // Pocos rivales: los nombres son accionables — sabe quiénes son y puede
+  // mirar sus partidos.
+  it('hasta tres rivales se nombran', () => {
     const f = futuroEnPalabras(analisis({
       estado: 'depende',
       repesca: carrera({ estado: 'depende', dependeDeGamesContra: ['A / B', 'C / D', 'E / F'] }),
     }));
     expect(f.games).toContain('A / B, C / D y E / F');
+  });
+
+  // MUCHOS rivales: la lista es un volcado. Decirle a alguien que compite
+  // contra dieciséis parejas es decirle que compite contra todo el mundo.
+  it('a partir de cuatro se dice el número, no la lista', () => {
+    const dieciseis = Array.from({ length: 16 }, (_, i) => `Pareja ${i + 1} / Otra ${i + 1}`);
+    const f = futuroEnPalabras(analisis({
+      estado: 'depende',
+      repesca: carrera({ estado: 'depende', plazas: 6, peorPuestoPosible: 9, dependeDeGamesContra: dieciseis }),
+    }));
+    expect(f.games).toContain('16 parejas empatadas');
+    // Ni un solo nombre.
+    expect(f.games).not.toContain('Pareja 1');
+    expect(f.games).not.toContain('Pareja 16');
+    // Y sí lo que sustituye a la lista: cuántas plazas se reparten.
+    expect(f.games).toMatch(/6 puestos de mejor segundo/i);
+  });
+
+  it('el corte está en cuatro', () => {
+    const con = (n: number) => futuroEnPalabras(analisis({
+      estado: 'depende',
+      repesca: carrera({ estado: 'depende', dependeDeGamesContra: Array.from({ length: n }, (_, i) => `P${i}`) }),
+    })).games!;
+    expect(con(3)).toContain('P0');
+    expect(con(4)).not.toContain('P0');
+    expect(con(4)).toContain('4 parejas empatadas');
+  });
+
+  // La carrera del pase directo reparte otra cosa, y se llama por su nombre.
+  it('la carrera del pase directo no habla de mejores segundos', () => {
+    const f = futuroEnPalabras(analisis({
+      estado: 'depende',
+      repesca: undefined,
+      bye: {
+        ...carrera({ estado: 'depende', plazas: 4, peorPuestoPosible: 7, dependeDeGamesContra: ['A / B', 'C / D', 'E / F', 'G / H'] }),
+        aplica: true, byesEnElCuadro: 4,
+      },
+    }));
+    expect(f.games).toMatch(/4 pases directos/i);
+    expect(f.games).not.toMatch(/mejor segundo/i);
   });
 });
 
@@ -272,3 +314,61 @@ describe('dentro, con el pase directo todavía sin resolver', () => {
   });
 });
 
+// ───────────────────────────────────────────
+// Se lee en México
+// ───────────────────────────────────────────
+//
+// "os separa la diferencia de games" es español de España. El barrido va sobre
+// TODOS los estados y sobre todo el texto que sale a pantalla, igual que el de
+// vocabulario de motor: una forma peninsular se cuela en la frase que alguien
+// añade dentro de seis meses, no en la que se revisa hoy.
+
+describe('el texto está en español de México', () => {
+  const conListas: AnalisisFuturo[] = [
+    analisis({ estado: 'dentro', repesca: carrera() }),
+    analisis({ estado: 'fuera' }),
+    analisis({
+      estado: 'depende',
+      repesca: carrera({
+        estado: 'depende', plazas: 6, peorPuestoPosible: 9,
+        partidosQueImportan: [{ matchId: 'm', grupo: 'A', parejaA: 'A / B', parejaB: 'C / D', meConviene: 'A / B' }],
+        dependeDeGamesContra: ['E / F'],
+      }),
+    }),
+    // Con muchos empatados, que es donde vivía el "os separa".
+    analisis({
+      estado: 'depende',
+      repesca: carrera({
+        estado: 'depende', plazas: 6, peorPuestoPosible: 9,
+        dependeDeGamesContra: Array.from({ length: 16 }, (_, i) => `P${i} / Q${i}`),
+      }),
+    }),
+    analisis({ estado: 'empate_sin_resolver' }),
+    analisis({ estado: 'demasiado_pronto', faltan: 20, respondoCuandoQueden: 10 }),
+    analisis({
+      estado: 'dentro', faltan: 27, respondoCuandoQueden: 13, repesca: undefined,
+      bye: { ...carrera({ estado: 'demasiado_pronto', peorPuestoPosible: null }), aplica: true, byesEnElCuadro: 4 },
+    }),
+    analisis({
+      estado: 'dentro', repesca: undefined,
+      bye: { ...carrera({ estado: 'dentro', peorPuestoPosible: 2, plazas: 4 }), aplica: true, byesEnElCuadro: 4 },
+    }),
+  ];
+
+  it('sin voseo peninsular en ningún estado', () => {
+    for (const a of conListas) {
+      const f = futuroEnPalabras(a, 'octavos');
+      const texto = [
+        f.titular, f.detalle ?? '', f.games ?? '',
+        ...f.partidos.flatMap((p) => [p.partido, p.grupo, p.meConviene ?? '']),
+      ].join(' ');
+
+      // "os separa", "os toca", "os queda"…
+      expect(texto).not.toMatch(/\bos\s+[a-záéíóúñ]+/i);
+      expect(texto).not.toMatch(/\bvosotros\b|\bvuestr[oa]s?\b/i);
+      // Segunda persona del plural: tenéis, podéis, jugáis, seréis, sois.
+      expect(texto).not.toMatch(/[a-záéíóúñ]+(áis|éis|ís)\b/i);
+      expect(texto).not.toMatch(/\bsois\b|\bhabéis\b/i);
+    }
+  });
+});

@@ -146,3 +146,29 @@ describe('de qué partidos depende', () => {
     expect(situacionDe('alive', 2).detalle).toMatch(/aparecerá aquí|cuando se sepa/i);
   });
 });
+
+// Se lee en México: nada de "os", "vosotros" ni segunda persona del plural.
+// Mismo barrido que en `futuro-en-palabras`, por la misma razón — la forma
+// peninsular se cuela en la frase que alguien añade dentro de seis meses.
+describe('el texto está en español de México', () => {
+  const estados: ClinchStatus[] = ['clinched', 'repechage_pending', 'alive', 'eliminated'];
+
+  it('sin voseo peninsular en ningún estado', () => {
+    const textos: string[] = [];
+    for (const e of estados) {
+      for (const pendientes of [0, 1, 3]) {
+        const s = situacionDe(e, pendientes);
+        textos.push(`${s.titulo} ${s.detalle}`);
+        textos.push(porQueNoHayPartido(e, pendientes));
+      }
+    }
+    textos.push(porQueNoHayPartido(null, 2));
+
+    for (const t of textos) {
+      expect(t).not.toMatch(/\bos\s+[a-záéíóúñ]+/i);
+      expect(t).not.toMatch(/\bvosotros\b|\bvuestr[oa]s?\b/i);
+      expect(t).not.toMatch(/[a-záéíóúñ]+(áis|éis|ís)\b/i);
+      expect(t).not.toMatch(/\bsois\b|\bhabéis\b/i);
+    }
+  });
+});
