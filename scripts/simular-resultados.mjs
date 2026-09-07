@@ -74,7 +74,7 @@ function leerEnv() {
 
 function parsearArgs(argv) {
   const args = {
-    tournamentId: null, categoria: null, todas: false,
+    tournamentId: null, categorias: [], excepto: [], todas: false,
     reiniciar: false, email: null, password: null, verificar: false,
     soloGrupos: false, resembrar: false,
   };
@@ -85,7 +85,11 @@ function parsearArgs(argv) {
     else if (a === '--solo-grupos') args.soloGrupos = true;
     else if (a === '--resembrar') args.resembrar = true;
     else if (a === '--reiniciar') args.reiniciar = true;
-    else if (a === '--categoria') args.categoria = argv[++i] ?? null;
+    // Los dos son repetibles: `--categoria A --categoria B`, y lo mismo
+    // `--excepto`. Excluir es lo natural cuando se quiere "todas menos una"
+    // y enumerar catorce a mano invita a olvidarse de una.
+    else if (a === '--categoria') { const v = argv[++i]; if (v) args.categorias.push(v); }
+    else if (a === '--excepto') { const v = argv[++i]; if (v) args.excepto.push(v); }
     else if (a === '--email') args.email = argv[++i] ?? null;
     else if (a === '--password') args.password = argv[++i] ?? null;
     else if (!a.startsWith('--') && !args.tournamentId) args.tournamentId = a;
@@ -122,6 +126,53 @@ const SETS_NORMALES = [[6, 0], [6, 1], [6, 2], [6, 3], [6, 4], [6, 4], [7, 5], [
 /** Super muerte: a 10 con margen de 2. */
 const SUPER = [[10, 3], [10, 5], [10, 6], [10, 7], [10, 8], [11, 9], [12, 10]];
 
+/**
+ * Los mismos sets, pero apretados. Para los grupos donde se busca el empate.
+ *
+ * POR QUÉ IMPORTA QUE ALGÚN GRUPO SALGA ASÍ
+ *   Con marcadores repartidos al azar, la diferencia de games separa casi
+ *   siempre y las tablas quedan decididas. El caso interesante —y el que el
+ *   motor marca como `empateSinResolver`— solo aparece cuando nadie se destaca:
+ *   tres parejas a dos puntos, mismos sets y una diferencia de games que no
+ *   las distingue. Ese es el grupo que hay que poder mirar en la app.
+ */
+const SETS_APRETADOS = [[7, 6], [7, 5], [6, 4]];
+/** Super muerte al límite: nadie saca ventaja. */
+const SUPER_APRETADO = [[11, 9], [12, 10], [10, 8]];
+
+/**
+ * ¿Este grupo se juega apretado? Uno de cada cuatro, elegido por su id.
+ *
+ * Determinista igual que los marcadores: el mismo torneo produce siempre los
+ * mismos grupos apretados, así que se puede volver a mirar el que interesa.
+ */
+const grupoApretado = (groupId) => semillaDe(`apretado:${groupId}`) % 4 === 0;
+
+/**
+ * El ciclo de tres, forzado.
+ *
+ * En un grupo de 3 todos juegan contra todos, así que con A>B, B>C y C>A las
+ * tres quedan a 2 puntos y ningún criterio global las separa: el head-to-head
+ * tampoco, porque cada una le ganó a una y perdió con otra. Es exactamente el
+ * empate que obliga a sortear, y a base de azar aparece pocas veces.
+ *
+ * Se decide por los ids ordenados para que sea reproducible: la menor le gana a
+ * la mediana, la mediana a la mayor, y la mayor a la menor. Devuelve el pair_id
+ * que debe ganar, o `null` si el grupo no es de tres (con 4 o 5 parejas el ciclo
+ * no cierra igual y se deja al azar apretado, que ya aprieta bastante).
+ */
+function ganadorDelCiclo(partidosDelGrupo, m) {
+  const ids = [...new Set(partidosDelGrupo.flatMap((x) => [x.pair_a_id, x.pair_b_id]))]
+    .filter(Boolean).sort();
+  if (ids.length !== 3 || partidosDelGrupo.length !== 3) return null;
+  const [p0, p1, p2] = ids;
+  const par = [m.pair_a_id, m.pair_b_id].sort().join('|');
+  if (par === [p0, p1].sort().join('|')) return p0;
+  if (par === [p1, p2].sort().join('|')) return p1;
+  if (par === [p0, p2].sort().join('|')) return p2;
+  return null;
+}
+
 const elegir = (rnd, lista) => lista[Math.floor(rnd() * lista.length)];
 
 /**
@@ -131,13 +182,17 @@ const elegir = (rnd, lista) => lista[Math.floor(rnd() * lista.length)];
  * los PUNTOS van en tiebreak_a/b y games_a/b llevan el marcador 1-0.
  * Ver ScoreCapture.tsx y score.test.ts ('contrato de super muerte').
  */
-function generarMarcador(matchId) {
+function generarMarcador(matchId, { apretado = false, ganadorForzado = null } = {}) {
   const rnd = prng(semillaDe(matchId));
-  const ganador = rnd() < 0.5 ? 'A' : 'B';
-  const tresSets = rnd() < 0.32;
+  // El azar se consume igual haya o no ganador impuesto, para que el resto del
+  // marcador no cambie de forma según por dónde se entre.
+  const alAzar = rnd() < 0.5 ? 'A' : 'B';
+  const ganador = ganadorForzado ?? alAzar;
+  // Un grupo apretado va casi siempre a tres sets: es lo que iguala las tablas.
+  const tresSets = rnd() < (apretado ? 0.85 : 0.32);
 
   const setNormal = (loGanaA) => {
-    const [hi, lo] = elegir(rnd, SETS_NORMALES);
+    const [hi, lo] = elegir(rnd, apretado ? SETS_APRETADOS : SETS_NORMALES);
     return {
       games_a: loGanaA ? hi : lo,
       games_b: loGanaA ? lo : hi,
@@ -157,7 +212,7 @@ function generarMarcador(matchId) {
     const primeroDelGanador = rnd() < 0.5;
     sets.push(setNormal(primeroDelGanador ? ganaA : !ganaA));
     sets.push(setNormal(primeroDelGanador ? !ganaA : ganaA));
-    const [hi, lo] = elegir(rnd, SUPER);
+    const [hi, lo] = elegir(rnd, apretado ? SUPER_APRETADO : SUPER);
     sets.push({
       games_a: ganaA ? 1 : 0,
       games_b: ganaA ? 0 : 1,
@@ -224,10 +279,18 @@ async function verificarMarcadores(n = 5000) {
   });
 
   let malos = 0, desalineados = 0, supers = 0, tresSets = 0;
+  let apretados = 0, forzadosMal = 0;
   for (let i = 0; i < n; i++) {
     // Ids con la forma de un uuid, para sembrar el PRNG como en la vida real.
     const id = `${i.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
-    const { sets, ganador } = generarMarcador(id);
+    // La mitad se generan en modo apretado, y de esas la mitad con el ganador
+    // impuesto por el ciclo: son las dos vías nuevas, y las dos tienen que
+    // producir marcadores que el motor acepte y con el ganador que se pidió.
+    const apretado = i % 2 === 1;
+    const ganadorForzado = apretado && i % 4 === 1 ? (i % 8 === 1 ? 'A' : 'B') : null;
+    if (apretado) apretados++;
+    const { sets, ganador } = generarMarcador(id, { apretado, ganadorForzado });
+    if (ganadorForzado && ganador !== ganadorForzado) forzadosMal++;
     if (sets.length === 3) tresSets++;
     if (sets.some((s) => s.is_super_tiebreak)) supers++;
 
@@ -242,12 +305,43 @@ async function verificarMarcadores(n = 5000) {
   }
 
   log(`\n${C.bold}Verificación del generador contra el engine${C.reset} (${n} marcadores)\n`);
-  info(`${tresSets} a tres sets · ${supers} con super muerte`);
+  info(`${tresSets} a tres sets · ${supers} con super muerte · ${apretados} apretados`);
   if (malos || desalineados) {
     mal(`${malos} marcadores inválidos, ${desalineados} con ganador desalineado`);
     process.exit(1);
   }
-  bien('todos válidos y con el ganador que deriva el motor');
+  if (forzadosMal) {
+    mal(`${forzadosMal} marcadores no respetaron el ganador impuesto por el ciclo`);
+    process.exit(1);
+  }
+  bien('todos válidos y con el ganador que deriva el motor, apretados incluidos');
+
+  // EL CICLO CIERRA. Con tres parejas, los tres ganadores que devuelve
+  // `ganadorDelCiclo` tienen que ser tres distintos: si dos coincidieran, una
+  // pareja ganaría dos y el empate a tres no se formaría.
+  const trio = ['aaa', 'bbb', 'ccc'];
+  const partidosTrio = [
+    { pair_a_id: trio[0], pair_b_id: trio[1] },
+    { pair_a_id: trio[0], pair_b_id: trio[2] },
+    { pair_a_id: trio[1], pair_b_id: trio[2] },
+  ];
+  const ganadores = partidosTrio.map((m) => ganadorDelCiclo(partidosTrio, m));
+  if (new Set(ganadores).size !== 3 || ganadores.includes(null)) {
+    mal(`el ciclo de tres no cierra: ganadores ${ganadores.join(', ')}`);
+    process.exit(1);
+  }
+  bien('el ciclo de tres cierra: cada pareja gana uno y pierde otro');
+
+  // Con 4 parejas no se fuerza nada: el ciclo solo aplica al grupo de tres.
+  const cuatro = [
+    { pair_a_id: 'a', pair_b_id: 'b' }, { pair_a_id: 'c', pair_b_id: 'd' },
+    { pair_a_id: 'a', pair_b_id: 'c' }, { pair_a_id: 'b', pair_b_id: 'd' },
+  ];
+  if (ganadorDelCiclo(cuatro, cuatro[0]) !== null) {
+    mal('el ciclo se aplicó a un grupo que no es de tres');
+    process.exit(1);
+  }
+  bien('con más de tres parejas no se fuerza ciclo');
 
   // Determinismo: el mismo id da siempre el mismo marcador.
   const a = JSON.stringify(generarMarcador('11111111-1111-4111-8111-111111111111'));
@@ -264,13 +358,19 @@ async function main() {
     return;
   }
 
-  if (!args.tournamentId || (!args.todas && !args.categoria)) {
+  if (!args.tournamentId || (!args.todas && args.categorias.length === 0)) {
     console.error(`
 RALLY · Simular la captura de resultados de la fase de grupos
 
   node scripts/simular-resultados.mjs <tournament_id> --todas
   node scripts/simular-resultados.mjs <tournament_id> --categoria "5A Fuerza"
+  node scripts/simular-resultados.mjs <tournament_id> --todas --excepto "3a Mixto" --solo-grupos
 
+  --categoria <nombre>   repetible. Solo esas categorías.
+  --excepto <nombre>     repetible. Todas menos esas. Se aplica también sobre
+                         las que dio --categoria.
+  --solo-grupos          para en la fase de grupos: no siembra cuadro ni
+                         captura eliminatorias.
   --verificar            comprueba el generador contra el engine, sin base de datos
   --reiniciar            borra los resultados antes de volver a capturarlos
   --email / --password   credenciales del juez (default: el asignado al torneo)
@@ -342,15 +442,45 @@ RALLY · Simular la captura de resultados de la fase de grupos
     process.exit(1);
   }
 
-  const cats = args.todas
-    ? (todasCats ?? [])
-    : (todasCats ?? []).filter((c) => c.display_name.toLowerCase() === args.categoria.toLowerCase());
+  // Los nombres llevan ordinal femenino ("5ª Femenil") y tildes, que son un
+  // incordio de teclear y una fuente de fallos justo en `--excepto`, donde
+  // equivocarse significa capturar la categoría que se quería salvar. Se
+  // comparan planchados: "3a mixto" y "3ª Mixto" son lo mismo.
+  const norm = (t) => t.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[ªº]/g, 'a')
+    .replace(/\s+/g, ' ');
+  const pedidas = new Set(args.categorias.map(norm));
+  const excluidas = new Set(args.excepto.map(norm));
 
-  if (cats.length === 0) {
-    console.error(`Ninguna categoría coincide con "${args.categoria}".`);
+  // Un nombre mal escrito en --excepto es peligroso de verdad: el script
+  // seguiría adelante y capturaría justo la categoría que se quería salvar.
+  // Mejor parar y decir cuál no existe.
+  const conocidas = new Set((todasCats ?? []).map((c) => norm(c.display_name)));
+  const desconocidas = [...pedidas, ...excluidas].filter((n) => !conocidas.has(n));
+  if (desconocidas.length) {
+    console.error(`Estas categorías no existen en el torneo: ${desconocidas.join(', ')}`);
     console.error(`Disponibles: ${(todasCats ?? []).map((c) => c.display_name).join(', ')}`);
     process.exit(1);
   }
+
+  const cats = (todasCats ?? []).filter((c) => {
+    const n = norm(c.display_name);
+    if (excluidas.has(n)) return false;
+    return args.todas || pedidas.has(n);
+  });
+
+  if (cats.length === 0) {
+    console.error('La selección no deja ninguna categoría.');
+    console.error(`Disponibles: ${(todasCats ?? []).map((c) => c.display_name).join(', ')}`);
+    process.exit(1);
+  }
+
+  if (excluidas.size) {
+    info(`Excluidas a mano: ${args.excepto.join(', ')}`);
+  }
+  info(`${cats.length} categoría(s): ${cats.map((c) => c.display_name).join(', ')}`);
+  if (args.soloGrupos) info('Solo fase de grupos: no se siembra cuadro ni se capturan eliminatorias.');
 
   // ── Reinicio (única escritura directa; deshace la prueba anterior) ────────
   //
@@ -425,10 +555,30 @@ RALLY · Simular la captura de resultados de la fase de grupos
         .filter((m) => m.group_id === grupo.id)
         .sort((a, b) => (a.id < b.id ? -1 : 1));
 
+      // UNO DE CADA CUATRO GRUPOS SE JUEGA APRETADO. Ver `grupoApretado`: sets
+      // al límite y, en los de tres parejas, el ciclo forzado que ningún
+      // criterio del reglamento puede romper. Es el grupo que hay que poder
+      // abrir en la app para ver el sorteo.
+      //
+      // Si el grupo YA tiene partidos capturados no se fuerza nada: mezclar un
+      // ciclo con resultados reales produce una tabla que no es ni una cosa ni
+      // la otra, y encima pisa lo que ya se probó a mano.
+      const intacto = delGrupo.every((m) => m.status !== 'finished');
+      const apretado = intacto && grupoApretado(grupo.id);
+      if (apretado) info(`Grupo ${grupo.name}: se juega apretado a propósito`);
+
       for (const [iPartido, m] of delGrupo.entries()) {
         if (m.status === 'finished') { saltados++; continue; }
 
-        const { sets, ganador } = generarMarcador(m.id);
+        // En un grupo apretado de tres, el ganador lo impone el ciclo.
+        const forzado = apretado ? ganadorDelCiclo(delGrupo, m) : null;
+        const ladoForzado = forzado
+          ? (forzado === m.pair_a_id ? 'A' : 'B')
+          : null;
+
+        const { sets, ganador } = generarMarcador(m.id, {
+          apretado, ganadorForzado: ladoForzado,
+        });
         const winner = ganador === 'A' ? m.pair_a_id : m.pair_b_id;
         if (sets.some((s) => s.is_super_tiebreak)) conSuper++;
 
