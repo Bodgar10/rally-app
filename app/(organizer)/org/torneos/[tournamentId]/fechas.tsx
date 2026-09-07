@@ -20,6 +20,7 @@ import { useVolver } from '@/hooks/useVolver';
 
 import { supabase }        from '@/lib/supabase/client';
 import CalendarioRango     from '@/components/ui/CalendarioRango';
+import { cumplirPaso }     from '@/lib/guia-store';
 import { rangoCompleto, type RangoSeleccion } from '@/lib/rango-fechas';
 import { formatearRango }  from '@/lib/fechas';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
@@ -62,6 +63,18 @@ export default function FechasTorneoScreen() {
     rango.inicio !== original.inicio || rango.fin !== original.fin;
   const puedeGuardar = rangoCompleto(rango) && hayCambios && !guardando;
 
+  // LA PANTALLA DECLARA LO QUE HIZO EL USUARIO; la guía no lo adivina.
+  //
+  // Es todo lo que una pantalla tiene que hacer para poder guiarse: decir en
+  // voz alta lo que YA sabía. Aquí `hayCambios` y el guardado con éxito ya
+  // existían para habilitar el botón — no se calcula nada nuevo. Si la guía no
+  // está corriendo, `cumplirPaso` no hace nada.
+  useEffect(() => {
+    if (rangoCompleto(rango) && hayCambios) {
+      cumplirPaso('cambiar-fechas', 'elegir-rango');
+    }
+  }, [rango, hayCambios]);
+
   async function guardar() {
     // El type guard además de la comprobación de UI: `puedeGuardar` es un
     // booleano y TypeScript no propaga el narrowing a través de él.
@@ -80,6 +93,9 @@ export default function FechasTorneoScreen() {
       setError('No se pudieron guardar las fechas. Intenta de nuevo.');
       return;
     }
+    // El último paso. Al volver al panel, la barra ya no encuentra pantalla y
+    // se apaga sola — no hace falta cerrarla desde aquí.
+    cumplirPaso('cambiar-fechas', 'guardar');
     volver();
   }
 
