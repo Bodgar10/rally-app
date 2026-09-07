@@ -20,6 +20,25 @@
  *   3. Y SE PUEDE ESCRIBIR. Con dieciocho, teclear "cuota" es más rápido que
  *      leer. Buscar aplana los grupos: cuando hay una consulta, lo que importa
  *      es la coincidencia, no dónde vivía.
+ *
+ * DOS NIVELES QUE TIENEN QUE VERSE COMO DOS
+ *   Rótulo y pregunta empezaron iguales —Inter 14, `color.text`, doce píxeles
+ *   de sangría— y con un grupo abierto no se sabía dónde acababa uno y
+ *   empezaba el siguiente. El contraste lo dan TRES cosas a la vez, ninguna
+ *   subida al máximo:
+ *
+ *     · LA FAMILIA. El rótulo va en Oswald, la pregunta en Inter. Es la
+ *       distinción más barata que tiene este proyecto —dos familias, nada
+ *       más— y la que se lee sin fijarse.
+ *     · EL TAMAÑO. 17 contra 14. Un escalón, no tres: son cuatro rótulos y si
+ *       gritan, la hoja pesa más que las dieciocho preguntas juntas.
+ *     · LA CONTENCIÓN. Las preguntas del grupo abierto viven DENTRO de una
+ *       tarjeta `color.surface`, que es como esta app dice "esto va junto".
+ *       Es lo que de verdad resuelve el síntoma: el final del grupo es el
+ *       borde de la tarjeta, no una sangría que hay que medir con el ojo.
+ *
+ *   Y aire entre grupos, para que un grupo abierto no se pegue al siguiente
+ *   cerrado.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -116,10 +135,11 @@ export default function AyudaOrganizador() {
     router.push(rutaDePregunta(p, tournamentId));
   };
 
-  const pregunta = (p: PreguntaDeAyuda) => {
+  const pregunta = (p: PreguntaDeAyuda, ultima = false) => {
     const abierto = desplegada === p.id;
     return (
-      <View key={p.id} style={s.item}>
+      // La última no lleva línea: el borde de la tarjeta ya cierra la lista.
+      <View key={p.id} style={[s.item, ultima && s.itemUltimo]}>
         <Pressable
           onPress={() => setDesplegada(abierto ? null : p.id)}
           accessibilityRole="button"
@@ -147,6 +167,13 @@ export default function AyudaOrganizador() {
       </View>
     );
   };
+
+  /** El bloque de preguntas, dentro de su tarjeta. */
+  const bloque = (lista: PreguntaDeAyuda[]) => (
+    <View style={s.tarjeta}>
+      {lista.map((p, i) => pregunta(p, i === lista.length - 1))}
+    </View>
+  );
 
   return (
     <>
@@ -208,10 +235,11 @@ export default function AyudaOrganizador() {
             </Text>
           ) : (
             <View>
-              <Text style={s.grupoTitulo}>
-                {encontradas === 1 ? '1 RESULTADO' : `${encontradas} RESULTADOS`}
+              {/* Un conteo, no un rótulo: buscando no hay niveles que marcar. */}
+              <Text style={s.conteo}>
+                {encontradas === 1 ? '1 resultado' : `${encontradas} resultados`}
               </Text>
-              {grupos.flatMap((g) => g.preguntas).map(pregunta)}
+              {bloque(grupos.flatMap((g) => g.preguntas))}
             </View>
           )
         ) : (
@@ -219,9 +247,13 @@ export default function AyudaOrganizador() {
             {/* Lo de esta pantalla, desplegado: es lo que más probable que
                 busque quien abre la ayuda desde aquí. */}
             {aqui.length > 0 && (
-              <View>
-                <Text style={s.grupoTitulo}>AQUÍ</Text>
-                {aqui.map(pregunta)}
+              <View style={s.grupoBloque}>
+                {/* Mismo nivel que un rótulo, pero sin desplegar: ya está
+                    abierto porque es lo que se preguntaría desde aquí. */}
+                <View style={s.rotuloFijo}>
+                  <Text style={s.rotulo}>En esta pantalla</Text>
+                </View>
+                {bloque(aqui)}
               </View>
             )}
 
@@ -229,18 +261,25 @@ export default function AyudaOrganizador() {
               const delMomento = PREGUNTAS.filter((p) => p.momento === m.id);
               const desplegado = grupoAbierto === m.id;
               return (
-                <View key={m.id}>
+                <View key={m.id} style={s.grupoBloque}>
                   <Pressable
                     onPress={() => setGrupoAbierto(desplegado ? null : m.id)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded: desplegado }}
-                    style={({ pressed }) => [s.grupo, pressed && { opacity: 0.75 }]}
+                    style={({ pressed }) => [
+                      s.grupo,
+                      // Cerrado lleva su hairline, para que cuatro seguidos se
+                      // lean como una lista. Abierto no: la tarjeta de abajo ya
+                      // dice dónde acaba.
+                      !desplegado && s.grupoCerrado,
+                      pressed && { opacity: 0.75 },
+                    ]}
                   >
-                    <Text style={s.grupoNombre}>{m.titulo}</Text>
+                    <Text style={s.rotulo}>{m.titulo}</Text>
                     <Text style={s.grupoCuenta}>{delMomento.length}</Text>
                     <Text style={s.signo}>{desplegado ? '−' : '+'}</Text>
                   </Pressable>
-                  {desplegado && delMomento.map(pregunta)}
+                  {desplegado && bloque(delMomento)}
                 </View>
               );
             })}
@@ -320,31 +359,52 @@ const s = StyleSheet.create({
     color: color.muted, lineHeight: 19, marginTop: space[4],
   },
 
+  // ── Nivel 1 · el rótulo del grupo ────────────────────────────────────────
+  // Aire ARRIBA de cada bloque: es lo que impide que un grupo abierto se pegue
+  // al siguiente cerrado.
+  grupoBloque: { marginTop: space[4] },
   grupo: {
     flexDirection: 'row', alignItems: 'center', gap: space[3],
-    paddingVertical: space[3], minHeight: touchTarget,
-    borderBottomWidth: 1, borderBottomColor: color.lineSoft,
+    paddingVertical: space[2], minHeight: touchTarget,
   },
-  grupoNombre: {
+  // El rótulo fijo ("En esta pantalla") no se toca, así que no necesita alto
+  // táctil — solo la misma altura de línea para que la escala no salte.
+  rotuloFijo: { paddingVertical: space[2], justifyContent: 'center' },
+  grupoCerrado: { borderBottomWidth: 1, borderBottomColor: color.lineSoft },
+  rotulo: {
     flex: 1, minWidth: 0,
-    fontFamily: font.body, fontSize: fontSize.body, color: color.text,
+    // Oswald contra la Inter de las preguntas: la distinción más barata que
+    // tiene el proyecto, y la que se lee sin fijarse.
+    fontFamily: font.display, fontSize: fontSize.cardName,
+    color: color.text, lineHeight: 22,
   },
   grupoCuenta: {
     fontFamily: font.body, fontSize: 11, color: color.muted,
-    backgroundColor: color.surface, borderRadius: radius.pill,
+    backgroundColor: color.surface2, borderRadius: radius.pill,
     paddingHorizontal: space[2], paddingVertical: 2,
+    minWidth: 22, textAlign: 'center',
     overflow: 'hidden',
   },
-  grupoTitulo: {
-    fontFamily: font.body, fontSize: 10, color: color.muted,
-    textTransform: 'uppercase', letterSpacing: 1.2,
-    marginTop: space[4], marginBottom: space[2],
+  conteo: {
+    fontFamily: font.body, fontSize: fontSize.caption,
+    color: color.muted, marginTop: space[4], marginBottom: space[2],
   },
 
+  // ── Nivel 2 · las preguntas, contenidas ─────────────────────────────────
+  // La tarjeta ES la respuesta al síntoma: el final del grupo es su borde, no
+  // una sangría que hay que medir con el ojo.
+  tarjeta: {
+    marginTop: space[2],
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1, borderColor: color.lineSoft,
+    overflow: 'hidden',
+  },
   item: { borderBottomWidth: 1, borderBottomColor: color.lineSoft },
+  itemUltimo: { borderBottomWidth: 0 },
   fila: {
     flexDirection: 'row', alignItems: 'center', gap: space[3],
-    paddingVertical: space[3], paddingLeft: space[3],
+    paddingVertical: space[3], paddingHorizontal: space[3],
     minHeight: touchTarget,
   },
   // minWidth: 0 en el lado que crece: sin esto la pregunta larga empuja al
@@ -356,11 +416,11 @@ const s = StyleSheet.create({
   },
   signo: { fontFamily: font.body, fontSize: 18, color: color.muted },
 
+  // Dentro de la tarjeta ya no hace falta el raíl de la izquierda: la
+  // contención la da la tarjeta, y dos marcas para lo mismo es ruido.
   respuestaCaja: {
-    paddingBottom: space[3], gap: space[3],
-    borderLeftWidth: 2, borderLeftColor: color.line,
-    paddingLeft: space[3], marginLeft: space[3],
-    marginBottom: space[2],
+    paddingHorizontal: space[3], paddingBottom: space[3],
+    gap: space[3],
   },
   respuesta: {
     fontFamily: font.body, fontSize: fontSize.caption,
