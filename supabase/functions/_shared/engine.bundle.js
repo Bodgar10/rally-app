@@ -434,11 +434,28 @@ function resolveTie(run, matches, full, cfg) {
       sinResolver.add(orden[i + 1]);
     }
   }
-  return {
-    orden,
-    sinResolver,
-    criterio: compararConCriterio(orden[0], orden[1], mini, full).criterio
-  };
+  const manual = cfg.desempateManual;
+  let criterio = compararConCriterio(orden[0], orden[1], mini, full).criterio;
+  if (manual && sinResolver.size > 0) {
+    let i = 0;
+    while (i < orden.length) {
+      if (!sinResolver.has(orden[i])) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < orden.length && sinResolver.has(orden[j + 1])) j++;
+      const bloque = orden.slice(i, j + 1);
+      if (bloque.every((id) => typeof manual[id] === "number")) {
+        bloque.sort((a, b) => manual[a] - manual[b]);
+        orden.splice(i, bloque.length, ...bloque);
+        bloque.forEach((id) => sinResolver.delete(id));
+        if (i === 0) criterio = "sorteo";
+      }
+      i = j + 1;
+    }
+  }
+  return { orden, sinResolver, criterio };
 }
 function computeStandingsDetalle(pairIds, matches, config = DEFAULT_STANDINGS_CONFIG) {
   const full = computeStats(pairIds, matches, config);
@@ -2015,4 +2032,99 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
   return Math.round(total);
 }
 
-export { DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };
+// src/lib/engine/validacion-siembra/index.ts
+var nombreDe2 = (id, nombres) => nombres[id] ?? id;
+function validarSiembra(entrada) {
+  const { grupos, advancePerGroup, bestExtraQualifiers, nombres } = entrada;
+  const cfg = entrada.config ?? DEFAULT_STANDINGS_CONFIG;
+  const problemas = [];
+  const add = (p) => problemas.push(p);
+  for (const g2 of grupos) {
+    const sinJugar = g2.matches.filter((m) => !m.played || m.winnerPairId == null);
+    if (sinJugar.length > 0) {
+      add({
+        codigo: "grupo_incompleto",
+        gravedad: "bloqueante",
+        grupo: g2.nombre,
+        mensaje: `El grupo ${g2.nombre} tiene ${sinJugar.length} ${sinJugar.length === 1 ? "partido sin resultado" : "partidos sin resultado"}. Sembrar ahora repartir\xEDa plazas que todav\xEDa se est\xE1n jugando.`
+      });
+    }
+  }
+  for (const g2 of grupos) {
+    const esperadas = g2.pairIds.map((_, i) => i + 1).join(",");
+    const reales = [...g2.filas.map((f) => f.position)].sort((a, b) => a - b).join(",");
+    if (g2.filas.length !== g2.pairIds.length || esperadas !== reales) {
+      add({
+        codigo: "posiciones_incoherentes",
+        gravedad: "bloqueante",
+        grupo: g2.nombre,
+        mensaje: `Las posiciones del grupo ${g2.nombre} no son 1\u2026${g2.pairIds.length} sin repetir: hay ${g2.filas.length} filas con posiciones ${reales || "\u2014"}. La tabla est\xE1 a medias y la siembra leer\xEDa de ah\xED.`
+      });
+    }
+  }
+  for (const g2 of grupos) {
+    const tabla = computeStandings(g2.pairIds, g2.matches, cfg);
+    const empatadas = tabla.filter((r) => r.empateSinResolver);
+    if (empatadas.length > 0) {
+      const quienes = empatadas.map((r) => nombreDe2(r.pairId, nombres));
+      add({
+        codigo: "empate_sin_resolver",
+        gravedad: "aviso",
+        grupo: g2.nombre,
+        parejas: quienes,
+        mensaje: `En el grupo ${g2.nombre}, ${quienes.join(", ")} quedaron iguales en todo: puntos, partidos entre ellas, sets y games. El reglamento no las separa, as\xED que el orden que se ve ahora NO es deportivo \u2014 sale de un desempate t\xE9cnico. Sort\xE9alo antes de sembrar, o el primero del grupo lo elige el sistema.`
+      });
+    }
+  }
+  const filas = grupos.flatMap((g2) => g2.filas);
+  const clasificados = filas.length > 0 ? selectQualifiers(filas, advancePerGroup, bestExtraQualifiers) : [];
+  const esperados = grupos.length * advancePerGroup + bestExtraQualifiers;
+  if (clasificados.length !== esperados) {
+    add({
+      codigo: "numeros_no_cuadran",
+      gravedad: "bloqueante",
+      mensaje: `Salen ${clasificados.length} clasificados y deber\xEDan ser ${esperados} (${grupos.length} grupos \xD7 ${advancePerGroup}${bestExtraQualifiers > 0 ? ` + ${bestExtraQualifiers} de repesca` : ""}). El cuadro se sembrar\xEDa con un tama\xF1o que no corresponde.`
+    });
+  }
+  const vistos = /* @__PURE__ */ new Set();
+  const repetidos = /* @__PURE__ */ new Set();
+  for (const q of clasificados) {
+    if (vistos.has(q.pairId)) repetidos.add(q.pairId);
+    vistos.add(q.pairId);
+  }
+  if (repetidos.size > 0) {
+    const quienes = [...repetidos].map((id) => nombreDe2(id, nombres));
+    add({
+      codigo: "clasifica_dos_veces",
+      gravedad: "bloqueante",
+      parejas: quienes,
+      mensaje: `${quienes.join(", ")} ${repetidos.size === 1 ? "entra" : "entran"} dos veces en el cuadro: como primera de grupo y adem\xE1s como mejor segundo. Se jugar\xEDa contra s\xED misma.`
+    });
+  }
+  const entra = new Set(clasificados.map((q) => q.pairId));
+  const eliminadosDentro = filas.filter((f) => f.clinchStatus === "eliminated" && entra.has(f.pairId));
+  const clasificadosFuera = filas.filter((f) => f.clinchStatus === "clinched" && !entra.has(f.pairId));
+  if (eliminadosDentro.length > 0) {
+    const quienes = eliminadosDentro.map((f) => nombreDe2(f.pairId, nombres));
+    add({
+      codigo: "eliminado_clasificado",
+      gravedad: "bloqueante",
+      parejas: quienes,
+      mensaje: `A ${quienes.join(", ")} la app ${quienes.length === 1 ? "le dijo" : "les dijo"} que ${quienes.length === 1 ? "estaba eliminada" : "estaban eliminadas"}, y la siembra ${quienes.length === 1 ? "la mete" : "las mete"} en el cuadro.`
+    });
+  }
+  if (clasificadosFuera.length > 0) {
+    const quienes = clasificadosFuera.map((f) => nombreDe2(f.pairId, nombres));
+    add({
+      codigo: "clasificado_fuera",
+      gravedad: "bloqueante",
+      parejas: quienes,
+      mensaje: `A ${quienes.join(", ")} la app ${quienes.length === 1 ? "le dijo" : "les dijo"} que ya ${quienes.length === 1 ? "hab\xEDa clasificado" : "hab\xEDan clasificado"}, y la siembra ${quienes.length === 1 ? "la deja" : "las deja"} fuera.`
+    });
+  }
+  const bloqueantes = problemas.filter((p) => p.gravedad === "bloqueante");
+  const avisos = problemas.filter((p) => p.gravedad === "aviso");
+  return { bloqueantes, avisos, puedeSembrar: bloqueantes.length === 0 };
+}
+
+export { DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };

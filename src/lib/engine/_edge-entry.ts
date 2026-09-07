@@ -93,3 +93,11 @@ export type {
   StandingRow,
   GlickoRating,
 } from './types';
+
+// Lo que hay que comprobar ANTES de sembrar (lo corre la pantalla y lo exige
+// generate-bracket: el botón deshabilitado es una pista, no una garantía).
+export { validarSiembra } from './validacion-siembra';
+export type {
+  Validacion, Problema, CodigoProblema, EntradaValidacion,
+  GrupoAValidar, FilaDeGrupo,
+} from './validacion-siembra';

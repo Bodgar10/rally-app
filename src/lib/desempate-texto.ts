@@ -41,6 +41,9 @@ const FRASE: Record<Exclude<CriterioDesempate, 'sin_resolver'>, string> = {
   sets:                  'por la diferencia de sets de todo el grupo',
   games:                 'por la diferencia de games de todo el grupo',
   games_favor:           'por los games a favor de todo el grupo',
+  // No es un criterio deportivo y no se disfraza de uno: el reglamento no
+  // separaba a estas parejas y lo decidió el sorteo del organizador.
+  sorteo:                'por el sorteo del organizador',
 };
 
 /**

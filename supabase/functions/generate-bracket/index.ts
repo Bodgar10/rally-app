@@ -1,5 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
+  validarSiembra,
   computeSeeding,
   selectQualifiers,
   stageForBracketSize,
@@ -62,7 +63,7 @@ Deno.serve(async (req) => {
       // única forma de llamar a esta función.
       const { data: grpMatches, error: gme } = await admin
         .from('matches')
-        .select('id, status, group_id')
+        .select('id, status, group_id, pair_a_id, pair_b_id, winner_pair_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
         .eq('category_id', category_id)
         .eq('stage', 'group');
       if (gme) return json({ error: 'group_matches_read_failed', detail: gme.message }, 500);
@@ -107,6 +108,71 @@ Deno.serve(async (req) => {
         pairId: r.pair_id, groupId: r.group_id, position: r.position, points: r.points,
         setsWon: r.sets_won, setsLost: r.sets_lost, gamesWon: r.games_won, gamesLost: r.games_lost,
       }));
+
+      // ── VALIDACIÓN PREVIA, EN EL SERVIDOR ────────────────────────────────
+      //
+      //   Sembrar es el punto de no retorno: después, corregir una
+      //   inconsistencia obliga a borrar partidos de eliminatoria. La pantalla
+      //   corre esta misma función del motor para avisar, pero el botón
+      //   deshabilitado es una pista y no una garantía — una llamada directa o
+      //   un cliente viejo se lo saltan.
+      //
+      //   Los AVISOS no se rechazan aquí: el único es el empate sin resolver, y
+      //   el organizador puede decidir seguir sin sortear. Esa decisión es
+      //   suya y se toma en la pantalla, con la confirmación explícita.
+      const { data: filasClinch } = await admin
+        .from('group_standings')
+        .select('pair_id, group_id, clinch_status, groups!inner(category_id)')
+        .eq('groups.category_id', category_id);
+      const clinchDe = new Map(
+        (filasClinch ?? []).map((r: any) => [`${r.group_id}#${r.pair_id}`, r.clinch_status]),
+      );
+
+      const { data: gruposDeCat } = await admin
+        .from('groups').select('id, name').eq('category_id', category_id);
+      const porGrupo = new Map<string, any>();
+      for (const g of gruposDeCat ?? []) {
+        porGrupo.set(g.id, { groupId: g.id, nombre: g.name, pairIds: [], matches: [], filas: [] });
+      }
+      for (const st of standings) {
+        const g = porGrupo.get(st.groupId);
+        if (!g) continue;
+        g.pairIds.push(st.pairId);
+        g.filas.push({ ...st, clinchStatus: clinchDe.get(`${st.groupId}#${st.pairId}`) ?? 'alive' });
+      }
+      // Los partidos REALES, con sus parejas y sus sets: el motor comprueba
+      // con ellos que no quede un empate irresoluble, y alimentarlo con datos
+      // inventados daría un veredicto inventado.
+      for (const mm of grpMatches as any[]) {
+        const g = porGrupo.get(mm.group_id);
+        if (!g) continue;
+        g.matches.push({
+          matchId: mm.id,
+          pairAId: mm.pair_a_id,
+          pairBId: mm.pair_b_id,
+          winnerPairId: mm.winner_pair_id ?? null,
+          played: mm.status === 'finished',
+          sets: (mm.match_sets ?? []).map((x: any) => ({
+            gamesA: Number(x.games_a), gamesB: Number(x.games_b),
+            isSuperTiebreak: Boolean(x.is_super_tiebreak ?? false),
+            tiebreakA: x.tiebreak_a ?? null, tiebreakB: x.tiebreak_b ?? null,
+          })),
+        });
+      }
+
+      const veredicto = validarSiembra({
+        grupos: [...porGrupo.values()],
+        advancePerGroup: cat.advance_per_group ?? 2,
+        bestExtraQualifiers: cat.best_extra_qualifiers ?? 0,
+        nombres: {},
+      });
+      if (!veredicto.puedeSembrar) {
+        return json({
+          error: 'validacion_siembra',
+          problemas: veredicto.bloqueantes,
+          detail: veredicto.bloqueantes.map((p: any) => p.mensaje).join(' · '),
+        }, 409);
+      }
 
       // ENGINE: selecciona clasificados + rating sintético; luego siembra.
       const qualifiers = selectQualifiers(standings, cat.advance_per_group ?? 2, cat.best_extra_qualifiers ?? 0);

@@ -31,6 +31,7 @@ import {
 import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 
 import { supabase } from '@/lib/supabase/client';
+import { fallo } from '@/lib/errores-red';
 import { subscribeToTable, tournamentChannel } from '@/lib/realtime/channels';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
 import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
@@ -42,7 +43,8 @@ import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracke
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
 import type { ScoreConfig } from '@/lib/engine/score';
-import { computeStandingsDetalle } from '@/lib/engine/standings';
+import { computeStandingsDetalle, DEFAULT_STANDINGS_CONFIG } from '@/lib/engine/standings';
+import { validarSiembra, type Problema } from '@/lib/engine/validacion-siembra';
 import type { MatchResultInput } from '@/lib/engine/types';
 import {
   avisoDeEmpateSinResolver, explicacionDeDesempates, parejasSinResolver,
@@ -102,6 +104,12 @@ interface Grupo {
   avisoEmpate: string | null;
   /** Con qué criterio se resolvió el empate, o null. */
   explicacionDesempate: string | null;
+  /** Parejas empatadas, con id y nombre, para poder sortearlas. */
+  empatadas: { pairId: string; nombre: string }[];
+  /** true si este grupo ya tiene un sorteo guardado. */
+  tieneSorteo: boolean;
+  /** Los partidos en el formato del motor, para revalidar antes de sembrar. */
+  entradas: MatchResultInput[];
 }
 
 interface Categoria {
@@ -118,6 +126,8 @@ interface Categoria {
   conHorario: boolean;
   /** True si ya existen partidos de eliminatorias: el cuadro está sembrado. */
   cuadroSembrado: boolean;
+  /** pairId -> nombre, para que los problemas se cuenten con nombres. */
+  nombresPorPareja: Record<string, string>;
   /** La pareja campeona, con nombres, si la final ya se jugó. */
   campeon: string | null;
 }
@@ -161,6 +171,15 @@ export default function GruposScreen() {
   const [error, setError]   = useState<string | null>(null);
   const [sembrando, setSembrando] = useState<string | null>(null);
   const [avisoSiembra, setAvisoSiembra] = useState<string | null>(null);
+  /** Lo que la validación previa encontró, y si impide sembrar. */
+  const [problemas, setProblemas] = useState<
+    { cat: string; lista: Problema[]; bloquea: boolean } | null
+  >(null);
+  /** El grupo cuyo sorteo se está haciendo, con el orden barajado a la vista. */
+  const [sorteando, setSorteando] = useState<
+    { grupo: Grupo; orden: { pairId: string; nombre: string }[] } | null
+  >(null);
+  const [guardandoSorteo, setGuardandoSorteo] = useState(false);
   /**
    * El partido que se está capturando desde aquí.
    *
@@ -280,7 +299,7 @@ export default function GruposScreen() {
     const [{ data: standings }, { data: sets }, mapaParejas] = await Promise.all([
       grupoIds.length
         ? supabase.from('group_standings')
-            .select('id, group_id, pair_id, played, won, lost, sets_won, sets_lost, games_won, games_lost, points, position, clinch_status')
+            .select('id, group_id, pair_id, played, won, lost, sets_won, sets_lost, games_won, games_lost, points, position, clinch_status, desempate_manual')
             .in('group_id', grupoIds)
             .order('position')
         : Promise.resolve({ data: [] as never[] }),
@@ -398,8 +417,19 @@ export default function GruposScreen() {
           // haya que sortear, es un grupo que no ha empezado. Avisarlo ahí
           // sería ruido en cuatro de cada cinco grupos del fin de semana.
           const completo = delGrupo.length > 0 && finalizados === delGrupo.length;
+          // El sorteo guardado, si lo hay. El motor lo aplica y con eso el
+          // bloque deja de estar "sin resolver".
+          const manual: Record<string, number> = {};
+          for (const st of standings ?? []) {
+            if (st.group_id === g.id && st.desempate_manual != null) {
+              manual[st.pair_id] = st.desempate_manual;
+            }
+          }
           const { desempates } = completo
-            ? computeStandingsDetalle(parejasDelGrupo, entradas)
+            ? computeStandingsDetalle(parejasDelGrupo, entradas, {
+                ...DEFAULT_STANDINGS_CONFIG,
+                desempateManual: Object.keys(manual).length ? manual : undefined,
+              })
             : { desempates: [] };
 
           return {
@@ -411,6 +441,12 @@ export default function GruposScreen() {
             // Un grupo sin partidos no está "completo": está vacío.
             completo,
             empatadasSinResolver: parejasSinResolver(desempates),
+            empatadas: parejasSinResolver(desempates).map((pid) => ({
+              pairId: pid,
+              nombre: nombreDePareja(mapaParejas.get(pid)),
+            })),
+            tieneSorteo: Object.keys(manual).length > 0,
+            entradas,
             avisoEmpate: avisoDeEmpateSinResolver(desempates),
             explicacionDesempate: explicacionDeDesempates(desempates),
           };
@@ -429,6 +465,11 @@ export default function GruposScreen() {
         gruposCompletos: gs.filter((g) => g.completo).length,
         conHorario: (partidos ?? []).some((m) => m.category_id === c.id && m.scheduled_at),
         cuadroSembrado: catsConCuadro.has(c.id),
+        nombresPorPareja: Object.fromEntries(
+          (parejas ?? [])
+            .filter((p) => p.category_id === c.id)
+            .map((p) => [p.id, nombreDePareja(mapaParejas.get(p.id))]),
+        ),
         campeon: (() => {
           const id = campeonPorCat.get(c.id);
           return id ? nombreDePareja(mapaParejas.get(id)) : null;
@@ -450,8 +491,45 @@ export default function GruposScreen() {
    * puede. La misma condición se vuelve a comprobar en el servidor, porque
    * esta pantalla no es la única forma de llamar a la función.
    */
-  const sembrarCuadro = useCallback(async (cat: Categoria) => {
+  /**
+   * SEMBRAR ES EL PUNTO DE NO RETORNO. Después, corregir una inconsistencia
+   * obliga a borrar partidos de eliminatoria, así que todo lo que se pueda
+   * detectar antes se detecta antes.
+   *
+   * `forzar` solo salta los AVISOS —hoy, el empate sin sortear—, nunca los
+   * bloqueantes: esos los vuelve a rechazar `generate-bracket`.
+   */
+  const sembrarCuadro = useCallback(async (cat: Categoria, forzar = false) => {
     setAvisoSiembra(null);
+    setProblemas(null);
+
+    const veredicto = validarSiembra({
+      grupos: cat.grupos.map((g) => ({
+        groupId: g.id,
+        nombre: g.nombre,
+        pairIds: g.filas.map((f) => f.pair_id),
+        matches: g.entradas,
+        filas: g.filas.map((f) => ({
+          pairId: f.pair_id, groupId: g.id, position: f.position, points: f.points,
+          setsWon: f.sets_won, setsLost: f.sets_lost,
+          gamesWon: f.games_won, gamesLost: f.games_lost,
+          clinchStatus: f.clinch_status,
+        })),
+      })),
+      advancePerGroup: cat.pasanPorGrupo,
+      bestExtraQualifiers: cat.repescados,
+      nombres: cat.nombresPorPareja,
+    });
+
+    if (veredicto.bloqueantes.length > 0) {
+      setProblemas({ cat: cat.id, lista: veredicto.bloqueantes, bloquea: true });
+      return;
+    }
+    if (veredicto.avisos.length > 0 && !forzar) {
+      setProblemas({ cat: cat.id, lista: veredicto.avisos, bloquea: false });
+      return;
+    }
+
     setSembrando(cat.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -487,6 +565,41 @@ export default function GruposScreen() {
       setSembrando(null);
     }
   }, [cargar]);
+
+  /**
+   * EL SORTEO LO BARAJA LA APP Y SE ENSEÑA ANTES DE GUARDAR.
+   *
+   * Un campo libre para teclear el orden invita a poner primero al que cae
+   * bien, que es exactamente lo que un sorteo existe para evitar. Y un sorteo
+   * que el organizador no ve tampoco es un sorteo: se baraja, se muestra, y
+   * solo entonces se guarda.
+   */
+  function barajar(g: Grupo) {
+    const orden = [...g.empatadas];
+    for (let i = orden.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [orden[i], orden[j]] = [orden[j], orden[i]];
+    }
+    setSorteando({ grupo: g, orden });
+  }
+
+  async function guardarSorteo() {
+    if (!sorteando) return;
+    setGuardandoSorteo(true);
+    try {
+      const { error: e } = await supabase.rpc('sortear_desempate', {
+        p_group_id: sorteando.grupo.id,
+        p_orden: sorteando.orden.map((x, i) => ({ pair_id: x.pairId, orden: i + 1 })),
+      });
+      if (e) throw e;
+      setSorteando(null);
+      await cargar();
+    } catch (e) {
+      setAvisoSiembra(fallo('grupos/sorteo', e, 'No se pudo guardar el sorteo.'));
+    } finally {
+      setGuardandoSorteo(false);
+    }
+  }
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
@@ -774,6 +887,22 @@ export default function GruposScreen() {
                       </Text>
                     </View>
 
+                    {/* EL SORTEO. Solo cuando el grupo está completo, sigue
+                        empatado y el cuadro no se ha sembrado — después ya
+                        movería a quien está colocado en el cuadro. */}
+                    {g.completo && g.empatadas.length > 0 && !activa.cuadroSembrado && (
+                      <Pressable
+                        onPress={() => barajar(g)}
+                        style={s.btnSorteo}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Sortear el empate del grupo ${g.nombre}`}
+                      >
+                        <Text style={s.btnSorteoTexto}>
+                          {g.tieneSorteo ? '🎲 Repetir el sorteo' : '🎲 Sortear el empate'}
+                        </Text>
+                      </Pressable>
+                    )}
+
                     <LiveStandings
                       groupId={g.id}
                       filas={g.filas}
@@ -858,6 +987,53 @@ export default function GruposScreen() {
           pantalla completa, que en web se comía la ventana entera. `Hoja` es
           tarjeta centrada en escritorio y hoja acotada en móvil, como el resto
           del proyecto. */}
+      {sorteando && (
+        <Hoja
+          visible
+          onClose={() => setSorteando(null)}
+          eyebrow={`GRUPO ${sorteando.grupo.nombre}`}
+          titulo="Sorteo del empate"
+        >
+          <View style={{ gap: space[3] }}>
+            <Text style={s.sorteoTexto}>
+              El reglamento no separa a estas parejas: mismos puntos, mismo
+              resultado entre ellas, mismos sets y mismos games. El orden que se
+              publica ahora no es deportivo, así que lo decide el sorteo.
+            </Text>
+            <View style={s.sorteoLista}>
+              {sorteando.orden.map((x, i) => (
+                <View key={x.pairId} style={s.sorteoFila}>
+                  <Text style={s.sorteoPuesto}>{i + 1}</Text>
+                  <Text style={s.sorteoNombre} numberOfLines={1}>{x.nombre}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={s.sorteoNota}>
+              Se puede repetir hasta que siembres el cuadro. Después queda fijo.
+            </Text>
+            <View style={s.problemasBotones}>
+              <Pressable
+                onPress={() => barajar(sorteando.grupo)}
+                style={s.btnFantasma}
+                accessibilityRole="button"
+              >
+                <Text style={s.btnFantasmaTexto}>Volver a barajar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void guardarSorteo()}
+                disabled={guardandoSorteo}
+                style={s.btnSeguir}
+                accessibilityRole="button"
+              >
+                {guardandoSorteo
+                  ? <ActivityIndicator color={color.onGold} />
+                  : <Text style={s.btnSeguirTexto}>Guardar este orden</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </Hoja>
+      )}
+
       {capturando && (
         <Hoja
           visible
@@ -953,6 +1129,26 @@ const s = StyleSheet.create({
   campeonNombre: {
     fontFamily: font.display, fontSize: fontSize.metric, color: color.onGold, lineHeight: 30,
   },
+  problemasBloqueo:  { backgroundColor: 'rgba(224,114,111,0.10)', borderWidth: 1, borderColor: 'rgba(224,114,111,0.25)', borderRadius: radius.md, padding: space[3], gap: space[2], marginTop: space[2] },
+  problemasAviso:    { backgroundColor: 'rgba(230,180,80,0.10)', borderWidth: 1, borderColor: 'rgba(230,180,80,0.25)', borderRadius: radius.md, padding: space[3], gap: space[2], marginTop: space[2] },
+  problemasTituloBloqueo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.danger },
+  problemasTituloAviso:   { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
+  problemaTexto:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 18 },
+  problemasBotones:  { flexDirection: 'row', gap: space[2], marginTop: space[1] },
+  btnFantasma:       { flex: 1, minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: color.lineSoft, alignItems: 'center', justifyContent: 'center' },
+  btnFantasmaTexto:  { fontFamily: font.body, fontSize: fontSize.body, color: color.muted },
+  btnSeguir:         { flex: 2, minHeight: 44, borderRadius: radius.sm, backgroundColor: color.gold, alignItems: 'center', justifyContent: 'center' },
+  btnSeguirTexto:    { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.onGold },
+
+  btnSorteo:         { borderWidth: 1, borderColor: color.alive, borderRadius: radius.sm, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginBottom: space[2] },
+  btnSorteoTexto:    { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
+  sorteoTexto:       { fontFamily: font.body, fontSize: fontSize.caption, color: color.text, lineHeight: 18 },
+  sorteoLista:       { gap: space[2] },
+  sorteoFila:        { flexDirection: 'row', alignItems: 'center', gap: space[3], backgroundColor: color.surface, borderRadius: radius.md, padding: space[3] },
+  sorteoPuesto:      { fontFamily: font.display, fontSize: fontSize.metric, color: color.goldBright, minWidth: 28, textAlign: 'center' },
+  sorteoNombre:      { fontFamily: font.body, fontSize: fontSize.body, color: color.text, flex: 1 },
+  sorteoNota:        { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
+
   botonSembrar:      { backgroundColor: color.gold, borderWidth: 1, borderColor: color.gold, borderRadius: radius.sm, paddingVertical: space[3], paddingHorizontal: space[3], alignItems: 'center', marginTop: space[2] },
   // Deshabilitado: contorno de oro al 40% sobre el fondo. Se lee como botón.
   botonSembrarOff:   { backgroundColor: 'transparent', borderColor: color.goldMuted },

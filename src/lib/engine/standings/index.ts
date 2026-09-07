@@ -31,6 +31,18 @@ export interface StandingsConfig {
    * muerte, y el motor ya no lo adivina (migración 063).
    */
   score?: ScoreConfig;
+  /**
+   * El orden que el organizador SORTEÓ entre parejas que el reglamento no
+   * separa. `pairId -> 1, 2, 3…` dentro de su bloque.
+   *
+   * Solo se aplica a un bloque que sigue siendo un empate irresoluble Y cuyas
+   * parejas son exactamente las que traen valor. Si un resultado se corrige y
+   * el empate desaparece o cambia de miembros, el sorteo se ignora solo — así
+   * un dato viejo no puede reordenar una tabla que sí está decidida.
+   *
+   * Sale de `group_standings.desempate_manual` (migración 064).
+   */
+  desempateManual?: Record<string, number>;
 }
 
 /**
@@ -234,6 +246,8 @@ export type CriterioDesempate =
   | 'sets'
   | 'games'
   | 'games_favor'
+  /** Lo decidió el sorteo del organizador, no el reglamento. */
+  | 'sorteo'
   | 'sin_resolver';
 
 /** Un criterio = un id y el número que compara (mayor gana). */
@@ -321,11 +335,42 @@ function resolveTie(
     }
   }
 
-  return {
-    orden,
-    sinResolver,
-    criterio: compararConCriterio(orden[0], orden[1], mini, full).criterio,
-  };
+  /**
+   * EL SORTEO DEL ORGANIZADOR MANDA SOBRE EL DESEMPATE TÉCNICO.
+   *
+   *   Cuando la cadena entera devuelve 0, el orden que sale de aquí es el de
+   *   entrada, y el que acaba en `position` viene del `pairId` que
+   *   `selectQualifiers` usa para tener un orden total. Sembrar así es dejar
+   *   que un UUID elija al primero del grupo.
+   *
+   *   Con sorteo, ese bloque pasa a estar RESUELTO: se ordena por él y sale de
+   *   `sinResolver`, que es lo que le permite a `computeClinch` volver a
+   *   afirmar quién clasificó.
+   *
+   *   Se exige que TODAS las parejas del bloque traigan valor. Un sorteo a
+   *   medias no ordena nada, y uno viejo —de un empate que ya cambió de
+   *   miembros— no encaja y se ignora solo.
+   */
+  const manual = cfg.desempateManual;
+  let criterio = compararConCriterio(orden[0], orden[1], mini, full).criterio;
+  if (manual && sinResolver.size > 0) {
+    let i = 0;
+    while (i < orden.length) {
+      if (!sinResolver.has(orden[i])) { i++; continue; }
+      let j = i;
+      while (j + 1 < orden.length && sinResolver.has(orden[j + 1])) j++;
+      const bloque = orden.slice(i, j + 1);
+      if (bloque.every((id) => typeof manual[id] === 'number')) {
+        bloque.sort((a, b) => manual[a] - manual[b]);
+        orden.splice(i, bloque.length, ...bloque);
+        bloque.forEach((id) => sinResolver.delete(id));
+        if (i === 0) criterio = 'sorteo';
+      }
+      i = j + 1;
+    }
+  }
+
+  return { orden, sinResolver, criterio };
 }
 
 /** Tabla de un grupo + los empates que hubo que resolver para ordenarla. */

@@ -323,6 +323,7 @@ export type Database = {
       group_standings: {
         Row: {
           clinch_status: Database["public"]["Enums"]["clinch_status"]
+          desempate_manual: number | null
           games_lost: number
           games_won: number
           group_id: string
@@ -339,6 +340,7 @@ export type Database = {
         }
         Insert: {
           clinch_status?: Database["public"]["Enums"]["clinch_status"]
+          desempate_manual?: number | null
           games_lost?: number
           games_won?: number
           group_id: string
@@ -355,6 +357,7 @@ export type Database = {
         }
         Update: {
           clinch_status?: Database["public"]["Enums"]["clinch_status"]
+          desempate_manual?: number | null
           games_lost?: number
           games_won?: number
           group_id?: string
@@ -2142,6 +2145,10 @@ export type Database = {
           p_category_id: string
           p_extra: number
         }
+        Returns: Json
+      }
+      sortear_desempate: {
+        Args: { p_group_id: string; p_orden: Json }
         Returns: Json
       }
       apply_tournament_ranking_points: {

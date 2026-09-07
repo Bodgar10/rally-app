@@ -215,6 +215,18 @@ interface StandingsConfig {
      * muerte, y el motor ya no lo adivina (migración 063).
      */
     score?: ScoreConfig;
+    /**
+     * El orden que el organizador SORTEÓ entre parejas que el reglamento no
+     * separa. `pairId -> 1, 2, 3…` dentro de su bloque.
+     *
+     * Solo se aplica a un bloque que sigue siendo un empate irresoluble Y cuyas
+     * parejas son exactamente las que traen valor. Si un resultado se corrige y
+     * el empate desaparece o cambia de miembros, el sorteo se ignora solo — así
+     * un dato viejo no puede reordenar una tabla que sí está decidida.
+     *
+     * Sale de `group_standings.desempate_manual` (migración 064).
+     */
+    desempateManual?: Record<string, number>;
 }
 /**
  * 2 por victoria, 0 por derrota. Los puntos son victorias × 2, punto.
@@ -254,7 +266,9 @@ declare const DEFAULT_STANDINGS_CONFIG: StandingsConfig;
  * pasó cuando se enfrentaron—, y solo si eso no separa, las diferencias del
  * grupo entero.
  */
-type CriterioDesempate = 'minitabla_puntos' | 'minitabla_sets' | 'minitabla_games' | 'minitabla_games_favor' | 'sets' | 'games' | 'games_favor' | 'sin_resolver';
+type CriterioDesempate = 'minitabla_puntos' | 'minitabla_sets' | 'minitabla_games' | 'minitabla_games_favor' | 'sets' | 'games' | 'games_favor'
+/** Lo decidió el sorteo del organizador, no el reglamento. */
+ | 'sorteo' | 'sin_resolver';
 /**
  * Un empate resuelto (o no) dentro de una tabla, para poder explicarlo.
  * `criterio` es el que separó a la PRIMERA del resto: es la respuesta a
@@ -1166,4 +1180,44 @@ interface PlayerTournamentResult {
  */
 declare function computeRankingPoints(result: PlayerTournamentResult, rules?: RankingRules): number;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type Conflicto, type CrearPartido, type CriterioDesempate, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EstadoDeSet, type EtapaEliminatoria, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validateParcial, validateScore };
+/** Una fila de `group_standings` tal como la lee quien va a sembrar. */
+interface FilaDeGrupo extends QualifierStanding {
+    clinchStatus: 'clinched' | 'eliminated' | 'alive' | 'repechage_pending';
+}
+interface GrupoAValidar {
+    groupId: string;
+    /** 'A', 'B'… lo que se le enseña al organizador. */
+    nombre: string;
+    pairIds: string[];
+    matches: MatchResultInput[];
+    /** Lo que hay HOY en `group_standings`, que es lo que la siembra va a usar. */
+    filas: FilaDeGrupo[];
+}
+interface EntradaValidacion {
+    grupos: GrupoAValidar[];
+    advancePerGroup: number;
+    bestExtraQualifiers: number;
+    /** pairId -> 'Nombre / Nombre'. Los problemas se cuentan con nombres. */
+    nombres: Record<string, string>;
+    config?: StandingsConfig;
+}
+type CodigoProblema = 'numeros_no_cuadran' | 'clasifica_dos_veces' | 'eliminado_clasificado' | 'clasificado_fuera' | 'grupo_incompleto' | 'empate_sin_resolver' | 'posiciones_incoherentes';
+interface Problema {
+    codigo: CodigoProblema;
+    gravedad: 'bloqueante' | 'aviso';
+    /** Redactado para el organizador, con nombres y letras de grupo. */
+    mensaje: string;
+    /** Grupo al que pertenece, si es de uno. */
+    grupo?: string;
+    /** Parejas implicadas, por nombre. */
+    parejas?: string[];
+}
+interface Validacion {
+    bloqueantes: Problema[];
+    avisos: Problema[];
+    /** Sin bloqueantes. Los avisos se pueden saltar con confirmación explícita. */
+    puedeSembrar: boolean;
+}
+declare function validarSiembra(entrada: EntradaValidacion): Validacion;
+
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };

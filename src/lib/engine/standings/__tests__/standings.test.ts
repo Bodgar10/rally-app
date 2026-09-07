@@ -110,7 +110,7 @@ describe('computeStandings — los puntos son victorias x 2', () => {
 // orden: solo deja de fingir que ese orden significa algo.
 // ───────────────────────────────────────────────────────────────────────────
 
-import { computeStandingsDetalle } from '../index';
+import { computeStandingsDetalle, DEFAULT_STANDINGS_CONFIG } from '../index';
 
 const setIgual = (a: number, b: number) => ({ gamesA: a, gamesB: b, isSuperTiebreak: false });
 
@@ -187,5 +187,64 @@ describe('empateSinResolver — un empate que SÍ se resuelve no se marca', () =
     const { filas, desempates } = computeStandingsDetalle(['A', 'B', 'C'], matches);
     expect(filas.some((f) => f.empateSinResolver)).toBe(false);
     expect(desempates[0].criterio).not.toBe('sin_resolver');
+  });
+});
+
+/**
+ * EL SORTEO DEL ORGANIZADOR. Cuando el reglamento no separa a dos o más
+ * parejas, el orden que se publica sale del `pairId`, y sembrar así deja que
+ * un UUID elija al primero del grupo. El sorteo es la salida.
+ */
+describe('desempateManual — el sorteo manda sobre el desempate técnico', () => {
+  // Ciclo perfecto: S→I, I→A, A→S, todos 6-4 6-4.
+  const ciclo = [
+    partido('m1', 'S', 'I', 'S', 6, 4),
+    partido('m2', 'I', 'A', 'I', 6, 4),
+    partido('m3', 'A', 'S', 'A', 6, 4),
+  ];
+  const con = (manual?: Record<string, number>) =>
+    computeStandingsDetalle(['S', 'A', 'I'], ciclo, {
+      ...DEFAULT_STANDINGS_CONFIG, desempateManual: manual,
+    });
+
+  it('sin sorteo, sigue siendo un empate sin resolver', () => {
+    const { filas } = con();
+    expect(filas.every((f) => f.empateSinResolver)).toBe(true);
+  });
+
+  it('con sorteo, el orden es el sorteado', () => {
+    const { filas } = con({ A: 1, S: 2, I: 3 });
+    expect(filas.map((f) => f.pairId)).toEqual(['A', 'S', 'I']);
+  });
+
+  it('y el bloque deja de estar sin resolver: el clinch puede volver a afirmar', () => {
+    const { filas, desempates } = con({ A: 1, S: 2, I: 3 });
+    expect(filas.some((f) => f.empateSinResolver)).toBe(false);
+    expect(desempates[0].criterio).toBe('sorteo');
+  });
+
+  it('un sorteo A MEDIAS no ordena nada', () => {
+    // Falta I: el bloque no está cubierto y se ignora entero.
+    const { filas } = con({ A: 1, S: 2 });
+    expect(filas.every((f) => f.empateSinResolver)).toBe(true);
+  });
+
+  it('un sorteo de OTRO empate no encaja y se ignora solo', () => {
+    // Parejas que no están en este bloque: el dato es viejo.
+    const { filas } = con({ X: 1, Y: 2, Z: 3 });
+    expect(filas.every((f) => f.empateSinResolver)).toBe(true);
+  });
+
+  it('no reordena un grupo que SÍ está decidido', () => {
+    const decidido = [
+      partido('n1', 'A', 'B', 'A', 6, 0),
+      partido('n2', 'A', 'C', 'A', 6, 0),
+      partido('n3', 'B', 'C', 'B', 6, 0),
+    ];
+    const { filas } = computeStandingsDetalle(['A', 'B', 'C'], decidido, {
+      ...DEFAULT_STANDINGS_CONFIG, desempateManual: { C: 1, B: 2, A: 3 },
+    });
+    // El sorteo no toca lo que el reglamento ya resolvió.
+    expect(filas.map((f) => f.pairId)).toEqual(['A', 'B', 'C']);
   });
 });
