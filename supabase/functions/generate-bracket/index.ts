@@ -179,12 +179,28 @@ Deno.serve(async (req) => {
       const seeded = computeSeeding(qualifiers); // {bracketSize, matches:[{slotA,slotB,pairAId,pairBId,isRematch}], rematchesAllowed}
       const stage = stageForBracketSize(seeded.bracketSize);
 
-      const toPersist = seeded.matches.map((mt: any) => ({
-        stage,
-        round_label: `${stage}-${String(mt.slotA).padStart(2, '0')}-${String(mt.slotB).padStart(2, '0')}`, // zero-pad: orden lexicográfico = numérico (cuadros 16/32)
-        pair_a_id: mt.pairAId ?? null,
-        pair_b_id: mt.pairBId ?? null,
-      }));
+      // EL HUECO DEL PLAN, POR POSICIÓN DENTRO DE LA RONDA.
+      //
+      //   `match_schedule` reserva hora y cancha para todas las rondas desde
+      //   que se programa el día, y las identifica por (categoría, etapa,
+      //   slot_index). La RPC busca ahí (migración 066); aquí solo se dice qué
+      //   slot le toca a cada cruce.
+      //
+      //   SOLO CUENTAN LOS CRUCES JUGABLES. Un bye no ocupa cancha y el
+      //   scheduler no le reserva hueco —`partidosPorRonda` no lo cuenta— así
+      //   que darle slot desplazaría la hora de todos los cruces de detrás.
+      //   Un bye nace sin hora, y hace bien: no se juega.
+      let slot = 0;
+      const toPersist = seeded.matches.map((mt: any) => {
+        const jugable = mt.pairAId != null && mt.pairBId != null;
+        return {
+          stage,
+          round_label: `${stage}-${String(mt.slotA).padStart(2, '0')}-${String(mt.slotB).padStart(2, '0')}`, // zero-pad: orden lexicográfico = numérico (cuadros 16/32)
+          slot_index: jugable ? slot++ : null,
+          pair_a_id: mt.pairAId ?? null,
+          pair_b_id: mt.pairBId ?? null,
+        };
+      });
 
       const { data: result, error } = await admin.rpc('seed_bracket_for_category', {
         p_actor: actor, p_category_id: category_id, p_matches: toPersist,
