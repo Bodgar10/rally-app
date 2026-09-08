@@ -92,3 +92,25 @@ describe('cuando además organiza o arbitra', () => {
     expect(bloquesDelDashboard(true, nada, true).torneoPorEmpezar).toBe(true);
   });
 });
+
+// EL CASO DE EDUARDO: bye asegurado a semifinales, todos sus partidos de grupo
+// jugados. `pendientes` es 0 porque su cuadro todavía no existe, así que la
+// sección se ocultaba entera — justo cuando ya se sabía que jugaba el domingo
+// a las 16:00.
+describe('cuando ya se sabe la hora de su próxima ronda', () => {
+  const todoJugado = { conHorario: 3, pendientes: 0 };
+
+  it('la sección se pinta aunque no le queden partidos', () => {
+    expect(bloquesDelDashboard(true, todoJugado, false, true).proximoPartido).toBe(true);
+  });
+
+  it('sin saber la hora, sigue oculta como antes', () => {
+    expect(bloquesDelDashboard(true, todoJugado, false, false).proximoPartido).toBe(false);
+    expect(bloquesDelDashboard(true, todoJugado).proximoPartido).toBe(false);
+  });
+
+  // Saber la hora no resucita la cancha: sin partido no hay cola que vigilar.
+  it('no reabre EN TU CANCHA', () => {
+    expect(bloquesDelDashboard(true, todoJugado, false, true).enMiCancha).toBe(false);
+  });
+});

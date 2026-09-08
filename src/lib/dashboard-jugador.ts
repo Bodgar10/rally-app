@@ -66,6 +66,20 @@ export function bloquesDelDashboard(
    * es un solo booleano y no dos.
    */
   tieneTrabajo = false,
+  /**
+   * Ya se sabe a qué hora juega su próxima ronda, aunque el partido todavía no
+   * exista.
+   *
+   * EL CASO: Eduardo, con bye asegurado a semifinales y sus partidos de grupo
+   * todos jugados. `pendientes` es 0 —su cuadro no existe— así que la sección
+   * se ocultaba entera, justo cuando `match_schedule` decía desde el viernes
+   * que las semis eran el domingo a las 16:00.
+   *
+   * La regla de "cada bloque se pinta solo si tiene respuesta" sigue siendo la
+   * buena; lo que cambió es que AHORA HAY RESPUESTA. Ver
+   * `@/lib/hora-de-mi-ronda`.
+   */
+  sabeSuHora = false,
 ): BloquesDelDashboard {
   if (!inscrito) {
     // La sección SÍ se pinta: para quien no está inscrito, "¿cuándo juego?"
@@ -98,7 +112,7 @@ export function bloquesDelDashboard(
     // La sección existe si hay un partido que enseñar, o si hay que explicar
     // que todavía no lo hay. Si ya jugó todo, NI UNA COSA NI LA OTRA: se va
     // entera, etiqueta incluida, y la respuesta la da la tarjeta de situación.
-    proximoPartido: quedaAlgoPorJugar || sinCalendario,
+    proximoPartido: quedaAlgoPorJugar || sinCalendario || sabeSuHora,
     // Sin próximo partido no hay cancha que vigilar.
     enMiCancha: quedaAlgoPorJugar,
   };

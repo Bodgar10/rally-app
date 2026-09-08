@@ -217,7 +217,7 @@ export default function DashboardScreen() {
   // Arbitrar cuenta igual que organizar para no enseñarle "Inscríbete a un
   // torneo": la pantalla de un juez con trabajo tampoco está vacía.
   const bloques = bloquesDelDashboard(
-    pairIds.length > 0, resumen, esOrganizador || esJuez,
+    pairIds.length > 0, resumen, esOrganizador || esJuez, !!situacion?.miRonda,
   );
 
   /**
@@ -355,10 +355,29 @@ export default function DashboardScreen() {
                   ? (
                     <View style={styles.heroCard}>
                       <View style={styles.accentBar} />
-                      <Text style={styles.heroEmpty}>Todavía sin hora</Text>
-                      <Text style={styles.heroSubtext}>
-                        {porQueNoHayPartido(situacion.estado, situacion.gruposPendientes)}
+                      {/* LA HORA, CUANDO SE SABE.
+                          Eduardo tenía bye asegurado a semifinales y leía
+                          "todavía sin hora", mientras `match_schedule` decía
+                          desde el viernes que las dos semis eran el domingo a
+                          las 16:00. Con la ronda garantizada y el plan escrito,
+                          la hora es un hecho aunque el cuadro no exista.
+                          Ver `@/lib/hora-de-mi-ronda`. */}
+                      <Text style={styles.heroEmpty}>
+                        {situacion.miRonda ? 'Ya sabes cuándo juegas' : 'Todavía sin hora'}
                       </Text>
+                      <Text style={styles.heroSubtext}>
+                        {situacion.miRonda
+                          ? situacion.miRonda.cuando
+                          : porQueNoHayPartido(situacion.estado, situacion.gruposPendientes)}
+                      </Text>
+                      {/* Contra quién es otra pregunta y va en su propia línea:
+                          pegada a la hora, la incógnita contamina el dato
+                          cierto. */}
+                      {situacion.miRonda && (
+                        <Text style={styles.heroSubtext}>
+                          {situacion.miRonda.contraQuien}
+                        </Text>
+                      )}
                     </View>
                   )
                   : undefined

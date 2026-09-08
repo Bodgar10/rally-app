@@ -107,6 +107,15 @@ export interface FuturoEnPalabras {
    * le toca. Con la situación ya resuelta no hay nada que esperar y sobra.
    */
   aviso: string | null;
+  /**
+   * El bye está ASEGURADO: entra en la segunda ronda del cuadro pase lo que
+   * pase.
+   *
+   * Es la condición que deja mirar `match_schedule` y decirle a qué hora juega
+   * antes de que exista el cuadro. Sin garantía no se sabe ni en qué ronda
+   * entra, y cualquier hora sería inventada. Ver `@/lib/hora-de-mi-ronda`.
+   */
+  byeGarantizado: boolean;
 }
 
 const ORDINAL = [
@@ -452,6 +461,11 @@ export function futuroEnPalabras(
   // De qué carrera se habla. `repesca` viene `undefined` cuando el jugador es
   // primero de su grupo: NO ESTÁ EN ESA CARRERA, así que no se menciona ni se
   // pintan sus partidos — se cae a la del pase directo, que sí le aplica.
+  // ASEGURADO = la carrera del bye está ganada: `peorPuestoPosible` cabe en
+  // las plazas. Con `aplica` pero sin ganar, todavía se puede quedar fuera del
+  // bye y entraría en la primera ronda — otra ronda y otra hora.
+  const byeGarantizado = a.bye?.aplica === true && estaGanada(a.bye);
+
   const carreraVisible = a.repesca ?? (a.bye?.aplica ? a.bye : undefined);
   // EL SUYO PRIMERO. Es lo único de la lista sobre lo que puede hacer algo, y
   // leerlo después de tres partidos ajenos lo convierte en una nota al pie.
@@ -498,6 +512,8 @@ export function futuroEnPalabras(
       // Nada que esperar todavía: el aviso es para cuando su suerte depende de
       // resultados que no controla, y aquí depende enteramente de él.
       aviso: null,
+      // Sin haber jugado nada, ningún bye está asegurado.
+      byeGarantizado: false,
     };
   }
 
@@ -514,6 +530,7 @@ export function futuroEnPalabras(
       partidos: [],
       carrera: null,
       aviso,
+      byeGarantizado,
     };
   }
 
@@ -528,6 +545,7 @@ export function futuroEnPalabras(
       partidos,
       carrera,
       aviso,
+      byeGarantizado,
     };
   }
 
@@ -540,6 +558,7 @@ export function futuroEnPalabras(
       partidos: [],
       carrera: null,
       aviso,
+      byeGarantizado,
     };
   }
 
@@ -572,6 +591,7 @@ export function futuroEnPalabras(
       partidos: [],
       carrera: null,
       aviso,
+      byeGarantizado,
     };
   }
 
@@ -585,6 +605,7 @@ export function futuroEnPalabras(
     partidos,
     carrera,
     aviso,
+    byeGarantizado,
   };
 }
 

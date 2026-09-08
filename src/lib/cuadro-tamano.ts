@@ -150,3 +150,49 @@ export function explicarCuadro(
     `Lo más abajo que llega con ${grupos} grupos es ${piso.nombreRonda}; ` +
     `para menos que eso hay que armar menos grupos.`;
 }
+
+/**
+ * El `matches.stage` / `match_schedule.stage` de cada ronda del vocabulario del
+ * motor.
+ *
+ * SON DOS VOCABULARIOS Y NO UNO. El motor dice 'r16' y la base dice
+ * 'round_of_16'; la traducción vivía repartida por las pantallas que la
+ * necesitaban. Aquí está una vez, al lado de `NOMBRE_RONDA`, que es el otro
+ * diccionario de lo mismo.
+ */
+/**
+ * Cómo se llama la ronda CUANDO SE JUEGA, con su artículo.
+ *
+ * NO ES `NOMBRE_RONDA`. Ese nombra la FORMA del cuadro —"final directa" quiere
+ * decir que el cuadro entero es una final— y sirve para describir el formato.
+ * Metido en una frase de jugador sale "Juegas final directa el domingo", que
+ * no es cómo se dice: lo que juega es LA FINAL.
+ */
+export const RONDA_QUE_JUEGAS: Record<KnockoutStart, string> = {
+  final:   'la final',
+  semi:    'las semifinales',
+  quarter: 'los cuartos de final',
+  r16:     'los octavos',
+  r32:     'la ronda de 32',
+};
+
+export const STAGE_DE_RONDA: Record<KnockoutStart, string> = {
+  final:   'final',
+  semi:    'semi',
+  quarter: 'quarter',
+  r16:     'round_of_16',
+  r32:     'round_of_32',
+};
+
+/**
+ * La ronda siguiente, que es a la que entra quien tiene bye.
+ *
+ * `null` en la final: no hay nada después, así que un bye "a la final" ya es
+ * jugar la final — y eso no lo produce un cuadro real, porque con dos
+ * clasificados no hay byes.
+ */
+export function rondaSiguiente(r: KnockoutStart): KnockoutStart | null {
+  const orden: KnockoutStart[] = ['r32', 'r16', 'quarter', 'semi', 'final'];
+  const i = orden.indexOf(r);
+  return i >= 0 && i + 1 < orden.length ? orden[i + 1] : null;
+}

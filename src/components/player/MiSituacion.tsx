@@ -26,7 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
 
 import { supabase } from '@/lib/supabase/client';
-import { horaDeTorneo } from '@/lib/fechas';
+import { horaDeTorneo, diaYHoraDeTorneo } from '@/lib/fechas';
 import { subscribeToTable, categoryChannel, tournamentChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import {
@@ -38,7 +38,8 @@ import { analizarFuturo, type GrupoDeCategoria } from '@/lib/engine/futuro';
 import {
   futuroEnPalabras, comoSeClasifica, type FuturoEnPalabras,
 } from '@/lib/futuro-en-palabras';
-import { cuadroDe } from '@/lib/cuadro-tamano';
+import { cuadroDe, rondaSiguiente, STAGE_DE_RONDA, RONDA_QUE_JUEGAS } from '@/lib/cuadro-tamano';
+import { certezaDeRonda, cuandoJuegas, contraQuien } from '@/lib/hora-de-mi-ronda';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import {
   notificarCanchaPorLiberarse, notificarPasasteDeFase,
@@ -77,6 +78,17 @@ export interface SituacionResuelta {
    * había antes de que existiera este análisis.
    */
   futuro: FuturoEnPalabras | null;
+  /**
+   * Lo que se sabe de la ronda a la que entra, cuando la tiene GARANTIZADA.
+   *
+   * Eduardo, con bye asegurado a semifinales, leía "todavía sin hora" mientras
+   * `match_schedule` decía desde el viernes que las dos semis eran el domingo a
+   * las 16:00. Ver `@/lib/hora-de-mi-ronda`.
+   *
+   * `null` cuando no hay garantía —y entonces no se sabe ni en qué ronda entra,
+   * así que cualquier hora sería inventada— o cuando el plan no dice nada.
+   */
+  miRonda: { cuando: string; contraQuien: string } | null;
   /**
    * "En 5a Varonil clasifican los 10 primeros de grupo y los 6 mejores
    * segundos." Faltaba por completo: el jugador leía su posición sin saber
@@ -289,6 +301,22 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
   // tiene nada que decir. Ver `yaEstaEnElCuadro`.
   if (yaEstaEnElCuadro(mios.map((m) => ({ groupId: m.group_id })))) return null;
 
+  // Solo la fase de grupos: un cruce de cuartos no es un grupo pendiente.
+  const gruposPendientes = gruposSinTerminar(
+    (partidos ?? [])
+      .filter((m) => m.group_id !== null)
+      .map((m) => ({ groupId: m.group_id, finished: m.status === 'finished' })),
+  );
+
+  const futuro = await analizarConElMotor({
+    categoryId,
+    pairId: elegida.pair_id,
+    grupos: (gruposCat ?? []) as Array<{ id: string; name: string }>,
+    partidos: (partidos ?? []) as PartidoDeCategoria[],
+    advancePerGroup: c?.advance_per_group ?? 0,
+    bestExtraQualifiers: c?.best_extra_qualifiers ?? 0,
+  });
+
   return {
     pairId: elegida.pair_id,
     groupId: elegida.group_id,
@@ -297,12 +325,7 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
     categoria: c?.display_name ?? '—',
     torneo: c?.tournaments?.name ?? '—',
     estado: elegida.clinch_status,
-    gruposPendientes: gruposSinTerminar(
-      // Solo la fase de grupos: un cruce de cuartos no es un grupo pendiente.
-      (partidos ?? [])
-        .filter((m) => m.group_id !== null)
-        .map((m) => ({ groupId: m.group_id, finished: m.status === 'finished' })),
-    ),
+    gruposPendientes,
     posicion: elegida.position,
     jugados: elegida.played,
     proximaHora: mios
@@ -316,13 +339,15 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
       pasanPorGrupo: c?.advance_per_group ?? 0,
       repescados: c?.best_extra_qualifiers ?? 0,
     }),
-    futuro: await analizarConElMotor({
+    futuro,
+    miRonda: await loQueSeSabeDeMiRonda({
       categoryId,
-      pairId: elegida.pair_id,
-      grupos: (gruposCat ?? []) as Array<{ id: string; name: string }>,
-      partidos: (partidos ?? []) as PartidoDeCategoria[],
-      advancePerGroup: c?.advance_per_group ?? 0,
-      bestExtraQualifiers: c?.best_extra_qualifiers ?? 0,
+      futuro,
+      byeGarantizado: futuro?.byeGarantizado ?? false,
+      grupos: (gruposCat ?? []).length,
+      pasanPorGrupo: c?.advance_per_group ?? 0,
+      repescados: c?.best_extra_qualifiers ?? 0,
+      gruposPendientes,
     }),
     canchaOcupadaAhora: (() => {
       const miProximo = mios
@@ -336,6 +361,50 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
       return ocupada ? miProximo.court_label : null;
     })(),
   };
+}
+
+/**
+ * Lo que se sabe de la ronda a la que entra, si la tiene garantizada.
+ *
+ * DOS CONDICIONES, LAS DOS NECESARIAS
+ *   1. El bye está GARANTIZADO (`bye.aplica` y la carrera ya ganada). Sin eso
+ *      no se sabe en qué ronda entra —puede que en la primera, puede que en
+ *      ninguna— y afirmar una hora sería inventarla.
+ *   2. El plan tiene huecos para esa ronda. `match_schedule` existe desde que
+ *      el organizador programa el torneo, mucho antes de que haya cuadro.
+ *
+ * `null` si falla cualquiera de las dos: ahí "todavía sin hora" sí es la
+ * respuesta correcta.
+ */
+async function loQueSeSabeDeMiRonda(args: {
+  categoryId: string;
+  futuro: FuturoEnPalabras | null;
+  byeGarantizado: boolean;
+  grupos: number;
+  pasanPorGrupo: number;
+  repescados: number;
+  gruposPendientes: number;
+}): Promise<{ cuando: string; contraQuien: string } | null> {
+  if (!args.byeGarantizado) return null;
+
+  const cuadro = cuadroDe(args.grupos, args.pasanPorGrupo, args.repescados);
+  // Con bye se salta la primera ronda del cuadro: entra en la siguiente.
+  const entra = rondaSiguiente(cuadro.ronda);
+  if (!entra) return null;
+
+  const { data } = await supabase
+    .from('match_schedule')
+    .select('scheduled_at, court_label')
+    .eq('category_id', args.categoryId)
+    .eq('stage', STAGE_DE_RONDA[entra] as never);
+
+  const certeza = certezaDeRonda((data ?? []).map((h) => ({
+    scheduledAt: h.scheduled_at, courtLabel: h.court_label,
+  })));
+  const cuando = cuandoJuegas(certeza, RONDA_QUE_JUEGAS[entra], diaYHoraDeTorneo);
+  if (!cuando) return null;
+
+  return { cuando, contraQuien: contraQuien(args.gruposPendientes) };
 }
 
 export default function MiSituacion({ pairIds, onResuelta }: Props) {
