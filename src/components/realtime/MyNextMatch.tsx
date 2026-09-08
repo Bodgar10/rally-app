@@ -28,7 +28,6 @@ interface NextMatch {
   matchId: string;
   tournamentName: string;
   categoryName: string;
-  roundLabel: string | null;
   stage: string;
   scheduledAt: string | null;
   rivalPlayer1: string;
@@ -81,7 +80,9 @@ function stageLabel(stage: string): string {
     final: 'Final',
     third_place: '3er lugar',
   };
-  return map[stage] ?? stage;
+  // Un stage que no conocemos NO se pinta crudo: preferimos decir menos a
+  // enseñarle 'round_of_64' a alguien. Quien llama omite la parte vacía.
+  return map[stage] ?? '';
 }
 
 // ───────────────────────────────────────────
@@ -101,7 +102,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   const { data: asA, error: errA } = await supabase
     .from('matches')
     .select(
-      `id, stage, round_label, scheduled_at, status, court_label,
+      `id, stage, scheduled_at, status, court_label,
        pair_b_id,
        tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
        categories:category_id ( display_name )`
@@ -114,7 +115,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   const { data: asB, error: errB } = await supabase
     .from('matches')
     .select(
-      `id, stage, round_label, scheduled_at, status, court_label,
+      `id, stage, scheduled_at, status, court_label,
        pair_a_id,
        tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
        categories:category_id ( display_name )`
@@ -143,7 +144,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
 
   if (asA && asA.length > 0) {
     const row = asA[0] as unknown as {
-      id: string; stage: string; round_label: string | null;
+      id: string; stage: string;
       scheduled_at: string | null; status: string; court_label: string | null;
       pair_b_id: string | null;
       tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
@@ -155,7 +156,6 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       matchId: row.id,
       tournamentName: row.tournaments?.name ?? '—',
       categoryName: row.categories?.display_name ?? '—',
-      roundLabel: row.round_label,
       stage: row.stage,
       scheduledAt: row.scheduled_at,
       rivalPlayer1: rival?.player1_name ?? '—',
@@ -168,7 +168,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
 
   if (asB && asB.length > 0) {
     const row = asB[0] as unknown as {
-      id: string; stage: string; round_label: string | null;
+      id: string; stage: string;
       scheduled_at: string | null; status: string; court_label: string | null;
       pair_a_id: string | null;
       tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
@@ -180,7 +180,6 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       matchId: row.id,
       tournamentName: row.tournaments?.name ?? '—',
       categoryName: row.categories?.display_name ?? '—',
-      roundLabel: row.round_label,
       stage: row.stage,
       scheduledAt: row.scheduled_at,
       rivalPlayer1: rival?.player1_name ?? '—',
@@ -419,8 +418,13 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
           marginBottom: 12,
         }}
       >
-        {match.categoryName} · {stageLabel(match.stage)}
-        {match.roundLabel ? ` · ${match.roundLabel}` : ''}
+        {/* SIN `round_label`. Es un identificador nuestro —"round_of_16-02-03"—
+            con zero-padding para poder ordenar el cuadro, y no significa nada
+            para el jugador: con la categoría y la ronda ya sabe qué partido es.
+            Se quitó también del tipo, porque el dato que sigue ahí es el que
+            vuelve a colarse. */}
+        {match.categoryName}
+        {stageLabel(match.stage) ? ` · ${stageLabel(match.stage)}` : ''}
       </Text>
 
       {/* Rival */}

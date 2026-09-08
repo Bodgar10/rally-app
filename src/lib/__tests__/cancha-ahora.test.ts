@@ -383,3 +383,76 @@ describe('desde cuándo lleva jugándose el ocupante', () => {
     expect(r.miRetraso).toBe(20);
   });
 });
+
+// ── EL TORNEO YA TERMINÓ ────────────────────────────────────────────────────
+//
+// EL BUG: "Tu cancha lleva 52 horas y 34 minutos de retraso", en un torneo del
+// 4 al 6 de septiembre leído el día 8. Un partido que nunca se capturó se queda
+// 'sin terminar' para siempre; como ocupante empujaba la cola hasta `ahora`, y
+// el retraso de lo que venía detrás crecía sin límite.
+//
+// Las tres cifras de la tarjeta salen del mismo cálculo, así que las tres
+// mentían igual: el retraso, la hora de entrada y el reloj del ocupante.
+
+const dosDiasDespues = Date.parse('2026-09-07T12:00:00-06:00');
+
+describe('cuando lo de esta cancha ya no es de hoy', () => {
+  it('no dice nada: ni retraso, ni hora, ni ocupante', () => {
+    const e = estadoDeCancha({ ...base, partidos: cola(), ahora: dosDiasDespues });
+    expect(e.sinJornada).toBe(true);
+    expect(e.miRetraso).toBe(0);
+    expect(e.miInicioEstimado).toBeNull();
+    expect(e.ocupanteId).toBeNull();
+    expect(e.ocupanteLleva).toBe(0);
+    expect(e.partidosAntesDelMio).toBe(0);
+  });
+
+  // El número que se vio en pantalla, para que no vuelva por otra vía.
+  it('el retraso ya no es de dos días', () => {
+    const e = estadoDeCancha({ ...base, partidos: cola(), ahora: dosDiasDespues });
+    expect(e.miRetraso).toBeLessThan(60);
+  });
+
+  it('dentro de la jornada sigue contando como siempre', () => {
+    // 'a' sin capturar a las 10:30: ocupa, y 'b' entra tarde de verdad.
+    const e = estadoDeCancha({ ...base, partidos: cola(), ahora: en('10:30') });
+    expect(e.sinJornada).toBe(false);
+    expect(e.ocupanteId).toBe('a');
+    expect(e.miRetraso).toBeGreaterThan(0);
+  });
+
+  // La frontera, por los dos lados. `HORAS_DE_JORNADA` son 12, y se miden
+  // desde MI hora prevista —'b', las 10:00— que es la que decide si esta
+  // tarjeta sigue hablando de algo.
+  it('a las once horas todavía habla; a las trece ya no', () => {
+    const once = en('10:00') + 11 * 60 * 60_000;
+    const trece = en('10:00') + 13 * 60 * 60_000;
+    expect(estadoDeCancha({ ...base, partidos: cola(), ahora: once }).sinJornada).toBe(false);
+    expect(estadoDeCancha({ ...base, partidos: cola(), ahora: trece }).sinJornada).toBe(true);
+  });
+
+  // Un partido de AYER sin capturar no ocupa la pista de hoy, y sobre todo no
+  // arrastra la cola: el mío de hoy entra a su hora.
+  it('un partido caducado por delante no me retrasa', () => {
+    const ayer = '2026-09-04T09:00:00-06:00';
+    const e = estadoDeCancha({
+      ...base,
+      partidos: [
+        { id: 'a', scheduledAt: ayer, playedAt: null, finished: false },
+        { id: 'b', scheduledAt: T('10:00'), playedAt: null, finished: false },
+      ],
+      ahora: en('09:50'),
+    });
+    expect(e.sinJornada).toBe(false);
+    expect(e.ocupanteId).toBeNull();
+    expect(e.miRetraso).toBe(0);
+    expect(e.miInicioEstimado).toBe(new Date(en('10:00')).toISOString());
+  });
+
+  // Un partido futuro no caduca: la ventana solo mira hacia atrás.
+  it('lo que todavía no ha llegado no caduca', () => {
+    const e = estadoDeCancha({ ...base, partidos: cola(), ahora: en('06:00') });
+    expect(e.sinJornada).toBe(false);
+    expect(e.miInicioEstimado).not.toBeNull();
+  });
+});

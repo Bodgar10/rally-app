@@ -188,3 +188,29 @@ export function porQueNoHayPartido(estado: ClinchStatus | null, gruposPendientes
   }
   return 'Todavía no hay hora asignada. En cuanto se publique el horario, aparece aquí.';
 }
+
+/**
+ * ¿El jugador ya está en el cuadro de esta categoría?
+ *
+ * POR QUÉ LA TARJETA DE SITUACIÓN SE CALLA AQUÍ
+ *   Un jugador que está jugando octavos leía "Ya clasificaste". Es cierto y es
+ *   inútil: clasificó hace dos días y su pregunta ahora es otra —contra quién
+ *   juega y qué se lleva si gana—. Peor que inútil, confunde: suena a que hay
+ *   algo pendiente de resolverse cuando lo que hay es un partido.
+ *
+ * SE CALLA, NO CAMBIA DE TEMA. Se consideró que hablara de la eliminatoria, y
+ * es lo que no debe hacer: todo lo que tendría que decir —el rival, la hora, la
+ * ronda— ya lo dice MI PRÓXIMO PARTIDO, justo encima en la misma pantalla.
+ * Reescribirla sería una segunda tarjeta contando lo mismo. Y su vocabulario
+ * entero —cupos, tu posición, parejas por jugar— es de la carrera por
+ * clasificar, que en un cuadro no existe: se gana o se va a casa.
+ *
+ * `group_id === null` es la señal: en este esquema los partidos del cuadro no
+ * cuelgan de ningún grupo. Incluye el bye, que nace ya resuelto — y con razón,
+ * porque quien tiene bye también está dentro del cuadro.
+ */
+export function yaEstaEnElCuadro(
+  partidosDelJugador: Array<{ groupId: string | null }>,
+): boolean {
+  return partidosDelJugador.some((m) => m.groupId === null);
+}

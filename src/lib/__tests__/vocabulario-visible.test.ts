@@ -1,5 +1,10 @@
 /**
- * RALLY · "Sembrar" no se dice en México
+ * RALLY · Palabras nuestras que no pueden llegar a la pantalla
+ *
+ * Dos barridos con la misma forma: se prohíbe el término en todo el código no
+ * comentado y lo que legítimamente lo conserva va en una lista con su motivo.
+ *
+ * 1 · "Sembrar" no se dice en México
  *
  * Es terminología de torneos traducida del inglés. Un organizador mexicano no
  * la usa: lo que hace es DEFINIR LOS ENFRENTAMIENTOS — quién juega contra quién
@@ -97,6 +102,80 @@ function sinComentarios(texto: string): Array<{ n: number; linea: string }> {
   });
   return salida;
 }
+
+/**
+ * 2 · `round_label` es un IDENTIFICADOR, no una ronda
+ *
+ * A la pantalla del jugador se escapó "5ª Varonil · Octavos · round_of_16-02-03".
+ * Ese sufijo lleva zero-padding para poder ordenar el cuadro con un
+ * `localeCompare`, y no significa absolutamente nada para quien lo lee. Con la
+ * categoría y la ronda ya sabe qué partido es.
+ *
+ * Se prohíben los `stage` crudos y las formas del `round_label` DENTRO DE UN
+ * TEXTO: el nombre de la columna en un `select`, o una clave de un mapa que los
+ * traduce, son código y se quedan.
+ */
+const IDS_DE_RONDA = /round_of_(?:16|32|64)|\bquarter\b|\bsemi\b|third_place/;
+
+/** Lo que puede nombrarlos: consultas, mapas de traducción, tipos. */
+const RONDA_PERMITIDA: Array<{ patron: RegExp; motivo: string }> = [
+  { patron: /^import\s|^\}\s*from\s|from '/, motivo: 'ruta de módulo' },
+  { patron: /^(export )?(type|interface)\b|^\s*\w+\??:\s/, motivo: 'declaración de tipo' },
+  { patron: /^\s*(round_of_16|round_of_32|round_of_64|quarter|semi|final|third_place|group)\s*:/,
+    motivo: 'clave de un mapa que los TRADUCE a español' },
+  { patron: /'(round_of_16|round_of_32|round_of_64|quarter|semi|final|third_place)'/,
+    motivo: 'comparación o literal de stage en lógica' },
+  { patron: /select\(|\.eq\(|\.neq\(|round_label/, motivo: 'consulta o columna' },
+];
+
+describe('los ids de ronda no llegan a la pantalla', () => {
+  it('ninguna línea los mete en un texto', () => {
+    const colados: string[] = [];
+    for (const carpeta of CARPETAS) {
+      for (const archivo of archivos(join(RAIZ, carpeta))) {
+        // El motor y el cuadro los manejan como datos: ahí son su trabajo.
+        // El motor y el cuadro los manejan como datos: ahí son su trabajo. Y
+        // `database.types.ts` lo genera Supabase: son los valores del enum.
+        if (/engine|bracket-layout|orden-partidos|calendario-al-dia|database\.types/.test(archivo)) continue;
+        for (const { n, linea } of sinComentarios(readFileSync(archivo, 'utf8'))) {
+          if (!IDS_DE_RONDA.test(linea)) continue;
+          if (RONDA_PERMITIDA.some((p) => p.patron.test(linea.trim()))) continue;
+          colados.push(`${archivo.slice(RAIZ.length + 1)}:${n}  ${linea.trim().slice(0, 100)}`);
+        }
+      }
+    }
+    expect(colados).toEqual([]);
+  });
+
+  // EL CASO EXACTO que se vio en pantalla.
+  it('el barrido detecta un round_label pintado', () => {
+    const falso = "{match.roundLabel ? ` · ${match.roundLabel}` : ''}";
+    // Aunque el texto no lleve el id literal, el nombre de la variable sí.
+    expect(/roundLabel/.test(falso)).toBe(true);
+    const conId = '<Text>Octavos · round_of_16-02-03</Text>';
+    expect(IDS_DE_RONDA.test(conId)).toBe(true);
+    expect(RONDA_PERMITIDA.some((p) => p.patron.test(conId))).toBe(false);
+  });
+
+  // MyNextMatch fue de donde se escapó: que no vuelva ni a pedirlo.
+  it('MyNextMatch ya no lee round_label', () => {
+    const src = readFileSync(join(RAIZ, 'src', 'components', 'realtime', 'MyNextMatch.tsx'), 'utf8');
+    expect(src).not.toMatch(/roundLabel/);
+    expect(src).not.toMatch(/select\([^)]*round_label/);
+  });
+
+  // Un stage que no está en el mapa NO se pinta crudo: antes caía al id.
+  // Se mira el CÓDIGO y no el archivo entero, o el propio comentario que
+  // explica el arreglo hace fallar el test que lo protege.
+  it('los mapas de stage no caen al id crudo', () => {
+    for (const f of ['src/components/realtime/MyNextMatch.tsx',
+                     'src/components/player/EnMiCancha.tsx']) {
+      const codigo = sinComentarios(readFileSync(join(RAIZ, f), 'utf8'))
+        .map((l) => l.linea).join('\n');
+      expect(codigo).not.toMatch(/\?\?\s*\w*\.?stage\b/);
+    }
+  });
+});
 
 describe('"sembrar" no llega a la pantalla', () => {
   it('ninguna línea de código la usa sin una razón declarada', () => {

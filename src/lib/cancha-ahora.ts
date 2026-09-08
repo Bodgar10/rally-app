@@ -116,9 +116,37 @@ export interface EstadoDeCancha {
   partidosAntesDelMio: number;
   /** Los ids de esos partidos, en orden de cancha. El primero es el ocupante. */
   colaAntesDelMio: string[];
+  /**
+   * Lo de esta cancha ya no es de hoy: no hay NADA que decir.
+   *
+   * EL BUG QUE LO TRAE: "Tu cancha lleva 52 horas y 34 minutos de retraso",
+   * en un torneo que había terminado dos días antes. Un partido que nunca se
+   * capturó se queda 'sin terminar' para siempre, y como el ocupante empuja la
+   * cola hasta `ahora`, el retraso de lo que viene detrás crecía sin límite.
+   *
+   * Con esto en `true` el resto del estado va vacío y quien pinta se calla. No
+   * se inventa un mensaje: la app no puede distinguir "el torneo terminó" de
+   * "ese partido no se jugó", y las dos cosas se contestan igual — callándose.
+   */
+  sinJornada: boolean;
 }
 
 const MIN = 60_000;
+
+/**
+ * Cuánto puede estirarse una jornada antes de que la cancha deje de significar
+ * nada.
+ *
+ * DOCE HORAS. Un día de torneo va de la mañana a la noche —las ventanas que
+ * captura el organizador rondan 8:00–22:00— así que doce horas cubren de sobra
+ * cualquier retraso real y no llegan a cubrir el día siguiente. Por encima de
+ * eso no hay retraso que contar: hay una fila que nadie cerró.
+ *
+ * Se mide en horas y no en días de calendario a propósito: el módulo es puro y
+ * no sabe de husos, y "hace catorce horas" es igual de inútil un martes que un
+ * miércoles.
+ */
+export const HORAS_DE_JORNADA = 12;
 
 const ms = (iso: string | null): number | null => {
   if (!iso) return null;
@@ -153,8 +181,12 @@ export function estadoDeCancha(args: {
     ocupanteId: null, ocupanteDesde: null, ocupanteLleva: 0,
     miInicioEstimado: null, miRetraso: 0,
     partidosAntesDelMio: 0, colaAntesDelMio: [],
+    sinJornada: false,
   };
   if (cola.length === 0) return vacio;
+
+  /** Pasó hace tanto que ya no es de esta jornada. Ver `HORAS_DE_JORNADA`. */
+  const caducado = (t: number) => ahora - t > HORAS_DE_JORNADA * 60 * MIN;
 
   /** Cuándo queda libre la cancha, según lo recorrido hasta ahora. */
   let libreDesde = -Infinity;
@@ -196,7 +228,11 @@ export function estadoDeCancha(args: {
     // El primero sin terminar. Ocupa la cancha si su hora real ya llegó — o si
     // está EN JUEGO, que es una señal directa y no una deducción: un partido
     // que arrancó antes de su hora ocupa la pista igual.
-    if (ocupanteId === null && (p.enJuego || ahora >= inicioReal)) {
+    // Y NO SI CADUCÓ. Un partido de anteayer sin capturar no está ocupando
+    // ninguna pista: es una fila que nadie cerró. Dejarlo como ocupante era lo
+    // que arrastraba la cola hasta `ahora` y disparaba el retraso de los de
+    // atrás.
+    if (ocupanteId === null && (p.enJuego || ahora >= inicioReal) && !caducado(inicioReal)) {
       ocupanteId = p.id;
       // `inicioReal` Y NADA MÁS.
       //
@@ -221,6 +257,13 @@ export function estadoDeCancha(args: {
     libreDesde = ocupanteId === p.id ? Math.max(finPrevisto, ahora) : finPrevisto;
   }
 
+  // MI PARTIDO ERA DE OTRO DÍA: nada de esta cancha significa ya nada. Ni el
+  // retraso, ni la hora de entrada, ni el reloj del ocupante — los tres salen
+  // del mismo cálculo y los tres mienten igual.
+  if (miPrevisto !== null && caducado(miPrevisto)) {
+    return { ...vacio, sinJornada: true };
+  }
+
   return {
     ocupanteId,
     ocupanteDesde: ocupanteDesde === null ? null : new Date(ocupanteDesde).toISOString(),
@@ -231,6 +274,7 @@ export function estadoDeCancha(args: {
       : Math.max(0, Math.round((miInicio - miPrevisto) / MIN)),
     partidosAntesDelMio: antesDelMio.length,
     colaAntesDelMio: antesDelMio,
+    sinJornada: false,
   };
 }
 

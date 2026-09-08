@@ -157,6 +157,11 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     minutosPorPartido: 60,
   });
 
+  // NADA DE ESTA CANCHA ES DE HOY. Ver `sinJornada`: el torneo terminó, o ese
+  // partido nunca se capturó. La app no puede distinguirlo y las dos se
+  // contestan igual — callándose. Antes salía "lleva 52 horas de retraso".
+  if (estado.sinJornada) return null;
+
   const ocupanteEsMio = estado.ocupanteId === mio.id;
 
   let ocupante: Ocupante | null = null;
@@ -172,7 +177,9 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
       ]);
       ocupante = {
         categoria: fila.categories?.display_name ?? '—',
-        ronda: ETAPA[fila.stage] ?? fila.stage,
+        // Sin `?? fila.stage`: un stage que no conocemos es un id nuestro
+        // ('round_of_64'), y antes que enseñárselo al jugador, nada.
+        ronda: ETAPA[fila.stage] ?? '',
         parejaA: fila.pair_a_id ? nombreDePareja(parejas.get(fila.pair_a_id)) : '—',
         parejaB: fila.pair_b_id ? nombreDePareja(parejas.get(fila.pair_b_id)) : '—',
         desde: estado.ocupanteDesde,
@@ -379,9 +386,11 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
           >
             {vista.ocupante.categoria}
           </Text>
-          <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
-            {vista.ocupante.ronda}
-          </Text>
+          {vista.ocupante.ronda ? (
+            <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
+              {vista.ocupante.ronda}
+            </Text>
+          ) : null}
           {/* EL MARCADOR, COMO UN MARCADOR.
               Iba escondido al final de una línea gris de metadatos —"Desde las
               10:59 · lleva 0 min · van 6-2"—, que es exactamente el dato que el

@@ -30,7 +30,7 @@ import { horaDeTorneo } from '@/lib/fechas';
 import { subscribeToTable, categoryChannel, tournamentChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import {
-  situacionDe, gruposSinTerminar,
+  situacionDe, gruposSinTerminar, yaEstaEnElCuadro,
   type ClinchStatus, type TonoSituacion,
 } from '@/lib/situacion-jugador';
 import { avisosPorCambio, type EstadoDelJugador } from '@/lib/avisos-jugador';
@@ -284,6 +284,10 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
   const mios = (partidos ?? []).filter(
     (m) => (m.pair_a_id && suyas.has(m.pair_a_id)) || (m.pair_b_id && suyas.has(m.pair_b_id)),
   );
+
+  // YA ESTÁ EN EL CUADRO: la carrera por clasificar se acabó y esta tarjeta no
+  // tiene nada que decir. Ver `yaEstaEnElCuadro`.
+  if (yaEstaEnElCuadro(mios.map((m) => ({ groupId: m.group_id })))) return null;
 
   return {
     pairId: elegida.pair_id,
