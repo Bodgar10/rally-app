@@ -2046,7 +2046,7 @@ function validarSiembra(entrada) {
         codigo: "grupo_incompleto",
         gravedad: "bloqueante",
         grupo: g2.nombre,
-        mensaje: `El grupo ${g2.nombre} tiene ${sinJugar.length} ${sinJugar.length === 1 ? "partido sin resultado" : "partidos sin resultado"}. Sembrar ahora repartir\xEDa plazas que todav\xEDa se est\xE1n jugando.`
+        mensaje: `El grupo ${g2.nombre} tiene ${sinJugar.length} ${sinJugar.length === 1 ? "partido sin resultado" : "partidos sin resultado"}. Definirlos ahora repartir\xEDa plazas que todav\xEDa se est\xE1n jugando.`
       });
     }
   }
@@ -2058,7 +2058,7 @@ function validarSiembra(entrada) {
         codigo: "posiciones_incoherentes",
         gravedad: "bloqueante",
         grupo: g2.nombre,
-        mensaje: `Las posiciones del grupo ${g2.nombre} no son 1\u2026${g2.pairIds.length} sin repetir: hay ${g2.filas.length} filas con posiciones ${reales || "\u2014"}. La tabla est\xE1 a medias y la siembra leer\xEDa de ah\xED.`
+        mensaje: `Las posiciones del grupo ${g2.nombre} no son 1\u2026${g2.pairIds.length} sin repetir: hay ${g2.filas.length} filas con posiciones ${reales || "\u2014"}. La tabla est\xE1 a medias y los enfrentamientos saldr\xEDan de ah\xED.`
       });
     }
   }
@@ -2072,7 +2072,7 @@ function validarSiembra(entrada) {
         gravedad: "aviso",
         grupo: g2.nombre,
         parejas: quienes,
-        mensaje: `En el grupo ${g2.nombre}, ${quienes.join(", ")} quedaron iguales en todo: puntos, partidos entre ellas, sets y games. El reglamento no las separa, as\xED que el orden que se ve ahora NO es deportivo \u2014 sale de un desempate t\xE9cnico. Sort\xE9alo antes de sembrar, o el primero del grupo lo elige el sistema.`
+        mensaje: `En el grupo ${g2.nombre}, ${quienes.join(", ")} quedaron iguales en todo: puntos, partidos entre ellas, sets y games. El reglamento no las separa, as\xED que el orden que se ve ahora NO es deportivo \u2014 sale de un desempate t\xE9cnico. Sort\xE9alo antes de definirlos, o el primero del grupo lo elige el sistema.`
       });
     }
   }
@@ -2083,7 +2083,7 @@ function validarSiembra(entrada) {
     add({
       codigo: "numeros_no_cuadran",
       gravedad: "bloqueante",
-      mensaje: `Salen ${clasificados.length} clasificados y deber\xEDan ser ${esperados} (${grupos.length} grupos \xD7 ${advancePerGroup}${bestExtraQualifiers > 0 ? ` + ${bestExtraQualifiers} de repesca` : ""}). El cuadro se sembrar\xEDa con un tama\xF1o que no corresponde.`
+      mensaje: `Salen ${clasificados.length} clasificados y deber\xEDan ser ${esperados} (${grupos.length} grupos \xD7 ${advancePerGroup}${bestExtraQualifiers > 0 ? ` + ${bestExtraQualifiers} de repesca` : ""}). El cuadro quedar\xEDa con un tama\xF1o que no corresponde.`
     });
   }
   const vistos = /* @__PURE__ */ new Set();
@@ -2110,7 +2110,7 @@ function validarSiembra(entrada) {
       codigo: "eliminado_clasificado",
       gravedad: "bloqueante",
       parejas: quienes,
-      mensaje: `A ${quienes.join(", ")} la app ${quienes.length === 1 ? "le dijo" : "les dijo"} que ${quienes.length === 1 ? "estaba eliminada" : "estaban eliminadas"}, y la siembra ${quienes.length === 1 ? "la mete" : "las mete"} en el cuadro.`
+      mensaje: `A ${quienes.join(", ")} la app ${quienes.length === 1 ? "le dijo" : "les dijo"} que ${quienes.length === 1 ? "estaba eliminada" : "estaban eliminadas"}, y el reparto ${quienes.length === 1 ? "la mete" : "las mete"} en el cuadro.`
     });
   }
   if (clasificadosFuera.length > 0) {
@@ -2119,7 +2119,7 @@ function validarSiembra(entrada) {
       codigo: "clasificado_fuera",
       gravedad: "bloqueante",
       parejas: quienes,
-      mensaje: `A ${quienes.join(", ")} la app ${quienes.length === 1 ? "le dijo" : "les dijo"} que ya ${quienes.length === 1 ? "hab\xEDa clasificado" : "hab\xEDan clasificado"}, y la siembra ${quienes.length === 1 ? "la deja" : "las deja"} fuera.`
+      mensaje: `A ${quienes.join(", ")} la app ${quienes.length === 1 ? "le dijo" : "les dijo"} que ya ${quienes.length === 1 ? "hab\xEDa clasificado" : "hab\xEDan clasificado"}, y el reparto ${quienes.length === 1 ? "la deja" : "las deja"} fuera.`
     });
   }
   const bloqueantes = problemas.filter((p) => p.gravedad === "bloqueante");

@@ -249,10 +249,14 @@ Deno.serve(async (req) => {
     // ya lo calculaba y aquí se tiraba; sin él la base no puede responder "¿qué
     // partido depende de éste?", que es lo que hace falta para corregir un
     // resultado de eliminatorias sin pisar algo ya jugado.
-    const toPersist: Array<{ stage: string; round_label: string; pair_a_id: string | null; pair_b_id: string | null; source_match_ids: string[] | null }> =
+    const toPersist: Array<{ stage: string; round_label: string; slot_index: number; pair_a_id: string | null; pair_b_id: string | null; source_match_ids: string[] | null }> =
       res.next.map((mt: any, i: number) => ({
         stage: nextStage as string,
         round_label: `${nextStage}-${String(i + 1).padStart(2, '0')}`,
+        // El hueco del plan. Aquí todos los cruces son jugables —salen de
+        // ganadores, y un bye ya trae el suyo resuelto— así que la posición
+        // dentro de la ronda es directamente el slot.
+        slot_index: i,
         pair_a_id: mt.pairAId ?? null,
         pair_b_id: mt.pairBId ?? null,
         source_match_ids: mt.sourceMatchIds ?? null,
@@ -267,6 +271,8 @@ Deno.serve(async (req) => {
       if (third) toPersist.push({
         stage: 'third_place',
         round_label: 'third_place-1',
+        // Único en su etapa: su hueco del plan es el 0.
+        slot_index: 0,
         pair_a_id: third.pairAId ?? null,
         pair_b_id: third.pairBId ?? null,
         source_match_ids: third.sourceMatchIds ?? null,

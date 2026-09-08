@@ -67,6 +67,7 @@ import {
   type EmpalmeReal, type FaltaHora, type PartidoParaEmpalmes,
 } from '@/lib/calendario-empalmes';
 import { fallo, registrarFallo } from '@/lib/errores-red';
+import { estadoDelPlan, fraseDelPlan, type EstadoDelPlan } from '@/lib/calendario-al-dia';
 
 // ── Presentación ────────────────────────────────────────────────────────────
 
@@ -174,6 +175,8 @@ interface Estado {
   nombres: Record<string, string>;
   /** Categorías con partidos, en el orden en que empiezan a jugar. */
   categorias: { id: string; nombre: string; partidos: number }[];
+  /** ¿Cada partido tiene la hora que le reserva el plan? Ver calendario-al-dia. */
+  plan: EstadoDelPlan;
   reales: EmpalmeReal[];
   riesgos: Riesgo[];
   /**
@@ -561,6 +564,20 @@ export default function CalendarioScreen() {
       canchas: t?.courts ?? null,
       nombres: Object.fromEntries(nombrePorJugador),
       categorias: categoriasConPartidos(filas),
+      plan: estadoDelPlan(
+        (partidos ?? []).map((m: any) => ({
+          id: m.id, categoryId: m.category_id,
+          categoria: nombreCat.get(m.category_id) ?? '—',
+          stage: m.stage, roundLabel: m.round_label,
+          scheduledAt: m.scheduled_at,
+          pairAId: m.pair_a_id, pairBId: m.pair_b_id,
+          status: (m.status ?? 'scheduled') as 'scheduled' | 'in_progress' | 'finished',
+        })),
+        (plan ?? []).map((x: any) => ({
+          categoryId: x.category_id, stage: x.stage,
+          slotIndex: x.slot_index, scheduledAt: x.scheduled_at,
+        })),
+      ),
       reales,
       riesgos,
       sinHora,
@@ -924,30 +941,73 @@ export default function CalendarioScreen() {
         />
       )}
 
-      {/* 4 · Correr el scheduler */}
-            <Pressable
-              onPress={programar}
-              disabled={fase.t === 'programando' || estado.sinCuadros}
-              style={({ pressed }) => [
-                s.principal,
-                (fase.t === 'programando' || estado.sinCuadros) && s.principalInerte,
-                pressed && { opacity: 0.85 },
-              ]}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: estado.sinCuadros }}
-            >
-              {fase.t === 'programando'
-                ? <ActivityIndicator color={color.bg} />
-                : <Text style={s.principalTexto}>
-                    {estado.sinPlan ? 'Programar el último día' : 'Reprogramar'}
-                  </Text>}
-            </Pressable>
+      {/* 4 · Rehacer el calendario — SOLO CUANDO HACE FALTA.
+          Era el botón más grande y dorado de la pantalla, y eso enseñaba a
+          pulsarlo por si acaso. El plan del último día se genera al cerrar
+          inscripciones y los partidos heredan su hora al nacer, por las tres
+          rutas (migraciones 061, 066 y 067). Así que primero se comprueba y
+          solo si hay algo descuadrado se ofrece rehacerlo. */}
+            {estado.sinPlan ? (
+              <>
+                <Pressable
+                  onPress={programar}
+                  disabled={fase.t === 'programando' || estado.sinCuadros}
+                  style={({ pressed }) => [
+                    s.principal,
+                    (fase.t === 'programando' || estado.sinCuadros) && s.principalInerte,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: estado.sinCuadros }}
+                >
+                  {fase.t === 'programando'
+                    ? <ActivityIndicator color={color.bg} />
+                    : <Text style={s.principalTexto}>Programar el último día</Text>}
+                </Pressable>
+                {!estado.sinCuadros && (
+                  <Text style={s.pieBoton}>
+                    Todavía no hay horas para el último día. Esto las reparte.
+                  </Text>
+                )}
+              </>
+            ) : (
+              <View style={s.planCaja}>
+                <Text style={estado.plan.alDia ? s.planOk : s.planMal}>
+                  {estado.plan.alDia
+                    ? '✓ El calendario está al día'
+                    : `Hay ${fraseDelPlan(estado.plan)}`}
+                </Text>
+                <Text style={s.planNota}>
+                  {estado.plan.alDia
+                    ? 'Cada partido tiene la hora y la cancha de su plan, y los que se van creando la heredan solos. No hace falta hacer nada.'
+                    : 'Rehacer el calendario reparte otra vez las horas del último día a partir del plan.'}
+                </Text>
 
-            {!estado.sinCuadros && (
-              <Text style={s.pieBoton}>
-                Reprogramar reescribe las horas de todo el último día. Los
-                resultados ya capturados no se tocan.
-              </Text>
+                {/* Secundario a propósito: es la respuesta a que algo cambió,
+                    no un paso del proceso. */}
+                <Pressable
+                  onPress={programar}
+                  disabled={fase.t === 'programando' || estado.sinCuadros}
+                  style={({ pressed }) => [
+                    s.secundario,
+                    (fase.t === 'programando' || estado.sinCuadros) && { opacity: 0.5 },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Rehacer el calendario del último día"
+                  accessibilityState={{ disabled: estado.sinCuadros }}
+                >
+                  {fase.t === 'programando'
+                    ? <ActivityIndicator color={color.champagne} />
+                    : <Text style={s.secundarioTexto}>Rehacer el calendario del último día</Text>}
+                </Pressable>
+
+                <Text style={s.pieBoton}>
+                  Hace falta cuando se cayó una cancha, se movió un horario o se
+                  corrigió un resultado que reordena el cuadro. Los resultados ya
+                  capturados y los partidos que moviste a mano no se tocan.
+                </Text>
+              </View>
             )}
           </>
         )}
@@ -1216,6 +1276,10 @@ const s = StyleSheet.create({
   partidoParejas:  { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, marginTop: 2 },
   partidoSinParejas: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, opacity: 0.5, fontStyle: 'italic', marginTop: 2 },
 
+  planCaja:        { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[2], marginTop: space[3] },
+  planOk:          { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.live },
+  planMal:         { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
+  planNota:        { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
   principal:       { minHeight: touchTarget, backgroundColor: color.gold, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', marginTop: space[3] },
   principalInerte: { opacity: 0.6 },
   principalTexto:  { fontFamily: font.display, fontSize: fontSize.body, color: color.bg },

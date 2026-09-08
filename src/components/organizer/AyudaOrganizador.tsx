@@ -69,15 +69,15 @@ import { useGuiaEnPantalla } from '@/hooks/useGuiaEnPantalla';
  * pantalla. Y "cada tantas visitas" convierte la ayuda en un anuncio que
  * reaparece.
  *
- * Varado = QUINCE SEGUNDOS EN LA MISMA PANTALLA SIN NAVEGAR. Navegar reinicia
- * el reloj, porque quien se mueve sabe a dónde va. Quien lleva quince segundos
+ * Varado = CINCO SEGUNDOS EN LA MISMA PANTALLA SIN NAVEGAR. Navegar reinicia
+ * el reloj, porque quien se mueve sabe a dónde va. Quien lleva cinco segundos
  * quieto en "Horarios de la fase de grupos" o no entiende qué es, o no
  * encuentra el control — las dos cosas las contesta la hoja.
  *
  * Y se calla para siempre en cuanto la cierra o abre la ayuda por su cuenta:
  * ya sabe que existe, que era todo lo que había que enseñarle.
  */
-const SEGUNDOS_VARADO = 15;
+const SEGUNDOS_VARADO = 5;
 
 /** Módulo y no estado: sobrevive a cambiar de pantalla, muere con la sesión. */
 let burbujaGastada = false;
