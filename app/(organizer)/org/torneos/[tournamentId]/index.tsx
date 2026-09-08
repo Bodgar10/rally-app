@@ -38,6 +38,7 @@ import { supabase }               from '@/lib/supabase/client';
 import TarjetaAjuste              from '@/components/organizer/TarjetaAjuste';
 import ChecklistApertura, { type ItemChecklist } from '@/components/organizer/ChecklistApertura';
 import { formatearRango }     from '@/lib/fechas';
+import { resumenDeFormato, type FormatoTercerSet } from '@/lib/formato-torneo';
 import { generarBloques }     from '@/lib/engine/schedule/bloques';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
@@ -58,6 +59,9 @@ interface Tournament {
   /** Capacidad (migración 044). Null mientras no se capture. */
   courts:           number | null;
   match_minutes:    number | null;
+  /** Cómo se juega el tercer set. Aplica a TODOS los partidos del torneo. */
+  tercer_set_formato: FormatoTercerSet | null;
+  tercer_set_puntos:  number | null;
 }
 
 /** Una franja horaria por día de torneo. */
@@ -133,7 +137,7 @@ export default function OrgTournamentScreen() {
     const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }, { data: ws }] = await Promise.all([
       supabase
         .from('tournaments')
-        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,tercer_lugar,organizer_id,venues:venue_id(name,city)')
+        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,tercer_lugar,tercer_set_formato,tercer_set_puntos,organizer_id,venues:venue_id(name,city)')
         .eq('id', tournamentId)
         .single(),
       supabase
@@ -496,7 +500,9 @@ export default function OrgTournamentScreen() {
           <TarjetaAjuste
             icon="flag"
             title="Formato"
-            value={tercerLugar ? 'Con 3.er lugar' : 'Sin 3.er lugar'}
+            value={resumenDeFormato(
+              tournament.tercer_set_formato, tournament.tercer_set_puntos, tercerLugar,
+            )}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}
           />
           {/* El vistazo que no existía: cómo va cada categoría y cuáles se
