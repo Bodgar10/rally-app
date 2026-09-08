@@ -33,6 +33,7 @@ import {
   SafeAreaView,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -43,9 +44,10 @@ import type { ScoreConfig } from '@/lib/engine/score';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
-import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { webContentColumn, bottomInset, inputFontSize } from '@/lib/web-layout';
 import { horaDeTorneo, fechaHoraDeTorneo, diaDeTorneo, diaYHoraDeTorneo } from '@/lib/fechas';
 import { cuandoYDonde } from '@/lib/juez/cuando-y-donde';
+import { coincideJugador } from '@/lib/juez/buscar-jugador';
 import { ordenarPartidos, type PartidoOrdenable } from '@/lib/juez/orden-partidos';
 import { ETIQUETA_FASE, faseDeStage, type FaseTorneo } from '@/lib/fase-torneo';
 
@@ -214,6 +216,14 @@ export default function JudgeTournamentScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<JudgeMatch | null>(null);
+  /**
+   * Lo que el juez teclea para encontrar a quien tiene delante.
+   *
+   * Los filtros de categoría y grupo sirven cuando ya sabe dónde está esa
+   * pareja, pero la pregunta llega al revés: llega un nombre. Ver
+   * `@/lib/juez/buscar-jugador`.
+   */
+  const [busqueda, setBusqueda] = useState('');
   const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
   /**
    * Cuándo arranca el cuadro según `match_schedule`, o null si no hay plan.
@@ -307,8 +317,9 @@ export default function JudgeTournamentScreen() {
     if (fase !== 'todas' && faseDeStage(m.stage) !== fase) return false;
     if (catId !== TODAS && m.categoryId !== catId) return false;
     if (grupoId !== TODAS && m.groupId !== grupoId) return false;
+    if (!coincideJugador({ parejaA: m.pairAName, parejaB: m.pairBName }, busqueda)) return false;
     return true;
-  }), [matches, estado, fase, catId, grupoId]);
+  }), [matches, estado, fase, catId, grupoId, busqueda]);
 
   /**
    * ¿Hay partidos de cuadro en este torneo?
@@ -442,6 +453,31 @@ export default function JudgeTournamentScreen() {
               filtraba cada una: «Pendientes / Todas / Grupo A» se leía como una
               sola lista revuelta. Cada fila lleva ahora su rótulo, del mismo
               tipo que el FASE DE GRUPOS del resto de la app. */}
+            {/* EL BUSCADOR, ANTES QUE LOS FILTROS. Es lo que resuelve la
+                pregunta que de verdad llega —un nombre— y los filtros quedan
+                para cuando el juez recorre su torneo por su cuenta. */}
+            <TextInput
+              value={busqueda}
+              onChangeText={setBusqueda}
+              placeholder="Busca un jugador…"
+              placeholderTextColor={color.muted}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              accessibilityLabel="Buscar un jugador"
+              style={{
+                backgroundColor: color.surface,
+                borderWidth: 1, borderColor: color.line,
+                borderRadius: radius.md,
+                paddingHorizontal: 12,
+                height: 44,
+                color: color.text,
+                fontFamily: font.body,
+                fontSize: inputFontSize(14),
+                marginBottom: 2,
+              }}
+            />
+
             <Rotulo texto="Estado" />
             <View style={{ flexDirection: 'row', gap: 6 }}>
               {([
@@ -523,14 +559,20 @@ export default function JudgeTournamentScreen() {
               }
               ListEmptyComponent={
                 <View style={{ alignItems: 'center', paddingHorizontal: 24, paddingVertical: 40 }}>
-                  <Text style={{ color: estado === 'pendientes' ? color.live : color.muted, fontFamily: font.display, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
-                    {estado === 'pendientes' ? '✓ Todo al día' : 'Nada que mostrar'}
+                  <Text style={{ color: busqueda.trim() ? color.muted : (estado === 'pendientes' ? color.live : color.muted), fontFamily: font.display, fontSize: 20, fontWeight: '600', marginBottom: 8 }}>
+                    {/* Buscando, "✓ Todo al día" sería una respuesta a otra
+                        pregunta: el juez no preguntó cómo va el torneo,
+                        preguntó por una persona. */}
+                    {busqueda.trim() ? 'Sin resultados'
+                      : estado === 'pendientes' ? '✓ Todo al día' : 'Nada que mostrar'}
                   </Text>
                   <Text style={{ color: color.muted, fontFamily: font.body, fontSize: 13, textAlign: 'center' }}>
                     {/* Filtrando por eliminatorias antes de que estén sembradas,
                         "ningún partido coincide" es cierto y no sirve: lo que el
                         juez quiere saber es cuándo le va a tocar. */}
-                    {fase === 'eliminatorias' && cuadroPlaneado
+                    {busqueda.trim()
+                      ? `Nadie llamado “${busqueda.trim()}” en lo que estás viendo. Prueba con el apellido, o quita los filtros.`
+                      : fase === 'eliminatorias' && cuadroPlaneado
                       ? `Todavía no hay cruces: se definen al terminar los grupos. Están programadas para ${fechaHoraDeTorneo(cuadroPlaneado)}.`
                       : estado === 'pendientes'
                         ? 'No hay partidos pendientes con estos filtros.'

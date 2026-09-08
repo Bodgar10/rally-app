@@ -35,15 +35,32 @@ import type {
   AnalisisFuturo, Carrera, PartidoQueImporta, PuestoActual,
 } from '@/lib/engine/futuro';
 
-/** Un partido del que depende, ya redactado. */
+/**
+ * Un partido del que depende, ya redactado.
+ *
+ * EL SUYO NO ES UN PARTIDO MÁS DE LA LISTA
+ *   La tarjeta le decía a Eduardo "Eduardo / Fernanda vs Néstor / Natalia · Te
+ *   conviene que gane Eduardo / Fernanda". Le estaba diciendo que le conviene
+ *   ganarse a sí mismo, y metiendo su propio partido en la misma lista que los
+ *   ajenos bajo "son los únicos que pueden cambiar tu suerte".
+ *
+ *   Su partido no es algo que le pase: es algo que él hace. Va primero, se
+ *   redacta como una instrucción —"Gana tu partido contra…"— y no comparte
+ *   encabezado con lo que depende de otros.
+ */
 export interface PartidoRedactado {
   matchId: string;
-  /** "Luis / Pedro vs Sofía / Regina". */
+  /**
+   * Ajeno: "Luis / Pedro vs Sofía / Regina".
+   * Suyo:  "Gana tu partido contra Néstor / Natalia".
+   */
   partido: string;
   /** "Grupo C". */
   grupo: string;
   /** "Te conviene que ganen Luis / Pedro", o null si ningún lado le sirve más. */
   meConviene: string | null;
+  /** Lo juega él. Ver arriba: cambia el texto y el orden. */
+  esMio: boolean;
 }
 
 export type TonoFuturo = 'tranquilo' | 'espera' | 'fuera';
@@ -112,18 +129,79 @@ function enumerar(xs: string[]): string {
   return `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}`;
 }
 
-function redactar(p: PartidoQueImporta): PartidoRedactado {
+/**
+ * @param miPareja el nombre de la pareja del jugador, tal como lo devuelve el
+ *   motor en `parejaA`/`parejaB`. Es lo que permite reconocer su partido.
+ *
+ *   Se compara por NOMBRE y no por id porque es lo único que el motor pone en
+ *   `PartidoQueImporta`. Los nombres salen del mismo mapa `nombres` que se le
+ *   pasó a `analizarFuturo`, así que la cadena es idéntica: no hay dos formas
+ *   de escribir la misma pareja.
+ */
+function redactar(p: PartidoQueImporta, miPareja: string | null): PartidoRedactado {
+  const esMio = miPareja !== null && (p.parejaA === miPareja || p.parejaB === miPareja);
+  const grupo = `Grupo ${p.grupo}`;
+
+  if (esMio) {
+    const rival = p.parejaA === miPareja ? p.parejaB : p.parejaA;
+
+    // Lo normal: le conviene ganar. Se dice como lo que es, una instrucción, y
+    // no como un pronóstico sobre sí mismo.
+    if (p.meConviene === miPareja) {
+      return { matchId: p.matchId, partido: `Gana tu partido contra ${rival}`, grupo,
+               meConviene: null, esMio: true };
+    }
+
+    // Los dos casos raros, que existen y no se pueden redactar como el normal:
+    //   · `null` — importa que se juegue, pero ningún resultado le sirve más.
+    //   · el rival — hay combinaciones donde le conviene perder. Es incómodo de
+    //     leer y aun así es lo cierto; callarlo sería peor.
+    return {
+      matchId: p.matchId,
+      partido: `Tu partido contra ${rival}`,
+      grupo,
+      meConviene: p.meConviene
+        ? `Aquí te conviene que gane ${p.meConviene}`
+        : 'Cualquiera de los dos resultados puede servirte, según lo demás',
+      esMio: true,
+    };
+  }
+
   return {
     matchId: p.matchId,
     partido: `${p.parejaA} vs ${p.parejaB}`,
-    grupo: `Grupo ${p.grupo}`,
+    grupo,
     // `null` del motor significa "importa, pero ningún resultado es mejor":
     // se dice así en vez de callarlo, porque un partido listado sin nada al
     // lado parece un dato a medias.
     meConviene: p.meConviene
       ? `Te conviene que gane ${p.meConviene}`
       : 'Cualquiera de los dos resultados puede servirte, según lo demás',
+    esMio: false,
   };
+}
+
+/**
+ * La frase que encabeza la lista.
+ *
+ * "Son los únicos que pueden cambiar tu suerte" solo vale para los AJENOS: lo
+ * que hace él no es suerte. Con los dos tipos mezclados se dicen las dos cosas
+ * por separado, y con solo los suyos se dice justo lo contrario.
+ */
+export function encabezadoDePartidos(partidos: PartidoRedactado[]): string | null {
+  if (partidos.length === 0) return null;
+  const mios = partidos.filter((p) => p.esMio).length;
+  const ajenos = partidos.length - mios;
+
+  if (mios === 0) return 'Son los únicos que pueden cambiar tu suerte; el resto ya no te afecta.';
+  if (ajenos === 0) {
+    return mios === 1
+      ? 'No depende de nadie más: depende de ti.'
+      : 'No dependen de nadie más: dependen de ti.';
+  }
+  return ajenos === 1
+    ? 'El tuyo depende de ti. El otro es el único que puede cambiar tu suerte.'
+    : 'El tuyo depende de ti. Los otros son los únicos que pueden cambiar tu suerte.';
 }
 
 /**
@@ -368,12 +446,20 @@ function fraseDelBye(a: AnalisisFuturo, primeraRonda?: string | null): string | 
 export function futuroEnPalabras(
   a: AnalisisFuturo,
   primeraRonda?: string | null,
+  /** El nombre de su pareja, para reconocer SU partido en la lista. */
+  miPareja?: string | null,
 ): FuturoEnPalabras {
   // De qué carrera se habla. `repesca` viene `undefined` cuando el jugador es
   // primero de su grupo: NO ESTÁ EN ESA CARRERA, así que no se menciona ni se
   // pintan sus partidos — se cae a la del pase directo, que sí le aplica.
   const carreraVisible = a.repesca ?? (a.bye?.aplica ? a.bye : undefined);
-  const partidos = (carreraVisible?.partidosQueImportan ?? []).map(redactar);
+  // EL SUYO PRIMERO. Es lo único de la lista sobre lo que puede hacer algo, y
+  // leerlo después de tres partidos ajenos lo convierte en una nota al pie.
+  // `sort` es estable, así que dentro de cada mitad se respeta el orden del
+  // motor.
+  const partidos = (carreraVisible?.partidosQueImportan ?? [])
+    .map((p) => redactar(p, miPareja ?? null))
+    .sort((x, y) => Number(y.esMio) - Number(x.esMio));
   const carrera = carreraEnCifras(carreraVisible, carreraVisible === a.repesca);
 
   /**
@@ -494,9 +580,7 @@ export function futuroEnPalabras(
     titular: partidos.length > 0
       ? (partidos.length === 1 ? 'Depende de un partido' : `Depende de ${partidos.length} partidos`)
       : 'Todavía depende de lo que pase',
-    detalle: partidos.length > 0
-      ? 'Son los únicos que pueden cambiar tu suerte; el resto ya no te afecta.'
-      : null,
+    detalle: encabezadoDePartidos(partidos),
     tono: 'espera',
     partidos,
     carrera,

@@ -224,7 +224,7 @@ async function analizarConElMotor(args: {
     // El nombre de la ronda que se salta quien tiene bye. Sale del tamaño del
     // cuadro, que ya calcula `cuadro-tamano` a partir de las mismas perillas.
     const { nombreRonda } = cuadroDe(entrada.length, advancePerGroup, bestExtraQualifiers);
-    return futuroEnPalabras(analisis, nombreRonda);
+    return futuroEnPalabras(analisis, nombreRonda, nombres[pairId] ?? null);
   } catch (e) {
     console.warn('[MiSituacion] analizarFuturo:', e);
     return null;
@@ -576,12 +576,19 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
           que no mueven nada. Cada uno con quién juega, en qué grupo y qué
           resultado le conviene — que es lo que convierte "depende" en algo que
           se puede mirar. */}
-      {f?.partidos.map((p) => (
+      {f?.partidos.map((p, i) => (
         <View
           key={p.matchId}
           style={{
-            borderLeftWidth: 2, borderLeftColor: tinte,
-            paddingLeft: space[3], marginTop: space[2], gap: 2,
+            // EL SUYO SE MARCA EN ORO. No es un partido más de la lista: es el
+            // único sobre el que puede hacer algo, y el raíl lo separa de lo
+            // que solo puede mirar.
+            borderLeftWidth: 2,
+            borderLeftColor: p.esMio ? color.gold : color.line,
+            paddingLeft: space[3],
+            // Un respiro extra en la frontera entre lo suyo y lo ajeno.
+            marginTop: i > 0 && p.esMio !== f.partidos[i - 1].esMio ? space[4] : space[2],
+            gap: 2,
           }}
         >
           <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>

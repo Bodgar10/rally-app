@@ -701,3 +701,117 @@ describe('cuando ya no queda nada por definirse', () => {
     expect(c.cifras).toHaveLength(2);
   });
 });
+
+// ── SU PARTIDO NO ES UN PARTIDO MÁS ─────────────────────────────────────────
+//
+// EL SÍNTOMA: "Eduardo Sánchez / Fernanda Rivera vs Néstor Cruz / Natalia López
+// · Te conviene que gane Eduardo Sánchez / Fernanda Rivera". Le decía que le
+// convenía ganarse a sí mismo, y lo metía bajo "son los únicos que pueden
+// cambiar tu suerte" junto a los ajenos.
+
+const YO = 'Eduardo Sánchez / Fernanda Rivera';
+const RIVAL = 'Néstor Cruz / Natalia López';
+
+const partido = (over: Partial<{
+  matchId: string; grupo: string; parejaA: string; parejaB: string; meConviene: string | null;
+}> = {}) => ({
+  matchId: 'm1', grupo: 'J', parejaA: 'Luis / Pedro', parejaB: 'Sofía / Regina',
+  meConviene: 'Luis / Pedro', ...over,
+});
+
+const conPartidos = (
+  partidos: ReturnType<typeof partido>[],
+  miPareja: string | null = YO,
+) => futuroEnPalabras(
+  analisis({ estado: 'depende', repesca: carrera({ estado: 'depende', partidosQueImportan: partidos }) }),
+  null,
+  miPareja,
+);
+
+describe('el partido propio, en la lista de los que importan', () => {
+  const mio = partido({ parejaA: YO, parejaB: RIVAL, meConviene: YO });
+
+  it('no le dice que le conviene ganarse a sí mismo', () => {
+    const [p] = conPartidos([mio]).partidos;
+    expect(p.esMio).toBe(true);
+    expect(p.partido).toBe(`Gana tu partido contra ${RIVAL}`);
+    expect(p.meConviene).toBeNull();
+  });
+
+  it('nunca repite su propio nombre en la instrucción', () => {
+    const [p] = conPartidos([mio]).partidos;
+    expect(`${p.partido} ${p.meConviene ?? ''}`).not.toContain('Eduardo');
+  });
+
+  it('lo reconoce esté en el lado A o en el B', () => {
+    const alReves = partido({ parejaA: RIVAL, parejaB: YO, meConviene: YO });
+    expect(conPartidos([alReves]).partidos[0].partido)
+      .toBe(`Gana tu partido contra ${RIVAL}`);
+  });
+
+  // `meConviene: null` en SU partido tampoco puede decir "cualquiera de los dos
+  // resultados": ahí no se le manda ganar, pero sigue siendo suyo.
+  it('sin resultado preferido, no le manda ganar', () => {
+    const [p] = conPartidos([partido({ parejaA: YO, parejaB: RIVAL, meConviene: null })]).partidos;
+    expect(p.esMio).toBe(true);
+    expect(p.partido).toBe(`Tu partido contra ${RIVAL}`);
+    expect(p.partido).not.toMatch(/^Gana/);
+    expect(p.meConviene).toMatch(/cualquiera de los dos/i);
+  });
+
+  // Existe: hay combinaciones donde le conviene perder. Incómodo y cierto.
+  it('si le conviene el rival, lo dice sin disfrazarlo de instrucción', () => {
+    const [p] = conPartidos([partido({ parejaA: YO, parejaB: RIVAL, meConviene: RIVAL })]).partidos;
+    expect(p.partido).toBe(`Tu partido contra ${RIVAL}`);
+    expect(p.meConviene).toBe(`Aquí te conviene que gane ${RIVAL}`);
+  });
+
+  // Sin saber cómo se llama, todo es ajeno: se cae al texto de siempre.
+  it('sin nombre de pareja, nada es suyo', () => {
+    const [p] = conPartidos([mio], null).partidos;
+    expect(p.esMio).toBe(false);
+    expect(p.meConviene).toBe(`Te conviene que gane ${YO}`);
+  });
+});
+
+describe('el encabezado se adapta a de quién son', () => {
+  const mio = partido({ matchId: 'mio', parejaA: YO, parejaB: RIVAL, meConviene: YO });
+  const ajeno = partido({ matchId: 'a1' });
+  const otroAjeno = partido({ matchId: 'a2', parejaA: 'Ana / Sol', parejaB: 'Eva / Mar', meConviene: 'Ana / Sol' });
+
+  // 4 · SOLO AJENOS: la frase de siempre.
+  it('solo ajenos', () => {
+    expect(conPartidos([ajeno, otroAjeno]).detalle)
+      .toBe('Son los únicos que pueden cambiar tu suerte; el resto ya no te afecta.');
+  });
+
+  // 3 · SOLO SUYOS: no depende de nadie más.
+  it('solo el suyo', () => {
+    const f = conPartidos([mio]);
+    expect(f.detalle).toBe('No depende de nadie más: depende de ti.');
+    expect(f.detalle).not.toMatch(/suerte/);
+  });
+
+  // 2 · MEZCLA: cada cosa por su lado, y el suyo PRIMERO.
+  it('mezcla: se separan, y el suyo va primero', () => {
+    const f = conPartidos([ajeno, mio, otroAjeno]);
+    expect(f.partidos[0].matchId).toBe('mio');
+    expect(f.partidos.map((p) => p.esMio)).toEqual([true, false, false]);
+    expect(f.detalle).toBe('El tuyo depende de ti. Los otros son los únicos que pueden cambiar tu suerte.');
+  });
+
+  it('mezcla con un solo ajeno, en singular', () => {
+    expect(conPartidos([ajeno, mio]).detalle)
+      .toBe('El tuyo depende de ti. El otro es el único que puede cambiar tu suerte.');
+  });
+
+  it('sin partidos, sin encabezado', () => {
+    expect(conPartidos([]).detalle).toBeNull();
+  });
+
+  // El orden del motor se respeta dentro de cada mitad.
+  it('los ajenos no se barajan entre ellos', () => {
+    const f = conPartidos([ajeno, otroAjeno, mio]);
+    expect(f.partidos.map((p) => p.matchId)).toEqual(['mio', 'a1', 'a2']);
+  });
+});
