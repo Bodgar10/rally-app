@@ -392,6 +392,29 @@ export function futuroEnPalabras(
     ? 'No hace falta que preguntes: en cuanto se sepa, te lo decimos aquí.'
     : null;
 
+  // ── Todavía no ha empezado ───────────────────────────────────────────────
+  //
+  //   Distinto de 'demasiado_pronto', que es un límite de cálculo. Aquí no hay
+  //   nada que calcular: sin partidos propios no hay posición ni carrera, y
+  //   decir "vas entre 1.º y 4.º" es presentar como posición la ausencia de
+  //   datos — suena a que algo está decidido cuando no ha empezado nada.
+  if (a.estado === 'sin_empezar') {
+    return {
+      titular: 'Todavía no has jugado',
+      detalle: a.faltan > 0
+        ? `Quedan ${a.faltan} ${a.faltan === 1 ? 'partido' : 'partidos'} en tu categoría. ` +
+          'En cuanto juegues el primero, aquí te decimos a qué atenerte.'
+        : 'En cuanto juegues el primero, aquí te decimos a qué atenerte.',
+      tono: 'espera',
+      partidos: [],
+      // Sin carrera: no hay cifras que pintar, porque no hay nada que medir.
+      carrera: null,
+      // Nada que esperar todavía: el aviso es para cuando su suerte depende de
+      // resultados que no controla, y aquí depende enteramente de él.
+      aviso: null,
+    };
+  }
+
   // ── Todavía no se puede saber ────────────────────────────────────────────
   if (a.estado === 'demasiado_pronto') {
     return {

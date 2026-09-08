@@ -25,13 +25,20 @@ const grupo = (
   ],
 });
 
+/** Partido jugado o pendiente, sin pasar por el helper de grupo de tres. */
+const m2 = (id: string, A: string, B: string, w: string | null): MatchResultInput =>
+  ({ matchId: id, pairAId: A, pairBId: B, winnerPairId: w, played: w != null,
+     sets: w ? [{ gamesA: 6, gamesB: 2, isSuperTiebreak: false }, { gamesA: 6, gamesB: 2, isSuperTiebreak: false }] : [] });
+
 const nombresDe = (ids: string[]) =>
   Object.fromEntries(ids.map((id) => [id, `Pareja ${id}`]));
 
 const TODOS = ['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3'];
 
 describe('la previa: qué puesto puede acabar teniendo en su grupo', () => {
-  it('con su grupo sin jugar, puede acabar en cualquiera de los tres', () => {
+  it('SIN HABER JUGADO no hay posición: no ha empezado', () => {
+    // Devolver "vas entre 1.º y 3.º" es presentar como posición la ausencia de
+    // datos. Con cero partidos suyos, su puesto depende enteramente de él.
     const r = analizarFuturo({
       grupos: [
         grupo('A', ['A1', 'A2', 'A3'], [null, null, null]),
@@ -40,7 +47,10 @@ describe('la previa: qué puesto puede acabar teniendo en su grupo', () => {
       advancePerGroup: 1, bestExtraQualifiers: 1,
       pairId: 'A1', nombres: nombresDe(TODOS),
     });
-    expect(r.posicionesPosiblesEnGrupo).toEqual([1, 2, 3]);
+    expect(r.estado).toBe('sin_empezar');
+    expect(r.posicionesPosiblesEnGrupo).toEqual([]);
+    expect(r.repesca).toBeUndefined();
+    expect(r.bye).toBeUndefined();
   });
 
   it('con su grupo terminado, una sola posición', () => {
@@ -58,17 +68,24 @@ describe('la previa: qué puesto puede acabar teniendo en su grupo', () => {
 
 describe('el corte de coste sale del presupuesto, no de un número escrito a mano', () => {
   it('con demasiados pendientes no enumera, y dice cuándo podrá', () => {
-    const grupos = ['A', 'B', 'C', 'D'].map((n) =>
-      grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
+    // Su grupo, jugado: sin eso la respuesta sería 'sin_empezar', que va
+    // antes y con razón — no hay carrera hasta que el jugador juega.
+    const grupos = [
+      grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']),
+      ...['B', 'C', 'D'].map((n) => grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null])),
+    ];
     const r = analizarFuturo({
       // Con repesca y byes en juego, la respuesta SÍ depende de los otros
       // grupos: es el único caso en que el presupuesto puede cegar algo.
+      // A2, SEGUNDO de su grupo: su suerte está en la carrera de repesca, que
+      // se decide en los otros grupos. Un primero ya estaría 'dentro' sin
+      // necesidad de enumerar nada.
       grupos, advancePerGroup: 1, bestExtraQualifiers: 2,
-      pairId: 'A1', nombres: nombresDe(TODOS),
+      pairId: 'A2', nombres: nombresDe(TODOS),
       presupuesto: 1,
     });
     expect(r.estado).toBe('demasiado_pronto');
-    expect(r.faltan).toBe(12);
+    expect(r.faltan).toBe(9);
     expect(r.respondoCuandoQueden).toBeGreaterThanOrEqual(0);
     expect(r.respondoCuandoQueden!).toBeLessThan(r.faltan);
   });
@@ -681,5 +698,127 @@ describe('afirmar más no rompe la monotonía', () => {
       expect(n).toBeLessThanOrEqual(previo);
       previo = n;
     }
+  });
+});
+
+/**
+ * EL CASO REAL: 3ª Mixto, 3 grupos, 9 partidos, NINGUNO jugado.
+ *
+ * La app decía "Depende de 2 partidos · 2 CUPOS · TU POSICIÓN 1.º–4.º" y
+ * listaba dos partidos como "los únicos que pueden cambiar tu suerte". Las dos
+ * afirmaciones salían de tratar la ausencia de datos como un dato.
+ */
+describe('3ª Mixto sin un solo partido jugado', () => {
+  const LETRAS = ['A', 'B', 'C'];
+  const nombres = nombresDe(LETRAS.flatMap((n) => [`${n}1`, `${n}2`, `${n}3`]));
+  const virgen = () => LETRAS.map((n) => grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null]));
+
+  const r = () => analizarFuturo({
+    grupos: virgen(), advancePerGroup: 1, bestExtraQualifiers: 2,
+    pairId: 'A1', nombres,
+  });
+
+  it('no ha empezado, y eso es lo que se dice', () => {
+    expect(r().estado).toBe('sin_empezar');
+  });
+
+  it('NO devuelve un rango de posiciones', () => {
+    expect(r().posicionesPosiblesEnGrupo).toEqual([]);
+  });
+
+  it('NO lista partidos que importan: importan los nueve', () => {
+    expect(r().repesca).toBeUndefined();
+    expect(r().bye).toBeUndefined();
+  });
+
+  it('pero sí dice cuántos faltan, que es lo único cierto', () => {
+    expect(r().faltan).toBe(9);
+  });
+
+  it('en cuanto juega uno, ya hay algo que decir', () => {
+    const grupos = [
+      grupo('A', ['A1', 'A2', 'A3'], ['A1', null, null]),   // A1 ganó el suyo
+      ...['B', 'C'].map((n) => grupo(n, [`${n}1`, `${n}2`, `${n}3`], [null, null, null])),
+    ];
+    const res = analizarFuturo({ grupos, advancePerGroup: 1, bestExtraQualifiers: 2, pairId: 'A1', nombres });
+    expect(res.estado).not.toBe('sin_empezar');
+    expect(res.posicionesPosiblesEnGrupo.length).toBeGreaterThan(0);
+  });
+
+  it('un jugador que no ha jugado sigue sin respuesta aunque los demás sí', () => {
+    // El grupo B entero jugado; A3 no ha jugado nada suyo.
+    const grupos = [
+      grupo('A', ['A1', 'A2', 'A3'], [null, null, null]),
+      grupo('B', ['B1', 'B2', 'B3'], ['B1', 'B1', 'B2']),
+      grupo('C', ['C1', 'C2', 'C3'], [null, null, null]),
+    ];
+    const res = analizarFuturo({ grupos, advancePerGroup: 1, bestExtraQualifiers: 2, pairId: 'A3', nombres });
+    expect(res.estado).toBe('sin_empezar');
+  });
+});
+
+/**
+ * EL PIVOTE. Miraba solo el veredicto binario, y eso es ciego mientras nadie
+ * destaca: ningún partido de otro grupo convierte un "dentro" en un "fuera",
+ * así que todos se descartaban por "no cambia nada".
+ */
+describe('el pivote no descarta partidos que sí importan', () => {
+  const LETRAS = ['A', 'B', 'C'];
+  const nombres = nombresDe(LETRAS.flatMap((n) => [`${n}1`, `${n}2`, `${n}3`]));
+
+  it('cuando de verdad NINGÚN partido cambia el resultado, se dice por qué', () => {
+    // A jugado (A2 es segundo con 2 puntos); B y C a medias. En un grupo de
+    // tres el segundo SIEMPRE acaba con 2 puntos, gane quien gane, así que
+    // ningún resultado mueve la carrera: la deciden los games, y esos el
+    // motor no los predice. La lista vacía es la respuesta honesta, y no se
+    // queda muda — nombra a los rivales.
+    const grupos = [
+      grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']),
+      grupo('B', ['B1', 'B2', 'B3'], ['B1', null, null]),
+      grupo('C', ['C1', 'C2', 'C3'], ['C1', null, null]),
+    ];
+    const r = analizarFuturo({ grupos, advancePerGroup: 1, bestExtraQualifiers: 1, pairId: 'A2', nombres });
+    expect(r.repesca!.partidosQueImportan).toEqual([]);
+    expect(r.repesca!.dependeDeGamesContra.length).toBeGreaterThan(0);
+  });
+
+  it('cuando un partido SÍ mueve el número de rivales por delante, se lista', () => {
+    // Grupo B de CUATRO: su segundo puede acabar con 4 puntos (por encima de
+    // A2) o con 2 (empatado). Ahí el resultado sí cambia la carrera.
+    // B1 gana los tres suyos. B2 ya ganó a B3. Pendiente: B2 vs B4.
+    //   · gana B2 → segundo con 4 puntos, por delante de A2 con certeza;
+    //   · gana B4 → tres empatados a 2, y el segundo empata con A2.
+    const bDeCuatro = {
+      groupId: 'gB', nombre: 'B', pairIds: ['B1', 'B2', 'B3', 'B4'],
+      matches: [
+        m2('Ba', 'B1', 'B2', 'B1'), m2('Bb', 'B1', 'B3', 'B1'), m2('Bc', 'B1', 'B4', 'B1'),
+        m2('Bd', 'B2', 'B3', 'B2'), m2('Be', 'B2', 'B4', null), m2('Bf', 'B3', 'B4', 'B3'),
+      ],
+    };
+    const grupos = [grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', 'A2']), bDeCuatro];
+    const nom = { ...nombres, B4: 'Pareja B4' };
+    const r = analizarFuturo({ grupos, advancePerGroup: 1, bestExtraQualifiers: 1, pairId: 'A2', nombres: nom });
+    expect(r.repesca!.partidosQueImportan.map((p) => p.grupo)).toContain('B');
+  });
+
+  it('los partidos propios pendientes también se listan', () => {
+    // A2 tiene su último partido pendiente: es el que más le afecta.
+    const grupos = [
+      grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', null]),
+      grupo('B', ['B1', 'B2', 'B3'], ['B1', 'B1', 'B2']),
+      grupo('C', ['C1', 'C2', 'C3'], ['C1', 'C1', 'C2']),
+    ];
+    const r = analizarFuturo({ grupos, advancePerGroup: 1, bestExtraQualifiers: 1, pairId: 'A2', nombres });
+    const mios = (r.repesca?.partidosQueImportan ?? []).filter((p) => p.grupo === 'A');
+    expect(mios.length).toBeGreaterThan(0);
+  });
+
+  it('un partido que de verdad no cambia nada sigue sin listarse', () => {
+    // Categoría con UN grupo y sin repesca: el partido entre los otros dos no
+    // puede quitarle el primer puesto a quien ya ganó los suyos.
+    const grupos = [grupo('A', ['A1', 'A2', 'A3'], ['A1', 'A1', null])];
+    const r = analizarFuturo({ grupos, advancePerGroup: 1, bestExtraQualifiers: 0, pairId: 'A1', nombres });
+    expect(r.estado).toBe('dentro');
+    expect(r.repesca).toBeUndefined();
   });
 });

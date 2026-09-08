@@ -178,7 +178,22 @@ export interface AnalisisFuturo {
    * con `advance_per_group` 1 depende solo de los partidos del propio grupo,
    * que son tres.
    */
-  estado: 'dentro' | 'fuera' | 'depende' | 'empate_sin_resolver' | 'demasiado_pronto';
+  estado:
+    | 'dentro'
+    | 'fuera'
+    | 'depende'
+    | 'empate_sin_resolver'
+    | 'demasiado_pronto'
+    /**
+     * La pareja no ha jugado todavía. No es "pronto" por coste de cálculo: es
+     * que NO HAY CARRERA.
+     *
+     * Con cero partidos suyos, su posición depende enteramente de él y todos
+     * empatan a cero puntos. Devolver "vas entre 1.º y 4.º" es presentar como
+     * posición lo que solo es la ausencia de datos, y suena a que algo está
+     * decidido cuando no ha empezado nada.
+     */
+    | 'sin_empezar';
   /** Puestos que puede acabar ocupando en SU grupo. Siempre se sabe: es barato. */
   posicionesPosiblesEnGrupo: number[];
   /** La carrera de mejores segundos. Ausente si no le aplica. */
@@ -340,6 +355,23 @@ export function analizarFuturo(entrada: EntradaFuturo): AnalisisFuturo {
     mejor: 1 + hoy.byeSeguroDelante,
     peor: 1 + hoy.byePodrianAdelantarme,
   };
+
+  /**
+   * SIN PARTIDOS PROPIOS NO HAY NADA QUE ANALIZAR.
+   *
+   *   Se comprueba antes que nada, y antes incluso de mirar el presupuesto:
+   *   con cero jugados todos empatan a cero puntos, así que el rango de
+   *   posiciones sale completo (1.º–4.º en un grupo de cuatro) y el análisis de
+   *   pivote no encuentra diferencias en los otros grupos —sus tablas salen
+   *   simétricas— y acaba diciendo que solo importan dos partidos de nueve.
+   *
+   *   Las dos cosas son falsas y las dos vienen de lo mismo: tratar la
+   *   ausencia de datos como un dato. Aquí se dice lo que hay.
+   */
+  const mios = miGrupo.matches.filter((m) => m.pairAId === pairId || m.pairBId === pairId);
+  if (!mios.some((m) => m.played && m.winnerPairId != null)) {
+    return { estado: 'sin_empezar', posicionesPosiblesEnGrupo: [], faltan: k };
+  }
 
   const local = escenariosDeMiGrupo(miGrupo, pairId, cfg);
   const posicionesLocales = [...new Set(local.map((f) => f.posicion))].sort((a, b) => a - b);
@@ -522,7 +554,7 @@ function carreraDe(
   ).filter((n) => fotos.every((f) => (cual === 'repesca' ? f.repescaEmpatados : f.byeEmpatados).includes(n)));
 
   const partidosQueImportan = estado === 'depende'
-    ? pivotes(fotos, pendientes, dentroEn, fueraEn, pairId, nombres)
+    ? pivotes(fotos, pendientes, dentroEn, fueraEn, cual, pairId, nombres)
     : [];
 
   /**
@@ -565,12 +597,34 @@ function pivotes(
   pendientes: { grupo: GrupoDeCategoria; match: MatchResultInput }[],
   dentroEn: (f: Foto) => boolean,
   fueraEn: (f: Foto) => boolean,
+  cual: 'repesca' | 'bye',
   pairId: string,
   nombres: Record<string, string>,
 ): PartidoQueImporta[] {
   const k = pendientes.length;
   const total = 1 << k;
   const out: PartidoQueImporta[] = [];
+
+  /**
+   * LO QUE SE MIRA PARA DECIDIR SI UN PARTIDO IMPORTA.
+   *
+   *   Se miraba solo el veredicto binario —dentro / fuera—, y eso es ciego
+   *   justo cuando más hace falta: mientras nadie destaca, ningún partido de
+   *   otro grupo cambia un "dentro" por un "fuera", así que TODOS se
+   *   descartaban por "no cambia nada". En 3ª Mixto, con nueve pendientes, el
+   *   análisis decía que solo importaban dos — y encima ninguno del propio
+   *   jugador.
+   *
+   *   Un partido importa si mueve CUALQUIERA de las tres cosas que componen la
+   *   respuesta: el veredicto, su puesto en el grupo, o cuántos rivales pueden
+   *   quedar por delante. Las dos últimas son las que se mueven primero, y son
+   *   exactamente lo que el jugador nota.
+   */
+  const huella = (f: Foto): string => {
+    const delante = cual === 'repesca' ? f.repescaPodrianAdelantarme : f.byePodrianAdelantarme;
+    const seguros = cual === 'repesca' ? f.repescaSeguroDelante : f.byeSeguroDelante;
+    return `${dentroEn(f) ? 1 : 0}${fueraEn(f) ? 1 : 0}|${f.posicionEnGrupo}|${delante}|${seguros}`;
+  };
 
   for (let bit = 0; bit < k; bit++) {
     let cambia = false;
@@ -580,9 +634,15 @@ function pivotes(
       if ((mask >> bit) & 1) continue;
       const conA = fotos[mask];
       const conB = fotos[mask | (1 << bit)];
-      if (dentroEn(conA) !== dentroEn(conB) || fueraEn(conA) !== fueraEn(conB)) cambia = true;
+      if (huella(conA) !== huella(conB)) cambia = true;
+      // Para "qué me conviene" sigue mandando el veredicto, y si no separa,
+      // el número de rivales que se me pueden poner por delante.
+      const dA = cual === 'repesca' ? conA.repescaPodrianAdelantarme : conA.byePodrianAdelantarme;
+      const dB = cual === 'repesca' ? conB.repescaPodrianAdelantarme : conB.byePodrianAdelantarme;
       if (dentroEn(conA) && !dentroEn(conB)) buenoConA++;
-      if (dentroEn(conB) && !dentroEn(conA)) buenoConB++;
+      else if (dentroEn(conB) && !dentroEn(conA)) buenoConB++;
+      else if (dA < dB) buenoConA++;
+      else if (dB < dA) buenoConB++;
     }
     if (!cambia) continue;
 
