@@ -43,7 +43,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, TextInput, StyleSheet, Platform } from 'react-native';
-import { useRouter, usePathname, useLocalSearchParams } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 
 import Hoja from '@/components/ui/Hoja';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
@@ -52,6 +52,7 @@ import {
   PREGUNTAS,
   MOMENTOS,
   pantallaDeRuta,
+  torneoDeRuta,
   preguntasPorContexto,
   preguntasPorMomento,
   rutaDePregunta,
@@ -85,7 +86,9 @@ let burbujaGastada = false;
 export default function AyudaOrganizador() {
   const router = useRouter();
   const pathname = usePathname();
-  const { tournamentId } = useLocalSearchParams<{ tournamentId?: string }>();
+  // De la RUTA y no de los params: un layout no ve el `[tournamentId]` de sus
+  // hijos, y navegando dentro de la app llegaban vacíos. Ver `torneoDeRuta`.
+  const tournamentId = torneoDeRuta(pathname);
   const guiada = useGuiaEnPantalla();
 
   const [abierta, setAbierta] = useState(false);

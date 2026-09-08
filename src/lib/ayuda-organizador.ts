@@ -315,6 +315,28 @@ export function pantallaDeRuta(pathname: string): PantallaOrg {
 export const PANTALLA_EJE = 'panel';
 
 /**
+ * El id del torneo que hay en la ruta, o `null` si no estamos dentro de uno.
+ *
+ * POR QUÉ NO SE USA `useLocalSearchParams` PARA ESTO
+ *   La ayuda vive en el layout de `(organizer)`, y un layout NO ve los params
+ *   del segmento dinámico de sus hijos: `[tournamentId]` lo declara la ruta,
+ *   no el layout. Al cargar la URL directamente colaba —la primera resolución
+ *   los tenía— pero al entrar navegando desde "Mis torneos" llegaban vacíos, el
+ *   componente se daba por fuera de un torneo y devolvía `null`. El botón
+ *   desaparecía y no volvía hasta recargar la página.
+ *
+ *   La ruta, en cambio, siempre lo lleva: `/org/torneos/<id>/...`. Es el mismo
+ *   principio que ya usa `pantallaDeRuta` — la ruta ES el estado — y se puede
+ *   probar sin montar nada.
+ */
+export function torneoDeRuta(pathname: string): string | null {
+  const partes = pathname.split('?')[0].split('/').filter(Boolean);
+  const i = partes.indexOf('torneos');
+  const id = i >= 0 ? partes[i + 1] : undefined;
+  return id && id !== '' ? id : null;
+}
+
+/**
  * Las preguntas partidas en dos: las de aquí y todas las demás.
  *
  * NO SE FILTRA, SE ORDENA. Quitar las que no son de esta pantalla dejaría sin
