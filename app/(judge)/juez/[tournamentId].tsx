@@ -44,7 +44,8 @@ import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture'
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
-import { horaDeTorneo, fechaHoraDeTorneo } from '@/lib/fechas';
+import { horaDeTorneo, fechaHoraDeTorneo, diaDeTorneo, diaYHoraDeTorneo } from '@/lib/fechas';
+import { cuandoYDonde } from '@/lib/juez/cuando-y-donde';
 import { ordenarPartidos, type PartidoOrdenable } from '@/lib/juez/orden-partidos';
 import { ETIQUETA_FASE, faseDeStage, type FaseTorneo } from '@/lib/fase-torneo';
 
@@ -66,6 +67,8 @@ interface JudgeMatch extends PartidoOrdenable {
   groupId: string | null;
   groupName: string | null;
   scheduledAt: string | null;
+  /** `matches.court_label`. Null si el organizador no la ha asignado. */
+  courtLabel: string | null;
   winnerPairId: string | null;
   sets: SetGuardado[];
   /** '6-4 7-5' · '6-3 4-6 [10-7]'. Null si no hay marcador guardado. */
@@ -139,8 +142,11 @@ async function fetchMatches(tournamentId: string): Promise<JudgeMatch[]> {
     // `categories`, `groups` y `match_sets` SÍ se embeben: la migración 040 los
     // deja leer a cualquiera en un torneo publicado.
     .select(
+      // `court_label` NO estaba, y es lo que el juez tiene delante cuando le
+      // preguntan. Ya pasó en el cuadro: el campo en el tipo, pintándose, y la
+      // consulta sin pedirlo — así que aquí van juntos a propósito.
       `id, stage, round_label, status, pair_a_id, pair_b_id, scheduled_at,
-       category_id, group_id, winner_pair_id,
+       court_label, category_id, group_id, winner_pair_id,
        categories:category_id ( display_name ),
        groups:group_id ( name ),
        match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`
@@ -152,7 +158,8 @@ async function fetchMatches(tournamentId: string): Promise<JudgeMatch[]> {
   const filas = (data ?? []) as unknown as Array<{
     id: string; stage: string; round_label: string | null;
     status: string; pair_a_id: string; pair_b_id: string;
-    scheduled_at: string | null; category_id: string; group_id: string | null;
+    scheduled_at: string | null; court_label: string | null;
+    category_id: string; group_id: string | null;
     winner_pair_id: string | null;
     categories: { display_name: string } | null;
     groups: { name: string } | null;
@@ -181,6 +188,7 @@ async function fetchMatches(tournamentId: string): Promise<JudgeMatch[]> {
       groupId: row.group_id,
       groupName: row.groups?.name ?? null,
       scheduledAt: row.scheduled_at,
+      courtLabel: row.court_label,
       winnerPairId: row.winner_pair_id,
       sets,
       marcador: marcadorDe(sets),
@@ -196,6 +204,12 @@ async function fetchMatches(tournamentId: string): Promise<JudgeMatch[]> {
 
 export default function JudgeTournamentScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
+  /**
+   * Qué día es hoy en la zona del torneo, para decidir si una tarjeta necesita
+   * decir el día. Se calcula UNA vez por render y no por fila: son sesenta
+   * tarjetas y el resultado es el mismo para todas.
+   */
+  const hoy = diaDeTorneo(new Date().toISOString());
   const [matches, setMatches] = useState<JudgeMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -541,7 +555,17 @@ export default function JudgeTournamentScreen() {
                       borderColor: capturado ? color.lineSoft : color.line,
                     })}
                     accessibilityRole="button"
-                    accessibilityLabel={`${capturado ? 'Corregir' : 'Capturar'}: ${item.pairAName} vs ${item.pairBName}`}
+                    accessibilityLabel={
+                      `${capturado ? 'Corregir' : 'Capturar'}: ${item.pairAName} vs ${item.pairBName}` +
+                      // Con lector de pantalla la línea de abajo se lee aparte
+                      // y fuera de contexto: aquí va con el partido.
+                      (capturado ? '' : `. ${cuandoYDonde({
+                        hora: horaDeTorneo(item.scheduledAt),
+                        diaYHora: item.scheduledAt && diaDeTorneo(item.scheduledAt) !== hoy
+                          ? diaYHoraDeTorneo(item.scheduledAt) : '',
+                        cancha: item.courtLabel,
+                      })}`)
+                    }
                   >
                     {/* Contexto: etapa · categoría · grupo */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -573,12 +597,19 @@ export default function JudgeTournamentScreen() {
                       {/* `minWidth: 0`: sin él, en web esta línea no baja de su
                           ancho intrínseco y empuja el «Capturar resultado →»
                           fuera de la tarjeta en vez de recortarse. */}
+                      {/* CAPTURADO: el marcador y nada más. Ahí la pregunta
+                          ya no es dónde se juega — se jugó. Sin capturar,
+                          cuándo y dónde, que es lo que le están preguntando. */}
                       <Text style={{ fontFamily: font.body, fontSize: 11, color: color.muted, flex: 1, minWidth: 0 }} numberOfLines={1}>
-                        {item.marcador
-                          ? item.marcador
-                          : item.scheduledAt
-                            ? horaDeTorneo(item.scheduledAt)
-                            : 'Sin hora asignada'}
+                        {item.marcador ?? cuandoYDonde({
+                          hora: horaDeTorneo(item.scheduledAt),
+                          // El día SOLO si no es hoy: en la jornada en curso
+                          // es ruido repetido en todas las filas.
+                          diaYHora: item.scheduledAt && diaDeTorneo(item.scheduledAt) !== hoy
+                            ? diaYHoraDeTorneo(item.scheduledAt)
+                            : '',
+                          cancha: item.courtLabel,
+                        })}
                       </Text>
                       <Text style={{ fontFamily: font.body, fontSize: 12, color: color.gold, fontWeight: '600' }}>
                         {capturado ? 'Corregir →' : 'Capturar resultado →'}
