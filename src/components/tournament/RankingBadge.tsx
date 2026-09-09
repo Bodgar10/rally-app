@@ -17,7 +17,8 @@ export type RankingBadgeVariant =
   | 'points_gained'    // "+X pts ganados" → verde
   | 'position_gained'  // "Subiste X posiciones" → verde
   | 'champion'         // "Campeón 🏆" → granate/dorado especial
-  | 'finalist';        // "Finalista" → dorado
+  | 'finalist'         // "Finalista" → dorado
+  | 'seed';            // "Cabeza de serie #N" → granate/dorado, mismo trato que top_tournament
 
 export type RankingBadgeProps = {
   variant: RankingBadgeVariant;
@@ -72,7 +73,7 @@ export function RankingBadge({ variant, value, subtitle, compact = false }: Rank
   }
 
   // Versión completa — con gradiente granate o dorado según variante
-  if (variant === 'top_tournament' || variant === 'champion' || variant === 'finalist') {
+  if (variant === 'top_tournament' || variant === 'champion' || variant === 'finalist' || variant === 'seed') {
     return (
       <LinearGradient
         colors={[WINE_BG, WINE_DEEP]}
@@ -198,6 +199,14 @@ function badgeConfig(
       return {
         icon: '⭐',
         label: value !== undefined ? `Top ${value} del torneo` : 'Top del torneo',
+        bg: 'transparent',
+        border: 'rgba(241,217,140,0.38)',
+        textColor: color.goldBright,
+      };
+    case 'seed':
+      return {
+        icon: '🎯',
+        label: value !== undefined ? `Cabeza de serie #${value}` : 'Cabeza de serie',
         bg: 'transparent',
         border: 'rgba(241,217,140,0.38)',
         textColor: color.goldBright,

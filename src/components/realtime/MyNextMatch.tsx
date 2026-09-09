@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
 import ComoLlegar from '@/components/tournament/ComoLlegar';
 import Icon from '@/components/ui/Icon';
+import { RankingBadge } from '@/components/tournament/RankingBadge';
 import { color, radius, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
@@ -23,11 +24,24 @@ import {
   puntosGarantizados, rondaMasLejanaAlcanzada,
   type PuntosGarantizados, type EstadoParaPuntos,
 } from '@/lib/puntos-garantizados';
+import { fetchCabezaDeSerie } from '@/lib/cabeza-de-serie';
 import type { Tier } from '@/lib/engine/ranking-points';
 
 // ───────────────────────────────────────────
 // Tipos
 // ───────────────────────────────────────────
+
+/**
+ * Qué cabeza de serie es la pareja rival en su categoría (suma de puntos de
+ * ranking de sus dos jugadores, ver `@/lib/cabeza-de-serie`) y la posición
+ * individual de cada uno. `null` en `jugador*Posicion` cuando ese jugador no
+ * tiene fila en `ranking_public` — no es un "#—", es no tener número.
+ */
+interface RankingRival {
+  cabezaDeSerie: number;
+  jugador1Posicion: number | null;
+  jugador2Posicion: number | null;
+}
 
 interface NextMatch {
   matchId: string;
@@ -37,6 +51,14 @@ interface NextMatch {
   scheduledAt: string | null;
   rivalPlayer1: string;
   rivalPlayer2: string;
+  /**
+   * IDs de los dos jugadores rivales. `''` cuando no se pudo resolver la
+   * pareja rival (mismo caso en que `rivalPlayer1`/`rivalPlayer2` caen a
+   * '—'). Vienen de `bracket_pairs_public` vía `fetchParejasPublicas`, que
+   * ya los trae — antes se descartaban al copiar solo los nombres.
+   */
+  rivalPlayer1Id: string;
+  rivalPlayer2Id: string;
   courtName: string | null;
   /** Sede del torneo, para el botón "Cómo llegar". Null si el torneo no tiene. */
   venue: { name: string; address: string | null; city: string | null } | null;
@@ -55,6 +77,13 @@ interface NextMatch {
    * calcularlo (ver `@/lib/puntos-garantizados`) — ahí no se pinta nada.
    */
   puntos: PuntosGarantizados | null;
+  /**
+   * Cabeza de serie del rival y posición individual de sus dos jugadores.
+   * `null` cuando `fetchCabezaDeSerie` no pudo calcular un orden real (sin
+   * rival conocido, o toda la categoría empatada en 0 puntos — el caso de
+   * hoy, con `ranking_points` vacía) — ahí no se pinta nada.
+   */
+  rankingRival: RankingRival | null;
 }
 
 interface MyNextMatchProps {
@@ -94,6 +123,11 @@ function stageLabel(stage: string): string {
   // Un stage que no conocemos NO se pinta crudo: preferimos decir menos a
   // enseñarle 'round_of_64' a alguien. Quien llama omite la parte vacía.
   return map[stage] ?? '';
+}
+
+/** "Luis Flores #3" · sin posición, solo "Luis Flores". Nunca un "#—". */
+function nombreConPosicion(nombre: string, posicion: number | null): string {
+  return posicion !== null ? `${nombre} #${posicion}` : nombre;
 }
 
 // ───────────────────────────────────────────
@@ -147,10 +181,13 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   }
 
   // Elegir el más próximo entre los dos resultados
-  /** `soyA`, `categoryId` y `miPairId` son de trabajo: para orientar el
-      marcador y calcular los puntos garantizados. No salen a la interfaz. */
+  /** `soyA`, `categoryId`, `miPairId` y `rivalPairId` son de trabajo: para
+      orientar el marcador y calcular los puntos garantizados y la cabeza de
+      serie del rival. No salen a la interfaz. */
   const candidates: Array<
-    Omit<NextMatch, 'marcador' | 'puntos'> & { soyA: boolean; categoryId: string; miPairId: string; tier: string | null }
+    Omit<NextMatch, 'marcador' | 'puntos' | 'rankingRival'> & {
+      soyA: boolean; categoryId: string; miPairId: string; rivalPairId: string | null; tier: string | null;
+    }
   > = [];
 
   // Los dos rivales posibles se resuelven de una vez, antes de decidir cuál
@@ -174,6 +211,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
         soyA: true,
         categoryId: row.category_id,
         miPairId: row.pair_a_id,
+        rivalPairId: row.pair_b_id,
         tier: row.tournaments?.tier ?? null,
         matchId: row.id,
         tournamentName: row.tournaments?.name ?? '—',
@@ -182,6 +220,8 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
         scheduledAt: row.scheduled_at,
         rivalPlayer1: rival?.player1_name ?? '—',
         rivalPlayer2: rival?.player2_name ?? '—',
+        rivalPlayer1Id: rival?.player1_id ?? '',
+        rivalPlayer2Id: rival?.player2_id ?? '',
         courtName: row.court_label ?? null,
         venue: row.tournaments?.venues ?? null,
         status: row.status as NextMatch['status'],
@@ -203,6 +243,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
         soyA: false,
         categoryId: row.category_id,
         miPairId: row.pair_b_id,
+        rivalPairId: row.pair_a_id,
         tier: row.tournaments?.tier ?? null,
         matchId: row.id,
         tournamentName: row.tournaments?.name ?? '—',
@@ -211,6 +252,8 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
         scheduledAt: row.scheduled_at,
         rivalPlayer1: rival?.player1_name ?? '—',
         rivalPlayer2: rival?.player2_name ?? '—',
+        rivalPlayer1Id: rival?.player1_id ?? '',
+        rivalPlayer2Id: rival?.player2_id ?? '',
         courtName: row.court_label ?? null,
         venue: row.tournaments?.venues ?? null,
         status: row.status as NextMatch['status'],
@@ -233,7 +276,11 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   // cuando hay algo que pintar. Se piden SIEMPRE y no solo si está 'in_progress'
   // porque un partido con sets y todavía en 'scheduled' —el juez anotó el
   // primer set y el estado va un paso por detrás— también tiene marcador.
-  const [{ data: sets }, estado] = await Promise.all([
+  //
+  // La cabeza de serie es de la CATEGORÍA (todas sus parejas), no solo del
+  // rival: se pide una vez y se busca la fila del rival adentro. Sin rival
+  // conocido (bye, o la vista no resolvió la pareja) no hay nada que pedir.
+  const [{ data: sets }, estado, ordenPorPuntos] = await Promise.all([
     supabase
       .from('match_sets')
       .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
@@ -244,12 +291,29 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
       tier: elegido.tier,
       proximoStage: elegido.stage,
     }),
+    elegido.rivalPairId ? fetchCabezaDeSerie(elegido.categoryId) : Promise.resolve(null),
   ]);
+
+  const rivalOrdenado = elegido.rivalPairId
+    ? (ordenPorPuntos ?? []).find((p) => p.pairId === elegido.rivalPairId) ?? null
+    : null;
 
   return {
     ...elegido,
     marcador: marcadorParcial(sets ?? [], elegido.soyA),
     puntos: puntosGarantizados(estado),
+    rankingRival: rivalOrdenado
+      ? {
+          cabezaDeSerie: rivalOrdenado.cabezaDeSerie,
+          // `jugador1`/`jugador2` de `fetchCabezaDeSerie` salen de
+          // `pairs.player1_id`/`player2_id` — las mismas columnas que
+          // `bracket_pairs_public.player1_id`/`player2_id`, o sea las mismas
+          // que `rivalPlayer1Id`/`rivalPlayer2Id`. No hace falta emparejar
+          // por id: el orden ya coincide.
+          jugador1Posicion: rivalOrdenado.jugador1.posicion,
+          jugador2Posicion: rivalOrdenado.jugador2.posicion,
+        }
+      : null,
   };
 }
 
@@ -535,6 +599,21 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
       >
         {match.rivalPlayer1} / {match.rivalPlayer2}
       </Text>
+
+      {/* Quién es el rival según el ranking. Solo cuando `fetchCabezaDeSerie`
+          pudo calcular un orden real para la categoría — ver
+          `@/lib/cabeza-de-serie`. Hoy, con `ranking_points` vacía, no
+          calcula nada y esto no se pinta: aparece solo cuando haya datos. */}
+      {match.rankingRival && (
+        <View style={{ marginBottom: 12, gap: 4 }}>
+          <RankingBadge variant="seed" value={match.rankingRival.cabezaDeSerie} compact />
+          <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>
+            {nombreConPosicion(match.rivalPlayer1, match.rankingRival.jugador1Posicion)}
+            {' · '}
+            {nombreConPosicion(match.rivalPlayer2, match.rankingRival.jugador2Posicion)}
+          </Text>
+        </View>
+      )}
 
       {/* Puntos de ranking en juego. Solo cuando `puntosGarantizados` pudo
           calcularlos con datos reales — ver `@/lib/puntos-garantizados`.
