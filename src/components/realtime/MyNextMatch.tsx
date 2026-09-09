@@ -19,6 +19,11 @@ import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 import { fechaHoraDeTorneo } from '@/lib/fechas';
+import {
+  puntosGarantizados, rondaMasLejanaAlcanzada,
+  type PuntosGarantizados, type EstadoParaPuntos,
+} from '@/lib/puntos-garantizados';
+import type { Tier } from '@/lib/engine/ranking-points';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -44,6 +49,12 @@ interface NextMatch {
    * estaba y no salía. Es de lo primero que se mira al salir de la pista.
    */
   marcador: string | null;
+  /**
+   * Puntos de ranking garantizados con este torneo hasta ahora, y lo que
+   * sumaría si gana este partido. `null` si falta algún dato para
+   * calcularlo (ver `@/lib/puntos-garantizados`) — ahí no se pinta nada.
+   */
+  puntos: PuntosGarantizados | null;
 }
 
 interface MyNextMatchProps {
@@ -99,12 +110,17 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   // (tournaments_select, categories_select) dejan leerlos a cualquier
   // autenticado. El que se fue es el de la pareja rival, que pasaba por
   // users_select_own y devolvía null. Ver src/lib/parejas-publicas.ts.
+  //
+  // `category_id`, `pair_a_id`/`pair_b_id` (los dos, no solo el rival) y el
+  // `tier` del torneo se agregan para poder calcular los puntos de ranking
+  // garantizados (ver `@/lib/puntos-garantizados`) sin otra consulta aparte
+  // por el torneo.
   const { data: asA, error: errA } = await supabase
     .from('matches')
     .select(
-      `id, stage, scheduled_at, status, court_label,
-       pair_b_id,
-       tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
+      `id, stage, scheduled_at, status, court_label, category_id,
+       pair_a_id, pair_b_id,
+       tournaments:tournament_id ( name, tier, venues:venue_id ( name, address, city ) ),
        categories:category_id ( display_name )`
     )
     .in('pair_a_id', pairIds)
@@ -115,9 +131,9 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   const { data: asB, error: errB } = await supabase
     .from('matches')
     .select(
-      `id, stage, scheduled_at, status, court_label,
-       pair_a_id,
-       tournaments:tournament_id ( name, venues:venue_id ( name, address, city ) ),
+      `id, stage, scheduled_at, status, court_label, category_id,
+       pair_a_id, pair_b_id,
+       tournaments:tournament_id ( name, tier, venues:venue_id ( name, address, city ) ),
        categories:category_id ( display_name )`
     )
     .in('pair_b_id', pairIds)
@@ -131,9 +147,11 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   }
 
   // Elegir el más próximo entre los dos resultados
-  /** `soyA` es de trabajo: de qué lado juega el usuario, para orientar el
-      marcador. No sale a la interfaz. */
-  const candidates: Array<Omit<NextMatch, 'marcador'> & { soyA: boolean }> = [];
+  /** `soyA`, `categoryId` y `miPairId` son de trabajo: para orientar el
+      marcador y calcular los puntos garantizados. No salen a la interfaz. */
+  const candidates: Array<
+    Omit<NextMatch, 'marcador' | 'puntos'> & { soyA: boolean; categoryId: string; miPairId: string; tier: string | null }
+  > = [];
 
   // Los dos rivales posibles se resuelven de una vez, antes de decidir cuál
   // de los dos partidos es el más próximo.
@@ -144,50 +162,60 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
 
   if (asA && asA.length > 0) {
     const row = asA[0] as unknown as {
-      id: string; stage: string;
+      id: string; stage: string; category_id: string;
       scheduled_at: string | null; status: string; court_label: string | null;
-      pair_b_id: string | null;
-      tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
+      pair_a_id: string | null; pair_b_id: string | null;
+      tournaments: { name: string; tier: string | null; venues: { name: string; address: string | null; city: string | null } | null };
       categories: { display_name: string };
     };
     const rival = row.pair_b_id ? rivales.get(row.pair_b_id) : undefined;
-    candidates.push({
-      soyA: true,
-      matchId: row.id,
-      tournamentName: row.tournaments?.name ?? '—',
-      categoryName: row.categories?.display_name ?? '—',
-      stage: row.stage,
-      scheduledAt: row.scheduled_at,
-      rivalPlayer1: rival?.player1_name ?? '—',
-      rivalPlayer2: rival?.player2_name ?? '—',
-      courtName: row.court_label ?? null,
-      venue: row.tournaments?.venues ?? null,
-      status: row.status as NextMatch['status'],
-    });
+    if (row.pair_a_id) {
+      candidates.push({
+        soyA: true,
+        categoryId: row.category_id,
+        miPairId: row.pair_a_id,
+        tier: row.tournaments?.tier ?? null,
+        matchId: row.id,
+        tournamentName: row.tournaments?.name ?? '—',
+        categoryName: row.categories?.display_name ?? '—',
+        stage: row.stage,
+        scheduledAt: row.scheduled_at,
+        rivalPlayer1: rival?.player1_name ?? '—',
+        rivalPlayer2: rival?.player2_name ?? '—',
+        courtName: row.court_label ?? null,
+        venue: row.tournaments?.venues ?? null,
+        status: row.status as NextMatch['status'],
+      });
+    }
   }
 
   if (asB && asB.length > 0) {
     const row = asB[0] as unknown as {
-      id: string; stage: string;
+      id: string; stage: string; category_id: string;
       scheduled_at: string | null; status: string; court_label: string | null;
-      pair_a_id: string | null;
-      tournaments: { name: string; venues: { name: string; address: string | null; city: string | null } | null };
+      pair_a_id: string | null; pair_b_id: string | null;
+      tournaments: { name: string; tier: string | null; venues: { name: string; address: string | null; city: string | null } | null };
       categories: { display_name: string };
     };
     const rival = row.pair_a_id ? rivales.get(row.pair_a_id) : undefined;
-    candidates.push({
-      soyA: false,
-      matchId: row.id,
-      tournamentName: row.tournaments?.name ?? '—',
-      categoryName: row.categories?.display_name ?? '—',
-      stage: row.stage,
-      scheduledAt: row.scheduled_at,
-      rivalPlayer1: rival?.player1_name ?? '—',
-      rivalPlayer2: rival?.player2_name ?? '—',
-      courtName: row.court_label ?? null,
-      venue: row.tournaments?.venues ?? null,
-      status: row.status as NextMatch['status'],
-    });
+    if (row.pair_b_id) {
+      candidates.push({
+        soyA: false,
+        categoryId: row.category_id,
+        miPairId: row.pair_b_id,
+        tier: row.tournaments?.tier ?? null,
+        matchId: row.id,
+        tournamentName: row.tournaments?.name ?? '—',
+        categoryName: row.categories?.display_name ?? '—',
+        stage: row.stage,
+        scheduledAt: row.scheduled_at,
+        rivalPlayer1: rival?.player1_name ?? '—',
+        rivalPlayer2: rival?.player2_name ?? '—',
+        courtName: row.court_label ?? null,
+        venue: row.tournaments?.venues ?? null,
+        status: row.status as NextMatch['status'],
+      });
+    }
   }
 
   if (candidates.length === 0) return null;
@@ -205,12 +233,68 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   // cuando hay algo que pintar. Se piden SIEMPRE y no solo si está 'in_progress'
   // porque un partido con sets y todavía en 'scheduled' —el juez anotó el
   // primer set y el estado va un paso por detrás— también tiene marcador.
-  const { data: sets } = await supabase
-    .from('match_sets')
-    .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
-    .eq('match_id', elegido.matchId);
+  const [{ data: sets }, estado] = await Promise.all([
+    supabase
+      .from('match_sets')
+      .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
+      .eq('match_id', elegido.matchId),
+    fetchEstadoParaPuntos({
+      categoryId: elegido.categoryId,
+      miPairId: elegido.miPairId,
+      tier: elegido.tier,
+      proximoStage: elegido.stage,
+    }),
+  ]);
 
-  return { ...elegido, marcador: marcadorParcial(sets ?? [], elegido.soyA) };
+  return {
+    ...elegido,
+    marcador: marcadorParcial(sets ?? [], elegido.soyA),
+    puntos: puntosGarantizados(estado),
+  };
+}
+
+/**
+ * Reúne el estado de la pareja que necesita `puntosGarantizados`: victorias
+ * de grupo (de `group_standings.won`, ya calculado por el motor de
+ * resultados) y, si el próximo partido es de cuadro, la ronda más lejana ya
+ * asegurada (de sus partidos de cuadro ya resueltos). En fase de grupos no
+ * hace falta esa segunda consulta: `qualified` es `false` y `furthestRound`
+ * es `'none'` porque todavía no se llegó al cuadro.
+ */
+async function fetchEstadoParaPuntos(args: {
+  categoryId: string;
+  miPairId: string;
+  tier: string | null;
+  proximoStage: string;
+}): Promise<EstadoParaPuntos> {
+  const { categoryId, miPairId, tier, proximoStage } = args;
+  const enCuadro = proximoStage !== 'group';
+
+  const [{ count: parejasEnCategoria }, { data: standing }, previos] = await Promise.all([
+    supabase.from('pairs').select('*', { count: 'exact', head: true }).eq('category_id', categoryId),
+    supabase.from('group_standings').select('won').eq('pair_id', miPairId).maybeSingle(),
+    enCuadro
+      ? supabase
+          .from('matches')
+          .select('stage')
+          .eq('category_id', categoryId)
+          .neq('stage', 'group')
+          .eq('status', 'finished')
+          .not('winner_pair_id', 'is', null)
+          .or(`pair_a_id.eq.${miPairId},pair_b_id.eq.${miPairId}`)
+      : Promise.resolve({ data: null }),
+  ]);
+
+  return {
+    tier: tier as Tier | null,
+    parejasEnCategoria: parejasEnCategoria ?? null,
+    groupWins: standing?.won ?? null,
+    qualified: enCuadro,
+    furthestRound: enCuadro
+      ? rondaMasLejanaAlcanzada((previos.data ?? []).map((m) => m.stage))
+      : 'none',
+    proximoStage,
+  };
 }
 
 /**
@@ -451,6 +535,26 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
       >
         {match.rivalPlayer1} / {match.rivalPlayer2}
       </Text>
+
+      {/* Puntos de ranking en juego. Solo cuando `puntosGarantizados` pudo
+          calcularlos con datos reales — ver `@/lib/puntos-garantizados`.
+          Sin partido de por medio no hay nada que proyectar, y un número
+          aproximado sería peor que no decir nada. */}
+      {match.puntos && (
+        <Text
+          style={{
+            fontFamily: font.body,
+            fontSize: 12,
+            fontWeight: '600',
+            color: color.goldBright,
+            marginBottom: 12,
+          }}
+        >
+          {match.stage === 'group'
+            ? `Ganar este partido: +${match.puntos.siGanan - match.puntos.garantizados} pts de ranking`
+            : `Tienes ${match.puntos.garantizados.toLocaleString()} pts garantizados · Si ganan: ${match.puntos.siGanan.toLocaleString()}`}
+        </Text>
+      )}
 
       {/* Hora · Cancha · Cómo llegar.
           `flexWrap` y gap más corto: las tres píldoras no caben en los 354px de

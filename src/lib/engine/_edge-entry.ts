@@ -66,8 +66,8 @@ export { updateRating, combineOpponentPair } from './rating/glicko2';
 export { divisionForRating } from './rating/category-bands';
 
 // Puntos de ranking (cierre de torneo)
-export { computeRankingPoints } from './ranking-points';
-export type { RankingRules, PlayerTournamentResult, RoundReached } from './ranking-points';
+export { computeRankingPoints, tierEfectivo } from './ranking-points';
+export type { RankingRules, PlayerTournamentResult, RoundReached, Tier } from './ranking-points';
 
 // --- Tipos de dominio compartidos ---
 // NOTA: FormatPlan y Fixture NO viven en ./types; se exportan desde su módulo real

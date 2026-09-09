@@ -59,6 +59,22 @@ type DivisionOption = {
   value: Division; // ej. "primera", "quinta"
 };
 
+/**
+ * Fila de `ranking_champions` (campeones de temporadas ya cerradas).
+ * Aparte de `RankRow` a propósito: esa vista trae `season`/`photo_url`/
+ * `torneos`, que `ranking_public` no tiene — mezclarlas ensuciaría RankRow
+ * con campos que no aplican al leaderboard de la temporada en curso.
+ */
+type ChampionRow = {
+  division: Division;
+  season: number;
+  player_id: string;
+  full_name: string | null;
+  photo_url: string | null;
+  points: number;
+  torneos: number;
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 /** Formatea posición ordinal: 1 → "#1", 7 → "#7" */
@@ -94,8 +110,15 @@ export default function RankingScreen() {
   const [selectedDivision, setSelectedDivision] = useState<Division | null>(null);
   const [summary, setSummary] = useState<MyRankSummary | null>(null);
   const [leaderboard, setLeaderboard] = useState<RankRow[]>([]);
+  const [champions, setChampions] = useState<ChampionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Temporada mostrada. Arranca en el año actual; sin selector todavía
+  // (eso es para cuando se pueda navegar a temporadas cerradas), pero ya
+  // vive en estado para que el encabezado nunca hardcodee el año.
+  const [seasonSeleccionada] = useState<number>(() => new Date().getFullYear());
+  const esTemporadaActual = seasonSeleccionada === new Date().getFullYear();
 
   // Obtener usuario actual
   useEffect(() => {
@@ -104,38 +127,73 @@ export default function RankingScreen() {
     });
   }, []);
 
-  // Cargar divisiones disponibles para este jugador
+  // Cargar divisiones disponibles para este jugador en la temporada actual.
+  //
+  // `loading` arranca en `true` y este es el único efecto que corre siempre
+  // (no depende de tener ya una división elegida), así que es quien tiene
+  // que apagarlo — y lo hace en el `finally`, sin importar si encontró
+  // divisiones, si no encontró ninguna, o si la consulta falló. Antes solo
+  // se apagaba dentro de `loadRanking`, que nunca llega a ejecutarse si no
+  // hay ninguna división: por eso el spinner se quedaba para siempre en
+  // cuentas sin filas de ranking (que hoy es TODA la base).
   useEffect(() => {
     if (!userId) return;
     (async () => {
-      const { data, error: err } = await supabase
-        .from('ranking_public')
-        .select('division')
-        .eq('player_id', userId)
-        .order('points', { ascending: false });
+      try {
+        const { data, error: err } = await supabase
+          .from('ranking_public')
+          .select('division')
+          .eq('player_id', userId)
+          .eq('season', seasonSeleccionada)
+          .order('points', { ascending: false });
 
-      if (err) return;
-
-      // Deduplica divisiones del jugador y construye opciones.
-      // `division` llega nullable por ser columna de vista: las filas sin
-      // división no representan ninguna opción y se descartan.
-      const seen = new Set<Division>();
-      const opts: DivisionOption[] = [];
-      (data ?? []).forEach((row) => {
-        if (row.division && !seen.has(row.division)) {
-          seen.add(row.division);
-          opts.push({ label: labelForDivision(row.division), value: row.division });
+        if (err) {
+          setError('No se pudo cargar el ranking. Intenta de nuevo.');
+          return;
         }
-      });
 
-      setDivisions(opts);
-      if (opts.length > 0 && !selectedDivision) {
-        setSelectedDivision(opts[0].value);
+        // Deduplica divisiones del jugador y construye opciones.
+        // `division` llega nullable por ser columna de vista: las filas sin
+        // división no representan ninguna opción y se descartan.
+        const seen = new Set<Division>();
+        const opts: DivisionOption[] = [];
+        (data ?? []).forEach((row) => {
+          if (row.division && !seen.has(row.division)) {
+            seen.add(row.division);
+            opts.push({ label: labelForDivision(row.division), value: row.division });
+          }
+        });
+
+        setDivisions(opts);
+        if (opts.length > 0) {
+          // Si la división ya elegida sigue existiendo en esta temporada,
+          // no la pisamos (respeta la elección del usuario). Si no —
+          // primera carga, o la temporada cambió y ya no aplica— cae a la
+          // de más puntos.
+          const sigueValida = selectedDivision && opts.some((o) => o.value === selectedDivision);
+          if (!sigueValida) setSelectedDivision(opts[0].value);
+        } else {
+          // Sin ninguna fila: no hay división que elegir. `loadRanking`
+          // nunca corre para este caso (su guard de arriba lo evita), así
+          // que hay que limpiar el estado de ranking a mano.
+          setSelectedDivision(null);
+          setSummary(null);
+          setLeaderboard([]);
+        }
+      } finally {
+        setLoading(false);
       }
     })();
-  }, [userId]);
+  }, [userId, seasonSeleccionada]);
 
-  // Cargar datos de la división seleccionada
+  // Cargar datos de la división seleccionada.
+  //
+  // El guard de abajo solo puede disparar el `return` mientras el efecto de
+  // divisiones todavía no resolvió (userId o selectedDivision aún null) —
+  // y ese efecto SIEMPRE apaga `loading` en su `finally`, haya encontrado
+  // división o no. Por eso este `return` no necesita tocar `loading`: si
+  // lo apagara aquí también, se adelantaría a que terminen de llegar las
+  // divisiones y parpadearía el estado vacío antes de tiempo.
   const loadRanking = useCallback(async () => {
     if (!userId || !selectedDivision) return;
     setLoading(true);
@@ -148,15 +206,17 @@ export default function RankingScreen() {
         .select('points, position')
         .eq('player_id', userId)
         .eq('division', selectedDivision)
+        .eq('season', seasonSeleccionada)
         .maybeSingle();
 
       if (myErr) throw myErr;
 
-      // 2. Total de jugadores en esta división
+      // 2. Total de jugadores en esta división (misma temporada)
       const { count: totalCount } = await supabase
         .from('ranking_public')
         .select('*', { count: 'exact', head: true })
-        .eq('division', selectedDivision);
+        .eq('division', selectedDivision)
+        .eq('season', seasonSeleccionada);
 
       // 3. Top 50 del leaderboard (full_name viene directo de la vista, sin embed)
       const { data: board, error: boardErr } = await supabase
@@ -168,12 +228,18 @@ export default function RankingScreen() {
           full_name
         `)
         .eq('division', selectedDivision)
+        .eq('season', seasonSeleccionada)
         .order('position', { ascending: true })
         .limit(50);
 
       if (boardErr) throw boardErr;
 
-      // 4. Estadísticas descriptivas del jugador (matches terminados)
+      // 4. Estadísticas descriptivas del jugador (matches terminados).
+      // NOTA: esta RPC no tiene parámetro de temporada (`Args` es solo
+      // p_player_id/p_division en el esquema) y devuelve Json escalar, no
+      // filas — no hay columna `season` sobre la que encadenar `.eq()`.
+      // Agregarle un p_season requeriría tocar la función en una migración,
+      // fuera de alcance de esta pasada. Se deja pendiente.
       const { data: matchStats } = await supabase.rpc('get_player_match_stats', {
         p_player_id: userId,
         p_division: selectedDivision,
@@ -227,11 +293,52 @@ export default function RankingScreen() {
     } finally {
       setLoading(false);
     }
-  }, [userId, selectedDivision]);
+  }, [userId, selectedDivision, seasonSeleccionada]);
 
   useEffect(() => {
     loadRanking();
   }, [loadRanking]);
+
+  // Campeones de temporadas cerradas para la división elegida. Vive aparte
+  // de `loadRanking`: si esta consulta falla no hay razón para tumbar el
+  // leaderboard de la temporada en curso, así que no toca `loading`/`error`.
+  useEffect(() => {
+    if (!selectedDivision) {
+      setChampions([]);
+      return;
+    }
+    (async () => {
+      const { data, error: err } = await supabase
+        .from('ranking_champions')
+        .select('division, season, player_id, full_name, photo_url, points, torneos')
+        .eq('division', selectedDivision)
+        .order('season', { ascending: false });
+
+      if (err) {
+        setChampions([]);
+        return;
+      }
+
+      // Mismo criterio de nulabilidad que en `board`: sin player_id o
+      // season no hay fila que mostrar ni key que usarle en el map.
+      const rows: ChampionRow[] = (data ?? [])
+        .filter(
+          (r): r is typeof r & { player_id: string; season: number; division: Division } =>
+            r.player_id !== null && r.season !== null && r.division !== null
+        )
+        .map((r) => ({
+          division: r.division,
+          season: r.season,
+          player_id: r.player_id,
+          full_name: r.full_name,
+          photo_url: r.photo_url,
+          points: r.points ?? 0,
+          torneos: r.torneos ?? 0,
+        }));
+
+      setChampions(rows);
+    })();
+  }, [selectedDivision]);
 
   // ─── Render ──────────────────────────────────────────────────────────
 
@@ -310,7 +417,14 @@ export default function RankingScreen() {
           </View>
         )}
 
-        {/* Estado vacío: el jugador aún no tiene ranking */}
+        {/* Estado vacío: el jugador no tiene ninguna fila de ranking todavía
+            (nunca eligió división porque no hay ninguna). Distinto del caso
+            de abajo, que sí tiene división pero posición 0. */}
+        {!loading && !error && userId && divisions.length === 0 && (
+          <NoRankingEmpty />
+        )}
+
+        {/* Estado vacío: el jugador aún no tiene ranking en esta división */}
         {!loading && !error && summary && summary.position === 0 && (
           <EmptyRanking />
         )}
@@ -328,6 +442,17 @@ export default function RankingScreen() {
         {/* Leaderboard */}
         {leaderboard.length > 0 && (
           <View style={{ marginTop: space[4], paddingHorizontal: space[4] }}>
+            <Text
+              style={{
+                fontFamily: font.body,
+                fontSize: 12.5,
+                color: color.muted,
+                marginBottom: space[2],
+              }}
+            >
+              {`Temporada ${seasonSeleccionada}${esTemporadaActual ? ' · En disputa' : ''}`}
+            </Text>
+
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space[3] }}>
               <Text
                 style={{
@@ -345,6 +470,31 @@ export default function RankingScreen() {
 
             {leaderboard.map((row) => (
               <LeaderboardRow key={row.player_id} row={row} />
+            ))}
+          </View>
+        )}
+
+        {/* Campeones de temporadas cerradas en esta división. Si no hay
+            ninguno todavía, la sección simplemente no aparece. */}
+        {champions.length > 0 && (
+          <View style={{ marginTop: space[5], paddingHorizontal: space[4] }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space[3] }}>
+              <Text
+                style={{
+                  fontFamily: font.display,
+                  fontWeight: '500',
+                  fontSize: 13,
+                  letterSpacing: 1.6,
+                  textTransform: 'uppercase',
+                  color: color.champagne,
+                }}
+              >
+                Campeones
+              </Text>
+            </View>
+
+            {champions.map((c) => (
+              <ChampionRowItem key={`${c.season}-${c.player_id}`} champion={c} />
             ))}
           </View>
         )}
@@ -619,6 +769,103 @@ function LeaderboardRow({ row }: { row: RankRow }) {
         }}
       >
         {row.points.toLocaleString()}
+      </Text>
+    </View>
+  );
+}
+
+function ChampionRowItem({ champion }: { champion: ChampionRow }) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderRadius: radius.md,
+        marginBottom: 4,
+      }}
+    >
+      {/* Año */}
+      <Text
+        style={{
+          fontFamily: font.display,
+          fontWeight: '600',
+          fontSize: 14,
+          color: color.goldBright,
+          width: 48,
+        }}
+      >
+        {champion.season}
+      </Text>
+
+      {/* Nombre */}
+      <Text
+        style={{
+          flex: 1,
+          fontFamily: font.body,
+          fontSize: 14,
+          color: color.champagne,
+        }}
+        numberOfLines={1}
+      >
+        {champion.full_name ?? 'Jugador'}
+      </Text>
+
+      {/* Puntos */}
+      <Text
+        style={{
+          fontFamily: font.display,
+          fontWeight: '600',
+          fontSize: 14,
+          color: color.muted,
+        }}
+      >
+        {champion.points.toLocaleString()}
+      </Text>
+    </View>
+  );
+}
+
+/** Estado vacío cuando el jugador no tiene ninguna fila en ranking_public
+ *  (aún no jugó ningún torneo terminado en ninguna división). */
+function NoRankingEmpty() {
+  return (
+    <View
+      style={{
+        marginHorizontal: space[4],
+        marginTop: space[4],
+        backgroundColor: color.surface,
+        borderRadius: radius.xl2,
+        borderWidth: 1,
+        borderColor: color.lineSoft,
+        padding: space[5],
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <Text style={{ fontSize: 32 }}>🎾</Text>
+      <Text
+        style={{
+          fontFamily: font.display,
+          fontWeight: '500',
+          fontSize: 17,
+          color: color.text,
+          textAlign: 'center',
+        }}
+      >
+        Todavía no tienes puntos de ranking
+      </Text>
+      <Text
+        style={{
+          fontFamily: font.body,
+          fontSize: 13,
+          color: color.muted,
+          textAlign: 'center',
+          lineHeight: 20,
+        }}
+      >
+        Juega tu primer torneo para aparecer aquí.
       </Text>
     </View>
   );

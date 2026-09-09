@@ -41,6 +41,8 @@ import {
 import { cuadroDe, rondaSiguiente, STAGE_DE_RONDA, RONDA_QUE_JUEGAS } from '@/lib/cuadro-tamano';
 import { certezaDeRonda, cuandoJuegas, contraQuien } from '@/lib/hora-de-mi-ronda';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
+import { puntosGarantizados, type PuntosGarantizados } from '@/lib/puntos-garantizados';
+import type { Tier } from '@/lib/engine/ranking-points';
 import {
   notificarCanchaPorLiberarse, notificarPasasteDeFase,
   notificarResultadoCapturado, notificarYaHayHorario,
@@ -96,6 +98,13 @@ export interface SituacionResuelta {
    * puede repartir distinto.
    */
   comoClasifica: string | null;
+  /**
+   * Puntos de ranking garantizados en este torneo, cuando `estado` es
+   * `clinched`: el bono de clasificación ya es seguro y se puede afirmar
+   * sin riesgo (ver `@/lib/puntos-garantizados`). `null` fuera de ese caso,
+   * o si falta algún dato para calcularlo — nunca un número aproximado.
+   */
+  garantizados: PuntosGarantizados | null;
 }
 
 interface Props {
@@ -248,7 +257,7 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
 
   const { data: standings, error } = await supabase
     .from('group_standings')
-    .select('pair_id, group_id, clinch_status, position, played, groups:group_id ( id, name, category_id )')
+    .select('pair_id, group_id, clinch_status, position, played, won, groups:group_id ( id, name, category_id )')
     .in('pair_id', pairIds);
 
   if (error || !standings || standings.length === 0) {
@@ -258,7 +267,7 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
 
   const filas = standings as unknown as Array<{
     pair_id: string; group_id: string; clinch_status: ClinchStatus;
-    position: number; played: number;
+    position: number; played: number; won: number;
     groups: { id: string; name: string; category_id: string } | null;
   }>;
 
@@ -269,10 +278,12 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
   if (!categoryId) return null;
 
   // El contexto: nombre de categoría y torneo, y cuántos grupos siguen abiertos.
-  const [{ data: cat }, { data: partidos }, { data: gruposCat }] = await Promise.all([
+  // `tier` viaja en el mismo embed de `tournaments`: lo necesita
+  // `puntosGarantizados` para el bono ya seguro cuando `clinched` (ver abajo).
+  const [{ data: cat }, { data: partidos }, { data: gruposCat }, { count: parejasEnCategoria }] = await Promise.all([
     supabase
       .from('categories')
-      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name )')
+      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name, tier )')
       .eq('id', categoryId)
       .maybeSingle(),
     // `match_sets` para el motor: sin los games no puede resolver los empates,
@@ -283,12 +294,15 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
                match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`)
       .eq('category_id', categoryId),
     supabase.from('groups').select('id, name').eq('category_id', categoryId),
+    // Parejas INSCRITAS en la categoría (no las del cuadro): lo que pide
+    // `parejasEnCategoria` del motor de puntos.
+    supabase.from('pairs').select('*', { count: 'exact', head: true }).eq('category_id', categoryId),
   ]);
 
   const c = cat as unknown as {
     display_name: string; tournament_id: string;
     advance_per_group: number | null; best_extra_qualifiers: number | null;
-    tournaments: { name: string } | null;
+    tournaments: { name: string; tier: string | null } | null;
   } | null;
 
   /** Los partidos DEL USUARIO dentro de esta categoría. */
@@ -317,6 +331,21 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
     bestExtraQualifiers: c?.best_extra_qualifiers ?? 0,
   });
 
+  // Puntos garantizados: solo cuando ya clasificó. Es el momento en que el
+  // bono de clasificación pasa de "esperado" a seguro, aunque el cuadro
+  // todavía no exista — por eso `qualified: true` y `furthestRound: 'none'`
+  // a mano, y no algo leído de `matches` (ahí todavía no hay nada del
+  // cuadro que leer).
+  const garantizados = elegida.clinch_status === 'clinched'
+    ? puntosGarantizados({
+        tier: (c?.tournaments?.tier ?? null) as Tier | null,
+        parejasEnCategoria: parejasEnCategoria ?? null,
+        groupWins: elegida.won,
+        qualified: true,
+        furthestRound: 'none',
+      })
+    : null;
+
   return {
     pairId: elegida.pair_id,
     groupId: elegida.group_id,
@@ -339,6 +368,7 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
       pasanPorGrupo: c?.advance_per_group ?? 0,
       repescados: c?.best_extra_qualifiers ?? 0,
     }),
+    garantizados,
     futuro,
     miRonda: await loQueSeSabeDeMiRonda({
       categoryId,
@@ -628,6 +658,17 @@ export default function MiSituacion({ pairIds, onResuelta }: Props) {
           {f ? f.detalle : s.detalle}
         </Text>
       ) : null}
+
+      {/* El bono de clasificación ya es seguro: se puede afirmar sin
+          riesgo. "Garantizados" y no "ganaste" — un resultado corregido en
+          el grupo puede mover el número de puntos, pero no el hecho de que
+          ya clasificó. Solo cuando `puntosGarantizados` pudo calcularlo con
+          datos reales (ver `@/lib/puntos-garantizados`). */}
+      {situacion.garantizados && (
+        <Text style={{ fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: tinte, lineHeight: 21 }}>
+          Llevas {situacion.garantizados.garantizados.toLocaleString()} pts de ranking garantizados en este torneo.
+        </Text>
+      )}
 
       {/* Lo que NO es un número sigue siendo prosa: quién está fuera de su
           alcance, y qué separa a los empatados. */}

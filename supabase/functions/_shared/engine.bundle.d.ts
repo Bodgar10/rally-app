@@ -1146,6 +1146,7 @@ interface BandConfig {
 declare function divisionForRating(rating: number, cfg?: BandConfig): Division;
 
 type RoundReached = 'none' | 'r16' | 'quarter' | 'semi' | 'final' | 'champion';
+type Tier = 'major' | 'p1' | 'p2';
 interface RankingRules {
     groupWinPoints: number;
     qualifyBonus: number;
@@ -1155,6 +1156,15 @@ interface RankingRules {
         from9to16: number;
         from17to32: number;
         gte33: number;
+    };
+    tierMultipliers: {
+        major: number;
+        p1: number;
+        p2: number;
+    };
+    tierMinimos: {
+        major: number;
+        p1: number;
     };
     roundrobinChampionBonus: number;
     applyMultiplierToTotal: boolean;
@@ -1172,7 +1182,19 @@ interface PlayerTournamentResult {
     roundRobinOnly: boolean;
     /** Ganó el round-robin (1.er lugar) — solo aplica si roundRobinOnly. */
     wonRoundRobin: boolean;
+    /** Tier declarado por el organizador al crear el torneo. Obligatorio. */
+    tier: Tier;
+    /** Nº de parejas INSCRITAS en la categoría (no las del cuadro eliminatorio). */
+    parejasEnCategoria: number;
 }
+/**
+ * Tier efectivo tras aplicar el piso de parejas inscritas en la categoría.
+ * 'major' por debajo de tierMinimos.major cae a 'p1'; el resultado (incluido
+ * un 'major' ya degradado) por debajo de tierMinimos.p1 cae a 'p2'. Un
+ * 'major' con muy pocas parejas puede caer dos escalones hasta 'p2'.
+ * 'p2' no tiene piso: se queda 'p2' siempre.
+ */
+declare function tierEfectivo(tier: Tier, parejasEnCategoria: number, rules: RankingRules): Tier;
 /**
  * Calcula los puntos de ranking de un jugador por su desempeño en UN torneo.
  * El hito de ronda ya incluye las rondas previas (un finalista suma 650, no
@@ -1220,4 +1242,4 @@ interface Validacion {
 }
 declare function validarSiembra(entrada: EntradaValidacion): Validacion;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };

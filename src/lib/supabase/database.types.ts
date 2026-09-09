@@ -1733,6 +1733,7 @@ export type Database = {
           tercer_lugar: boolean
           tercer_set_formato: Database["public"]["Enums"]["tercer_set_formato"]
           tercer_set_puntos: number
+          tier: string | null
           venue_id: string | null
         }
         Insert: {
@@ -1749,6 +1750,7 @@ export type Database = {
           tercer_lugar?: boolean
           tercer_set_formato?: Database["public"]["Enums"]["tercer_set_formato"]
           tercer_set_puntos?: number
+          tier?: string | null
           venue_id?: string | null
         }
         Update: {
@@ -1765,6 +1767,7 @@ export type Database = {
           tercer_lugar?: boolean
           tercer_set_formato?: Database["public"]["Enums"]["tercer_set_formato"]
           tercer_set_puntos?: number
+          tier?: string | null
           venue_id?: string | null
         }
         Relationships: [
@@ -2106,6 +2109,18 @@ export type Database = {
         }
         Relationships: []
       }
+      ranking_champions: {
+        Row: {
+          division: Database["public"]["Enums"]["division"] | null
+          full_name: string | null
+          photo_url: string | null
+          player_id: string | null
+          points: number | null
+          season: number | null
+          torneos: number | null
+        }
+        Relationships: []
+      }
       ranking_public: {
         Row: {
           division: Database["public"]["Enums"]["division"] | null
@@ -2114,6 +2129,7 @@ export type Database = {
           player_id: string | null
           points: number | null
           position: number | null
+          season: number | null
         }
         Relationships: [
           {

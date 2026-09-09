@@ -28,6 +28,7 @@ export type IconName =
   | 'userPlus'
   | 'trash'
   | 'flag'
+  | 'star'
   | 'chevron'
   | 'check';
 
@@ -127,6 +128,10 @@ export default function Icon({ name, size = 20, color: stroke = color.muted, wid
           <Line x1="6" y1="3.5" x2="6" y2="21" {...common} />
           <Path d="M6 4.5h11l-2.5 4 2.5 4H6z" {...common} />
         </>
+      )}
+
+      {name === 'star' && (
+        <Path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.2 5.9-.8z" {...common} />
       )}
 
       {name === 'chevron' && <Polyline points="9,5 16,12 9,19" {...common} />}

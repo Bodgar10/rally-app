@@ -2006,17 +2006,35 @@ var DEFAULT_RANKING_RULES = {
     from17to32: 1.3,
     gte33: 1.5
   },
+  tierMultipliers: {
+    major: 2,
+    p1: 1,
+    p2: 0.6
+  },
+  tierMinimos: {
+    major: 24,
+    p1: 12
+  },
   roundrobinChampionBonus: 1e3,
   applyMultiplierToTotal: true
 };
-function drawMultiplier(drawSize, rules) {
-  const m = rules.drawsizeMultipliers;
-  if (drawSize <= 8) return m.lte8;
-  if (drawSize <= 16) return m.from9to16;
-  if (drawSize <= 32) return m.from17to32;
-  return m.gte33;
+function tierEfectivo(tier, parejasEnCategoria, rules) {
+  let efectivo = tier;
+  if (efectivo === "major" && parejasEnCategoria < rules.tierMinimos.major) {
+    efectivo = "p1";
+  }
+  if (efectivo === "p1" && parejasEnCategoria < rules.tierMinimos.p1) {
+    efectivo = "p2";
+  }
+  return efectivo;
 }
 function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
+  if (!result.tier) {
+    throw new Error("tier es obligatorio: viene de tournaments.tier");
+  }
+  if (!(typeof result.parejasEnCategoria === "number" && result.parejasEnCategoria > 0)) {
+    throw new Error("parejasEnCategoria es obligatorio");
+  }
   let total = result.groupWins * rules.groupWinPoints;
   if (result.roundRobinOnly) {
     if (result.wonRoundRobin) total += rules.roundrobinChampionBonus;
@@ -2027,7 +2045,7 @@ function computeRankingPoints(result, rules = DEFAULT_RANKING_RULES) {
     }
   }
   if (rules.applyMultiplierToTotal) {
-    total *= drawMultiplier(result.drawSize, rules);
+    total *= rules.tierMultipliers[tierEfectivo(result.tier, result.parejasEnCategoria, rules)];
   }
   return Math.round(total);
 }
@@ -2127,4 +2145,4 @@ function validarSiembra(entrada) {
   return { bloqueantes, avisos, puedeSembrar: bloqueantes.length === 0 };
 }
 
-export { DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };

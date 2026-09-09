@@ -10,6 +10,10 @@ export type RoundReached =
   | 'final'
   | 'champion';
 
+// Tier del torneo, declarado por el organizador al crearlo. Determina el
+// multiplicador de puntos (sustituye a drawsizeMultipliers).
+export type Tier = 'major' | 'p1' | 'p2';
+
 export interface RankingRules {
   groupWinPoints: number;
   qualifyBonus: number;
@@ -19,6 +23,18 @@ export interface RankingRules {
     from9to16: number;
     from17to32: number;
     gte33: number;
+  };
+  // Multiplicador por tier efectivo (tras aplicar el piso de tierMinimos).
+  tierMultipliers: {
+    major: number;
+    p1: number;
+    p2: number;
+  };
+  // Mínimo de parejas INSCRITAS EN LA CATEGORÍA para sostener el tier.
+  // p2 no tiene piso: es el piso final.
+  tierMinimos: {
+    major: number;
+    p1: number;
   };
   roundrobinChampionBonus: number;
   applyMultiplierToTotal: boolean;
@@ -41,6 +57,15 @@ export const DEFAULT_RANKING_RULES: RankingRules = {
     from17to32: 1.3,
     gte33: 1.5,
   },
+  tierMultipliers: {
+    major: 2.0,
+    p1: 1.0,
+    p2: 0.6,
+  },
+  tierMinimos: {
+    major: 24,
+    p1: 12,
+  },
   roundrobinChampionBonus: 1000,
   applyMultiplierToTotal: true,
 };
@@ -58,6 +83,10 @@ export interface PlayerTournamentResult {
   roundRobinOnly: boolean;
   /** Ganó el round-robin (1.er lugar) — solo aplica si roundRobinOnly. */
   wonRoundRobin: boolean;
+  /** Tier declarado por el organizador al crear el torneo. Obligatorio. */
+  tier: Tier;
+  /** Nº de parejas INSCRITAS en la categoría (no las del cuadro eliminatorio). */
+  parejasEnCategoria: number;
 }
 
 export function drawMultiplier(drawSize: number, rules: RankingRules): number {
@@ -69,6 +98,28 @@ export function drawMultiplier(drawSize: number, rules: RankingRules): number {
 }
 
 /**
+ * Tier efectivo tras aplicar el piso de parejas inscritas en la categoría.
+ * 'major' por debajo de tierMinimos.major cae a 'p1'; el resultado (incluido
+ * un 'major' ya degradado) por debajo de tierMinimos.p1 cae a 'p2'. Un
+ * 'major' con muy pocas parejas puede caer dos escalones hasta 'p2'.
+ * 'p2' no tiene piso: se queda 'p2' siempre.
+ */
+export function tierEfectivo(
+  tier: Tier,
+  parejasEnCategoria: number,
+  rules: RankingRules,
+): Tier {
+  let efectivo: Tier = tier;
+  if (efectivo === 'major' && parejasEnCategoria < rules.tierMinimos.major) {
+    efectivo = 'p1';
+  }
+  if (efectivo === 'p1' && parejasEnCategoria < rules.tierMinimos.p1) {
+    efectivo = 'p2';
+  }
+  return efectivo;
+}
+
+/**
  * Calcula los puntos de ranking de un jugador por su desempeño en UN torneo.
  * El hito de ronda ya incluye las rondas previas (un finalista suma 650, no
  * cuartos+semis+final).
@@ -77,6 +128,13 @@ export function computeRankingPoints(
   result: PlayerTournamentResult,
   rules: RankingRules = DEFAULT_RANKING_RULES,
 ): number {
+  if (!result.tier) {
+    throw new Error('tier es obligatorio: viene de tournaments.tier');
+  }
+  if (!(typeof result.parejasEnCategoria === 'number' && result.parejasEnCategoria > 0)) {
+    throw new Error('parejasEnCategoria es obligatorio');
+  }
+
   let total = result.groupWins * rules.groupWinPoints;
 
   if (result.roundRobinOnly) {
@@ -89,7 +147,7 @@ export function computeRankingPoints(
   }
 
   if (rules.applyMultiplierToTotal) {
-    total *= drawMultiplier(result.drawSize, rules);
+    total *= rules.tierMultipliers[tierEfectivo(result.tier, result.parejasEnCategoria, rules)];
   }
 
   return Math.round(total);

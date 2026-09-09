@@ -39,6 +39,7 @@ import TarjetaAjuste              from '@/components/organizer/TarjetaAjuste';
 import ChecklistApertura, { type ItemChecklist } from '@/components/organizer/ChecklistApertura';
 import { formatearRango }     from '@/lib/fechas';
 import { resumenDeFormato, type FormatoTercerSet } from '@/lib/formato-torneo';
+import { resumenDeTier }      from '@/lib/tier-torneo';
 import { generarBloques }     from '@/lib/engine/schedule/bloques';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
@@ -62,6 +63,9 @@ interface Tournament {
   /** Cómo se juega el tercer set. Aplica a TODOS los partidos del torneo. */
   tercer_set_formato: FormatoTercerSet | null;
   tercer_set_puntos:  number | null;
+  /** Contrato del organizador (migración 068). Determina el multiplicador
+   *  de puntos de ranking. Null en torneos creados antes de esta pantalla. */
+  tier: string | null;
 }
 
 /** Una franja horaria por día de torneo. */
@@ -137,7 +141,7 @@ export default function OrgTournamentScreen() {
     const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }, { data: ws }] = await Promise.all([
       supabase
         .from('tournaments')
-        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,tercer_lugar,tercer_set_formato,tercer_set_puntos,organizer_id,venues:venue_id(name,city)')
+        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,tercer_lugar,tercer_set_formato,tercer_set_puntos,tier,organizer_id,venues:venue_id(name,city)')
         .eq('id', tournamentId)
         .single(),
       supabase
@@ -459,6 +463,16 @@ export default function OrgTournamentScreen() {
               : 'Sin asignar'}
             iconColor={tieneSede ? undefined : color.alive}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sede`)}
+          />
+          {/* El tier determina el multiplicador de puntos de ranking que
+              reparte el torneo. `iconColor` avisa cuando falta: sin él el
+              motor de puntos truena al cerrar el torneo. */}
+          <TarjetaAjuste
+            icon="star"
+            title="Tier"
+            value={resumenDeTier(tournament.tier)}
+            iconColor={tournament.tier ? undefined : color.alive}
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/tier`)}
           />
           <TarjetaAjuste
             icon="grid"

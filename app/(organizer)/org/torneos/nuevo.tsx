@@ -1,6 +1,6 @@
 /**
  * RALLY · Crear nuevo torneo
- * Campos: nombre, fechas, sede, cuota base.
+ * Campos: nombre, fechas, sede, tier, cuota base.
  * Escribe en public.tournaments con status = 'draft'.
  * El organizador luego agrega categorías y abre inscripciones.
  */
@@ -18,6 +18,7 @@ import { Button, Card, SectionLabel }           from '@/components/ui';
 import VenuePicker, { type Venue }              from '@/components/organizer/VenuePicker';
 import CalendarioRango                          from '@/components/ui/CalendarioRango';
 import { rangoCompleto, type RangoSeleccion }   from '@/lib/rango-fechas';
+import { TIER_OPCIONES, type TierTorneo }       from '@/lib/tier-torneo';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -32,6 +33,9 @@ export default function NuevoTorneoScreen() {
   const [venues, setVenues]         = useState<Venue[]>([]);
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [organizerId, setOrganizerId] = useState<string | null>(null);
+  // Sin valor por defecto: el organizador tiene que elegir. Un default
+  // silencioso repartiría puntos de ranking mal sin que nadie lo decidiera.
+  const [tier, setTier]             = useState<TierTorneo | null>(null);
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState<string | null>(null);
 
@@ -66,6 +70,10 @@ export default function NuevoTorneoScreen() {
     // rango-fechas.ts), así que solo queda comprobar que esté completo.
     if (!rangoCompleto(rango)) { setError('Elige las fechas del torneo.');              return; }
     if (!organizerId)        { setError('No se encontró tu organización.');            return; }
+    // El motor de puntos de ranking exige tier y truena sin él (Edge Function
+    // `compute-ranking-points` corta con 400 `sin_tier`). Sin default: se
+    // valida aquí para no dejar crear un torneo que después no pueda puntuar.
+    if (!tier)                { setError('Elige el tier del torneo.');                   return; }
 
     setSaving(true);
 
@@ -79,6 +87,7 @@ export default function NuevoTorneoScreen() {
         end_date:         rango.fin,
         registration_fee: parseFloat(fee) || 0,
         status:           'draft',
+        tier,
         // APAGADO Y EXPLÍCITO, no confiado al default de la columna.
         //
         // En un torneo real no se juega el 3.er lugar: la gente lleva tres
@@ -149,6 +158,30 @@ export default function NuevoTorneoScreen() {
           onCreated={(v) => setVenues(prev => [...prev, v].sort((a, b) => a.name.localeCompare(b.name)))}
         />
 
+        {/* Tier — contrato que determina cuántos puntos de ranking reparte el
+            torneo. Sin valor por defecto: el organizador tiene que elegir. */}
+        <SectionLabel title="Tier del torneo" />
+        <Text style={s.tierAyuda}>
+          El mínimo de parejas se mide por categoría: si una categoría no lo
+          alcanza, esa categoría reparte puntos del tier de abajo — el resto
+          del torneo no se ve afectado.
+        </Text>
+        <View style={s.tierOpciones}>
+          {TIER_OPCIONES.map((o) => (
+            <Pressable
+              key={o.valor}
+              onPress={() => setTier(o.valor)}
+              style={[s.tierOpcion, tier === o.valor && s.tierOpcionElegida]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: tier === o.valor }}
+              accessibilityLabel={o.titulo}
+            >
+              <Text style={[s.tierTitulo, tier === o.valor && s.tierTituloElegido]}>{o.titulo}</Text>
+              <Text style={s.tierSub}>{o.sub}</Text>
+            </Pressable>
+          ))}
+        </View>
+
         {/* Cuota base */}
         <SectionLabel title="Cuota de inscripción (MXN por pareja)" />
         <TextInput
@@ -198,6 +231,14 @@ const s = StyleSheet.create({
     color:             color.text,
   },
 
+
+  tierAyuda: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+  tierOpciones:  { gap: space[2] },
+  tierOpcion:    { borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[1] },
+  tierOpcionElegida: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
+  tierTitulo:        { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  tierTituloElegido: { color: color.gold },
+  tierSub:           { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
 
   errorText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
   btns:      { gap: space[2] },

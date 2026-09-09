@@ -21,6 +21,8 @@ function mapRules(db: any) {
     qualifyBonus: db.qualify_bonus,
     roundPoints: { r16: rp.r16, quarter: rp.quarter, semi: rp.semi, final: rp.final, champion: rp.champion },
     drawsizeMultipliers: { lte8: dm.lte8, from9to16: dm['9to16'], from17to32: dm['17to32'], gte33: dm['33plus'] },
+    tierMultipliers: db.tier_multipliers,
+    tierMinimos: db.tier_minimos,
     roundrobinChampionBonus: db.roundrobin_champion_bonus,
     applyMultiplierToTotal: true,
   };
@@ -56,6 +58,12 @@ Deno.serve(async (req) => {
                  ?? (ruleRows ?? []).find((r: any) => r.scope === 'global');
     if (!ruleRow) return json({ error: 'no_rules' }, 500);
     const rules = mapRules(ruleRow);
+
+    // Tier del torneo: obligatorio para el engine. Sin default silencioso:
+    // si falta, se corta aquí en vez de repartir puntos mal sin que nadie se entere.
+    const { data: tour } = await admin
+      .from('tournaments').select('tier').eq('id', tournament_id).maybeSingle();
+    if (!tour?.tier) return json({ error: 'sin_tier' }, 400);
 
     // Categorías del torneo
     const { data: cats } = await admin
@@ -98,6 +106,8 @@ Deno.serve(async (req) => {
       const koPairs = new Set<string>();
       knockout.forEach((m: any) => { if (m.pair_a_id) koPairs.add(m.pair_a_id); if (m.pair_b_id) koPairs.add(m.pair_b_id); });
       const drawSize = koPairs.size || (pairs ?? []).length;
+      // parejasEnCategoria: INSCRITAS en la categoría (no las del cuadro eliminatorio).
+      const parejasEnCategoria = (pairs ?? []).length;
 
       const finalMatch = participacion.find((m: any) => m.stage === 'final');
       const roundRobinOnly = cat.format_type === 'round_robin';
@@ -125,11 +135,11 @@ Deno.serve(async (req) => {
         // ENGINE: calcula los puntos (no reimplementar la tabla). En el loop principal wonRoundRobin=false;
         // el campeón de RR se re-puntúa abajo.
         const points = computeRankingPoints(
-          { groupWins, qualified, furthestRound, drawSize, roundRobinOnly, wonRoundRobin: false } as any,
+          { groupWins, qualified, furthestRound, drawSize, roundRobinOnly, wonRoundRobin: false, tier: tour.tier, parejasEnCategoria } as any,
           rules as any,
         );
         if (points > 0) {
-          const bd = { group_wins: groupWins, qualified, furthest_round: furthestRound, draw_size: drawSize };
+          const bd = { group_wins: groupWins, qualified, furthest_round: furthestRound, draw_size: drawSize, tier: tour.tier, parejas_en_categoria: parejasEnCategoria };
           if (p.player1_id) add(p.player1_id, cat.division, points, bd);
           if (p.player2_id) add(p.player2_id, cat.division, points, bd);
         }
@@ -145,11 +155,11 @@ Deno.serve(async (req) => {
         if (champ) {
           const groupWins = finished.filter((m: any) => m.winner_pair_id === champ.id).length;
           const points = computeRankingPoints(
-            { groupWins, qualified: false, furthestRound: 'none', drawSize, roundRobinOnly: true, wonRoundRobin: true } as any,
+            { groupWins, qualified: false, furthestRound: 'none', drawSize, roundRobinOnly: true, wonRoundRobin: true, tier: tour.tier, parejasEnCategoria } as any,
             rules as any,
           );
           // Reemplaza (no suma) lo ya puesto al campeón en esta división (evita doble conteo del RR).
-          const bd = { group_wins: groupWins, round_robin_champion: true, draw_size: drawSize };
+          const bd = { group_wins: groupWins, round_robin_champion: true, draw_size: drawSize, tier: tour.tier, parejas_en_categoria: parejasEnCategoria };
           if (champ.player1_id) ledger.set(`${champ.player1_id}|${cat.division}`, { player_id: champ.player1_id, division: cat.division, points, breakdown: bd });
           if (champ.player2_id) ledger.set(`${champ.player2_id}|${cat.division}`, { player_id: champ.player2_id, division: cat.division, points, breakdown: bd });
         }
