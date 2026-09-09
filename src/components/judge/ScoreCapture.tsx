@@ -340,7 +340,7 @@ export default function ScoreCapture({
       // hacerle volver a buscar el partido es el toque de más que mata la
       // función.
       if (cierra) onSuccess();
-      else setGuardado(`Set ${(parcial?.setsA ?? 0) + (parcial?.setsB ?? 0)} guardado. El partido sigue en juego.`);
+      else setGuardado(`Set ${aMotor(sets).length} guardado. El partido sigue en juego.`);
     } catch (e) {
       console.error('[ScoreCapture] submit error:', e);
       setErrorServidor('Error de conexión. Intenta de nuevo.');
