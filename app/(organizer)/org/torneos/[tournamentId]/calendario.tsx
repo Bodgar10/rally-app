@@ -48,7 +48,10 @@ import ParrillaDia from '@/components/organizer/ParrillaDia';
 import AvisosPlegables, { type GrupoAvisos } from '@/components/organizer/AvisosPlegables';
 import MoverPartido from '@/components/organizer/MoverPartido';
 import DetallePartido from '@/components/organizer/DetallePartido';
-import Hoja from '@/components/ui/Hoja';
+import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
+import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
+import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import type { ScoreConfig } from '@/lib/engine/score';
 import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
 import {
   agruparPorHora, type Franja, type FilaCalendario,
@@ -173,6 +176,12 @@ interface Estado {
   canchas: number | null;
   /** playerId -> nombre. Lo consume el motor de movimientos para sus mensajes. */
   nombres: Record<string, string>;
+  /**
+   * matchId -> sus sets, tal como vienen de `match_sets`. `Fila.marcador` ya
+   * los resume en texto para la parrilla; esto es el dato crudo que necesita
+   * `ScoreCapture` para precargar el formulario al editar un resultado.
+   */
+  setsPorPartido: Record<string, SetGuardado[]>;
   /** Categorías con partidos, en el orden en que empiezan a jugar. */
   categorias: { id: string; nombre: string; partidos: number }[];
   /** ¿Cada partido tiene la hora que le reserva el plan? Ver calendario-al-dia. */
@@ -269,6 +278,8 @@ export default function CalendarioScreen() {
   const [diaTab, setDiaTab] = useState<string | null>(null);
   /** El partido que se está moviendo. Null = nadie. */
   const [moviendo, setMoviendo] = useState<Fila | null>(null);
+  /** El partido que se está capturando. Null = nadie. */
+  const [capturando, setCapturando] = useState<Fila | null>(null);
   /** La celda que se está mirando. Tocar es MIRAR; mover se pide desde aquí. */
   const [detalle, setDetalle]   = useState<Fila | null>(null);
   /** La celda a la que saltó un aviso. Se limpia al cambiar de día o filtro. */
@@ -276,13 +287,20 @@ export default function CalendarioScreen() {
   const [fase, setFase]     = useState<Fase>({ t: 'cargando' });
   const [error, setError]   = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
+  /**
+   * El formato del set decisivo, para `ScoreCapture` — igual que la pantalla
+   * del juez. Null si el torneo no lo tiene definido: el botón de capturar
+   * se apaga en vez de reventar el resto de la pantalla (ver `cargar`).
+   */
+  const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
 
   const cargar = useCallback(async () => {
     setError(null);
 
     const [{ data: t }, { data: ws }, { data: cats }] = await Promise.all([
       supabase.from('tournaments')
-        .select('name, courts, match_minutes').eq('id', tournamentId).maybeSingle(),
+        .select('name, courts, match_minutes, tercer_set_formato, tercer_set_puntos')
+        .eq('id', tournamentId).maybeSingle(),
       supabase.from('tournament_windows')
         .select('dia, desde, hasta').eq('tournament_id', tournamentId).order('dia'),
       supabase.from('categories')
@@ -291,6 +309,17 @@ export default function CalendarioScreen() {
     ]);
 
     if (t) setNombre(t.name);
+
+    // Igual que la pantalla del juez, pero SIN dejar que reviente el resto de
+    // la pantalla: `scoreConfigDelTorneo` lanza si falta el dato, y aquí eso
+    // solo apaga la captura (el botón simplemente no se pinta más abajo), no
+    // el calendario entero.
+    try {
+      setScoreConfig(t ? scoreConfigDelTorneo(t, 'calendario') : null);
+    } catch (e) {
+      console.warn('[calendario] scoreConfig:', e);
+      setScoreConfig(null);
+    }
 
     const ventanas = ws ?? [];
     if (ventanas.length === 0) {
@@ -343,11 +372,15 @@ export default function CalendarioScreen() {
     const aMinutos = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
 
     const filas: Fila[] = [];
+    // matchId -> sets crudos, para precargar `ScoreCapture` al editar un
+    // resultado ya guardado. `Fila.marcador` solo trae el resumen en texto.
+    const setsPorPartido: Record<string, SetGuardado[]> = {};
 
     for (const m of partidos ?? []) {
       const pa = m.pair_a_id ? parejas.get(m.pair_a_id) : undefined;
       const pb = m.pair_b_id ? parejas.get(m.pair_b_id) : undefined;
       const hora = horaDe(m.scheduled_at!);
+      setsPorPartido[m.id] = ((m as any).match_sets ?? []) as SetGuardado[];
       filas.push({
         id: m.id,
         categoriaId: m.category_id,
@@ -563,6 +596,7 @@ export default function CalendarioScreen() {
       filas,
       canchas: t?.courts ?? null,
       nombres: Object.fromEntries(nombrePorJugador),
+      setsPorPartido,
       categorias: categoriasConPartidos(filas),
       plan: estadoDelPlan(
         (partidos ?? []).map((m: any) => ({
@@ -736,6 +770,14 @@ export default function CalendarioScreen() {
    * qué. Ahora se abren igual y el detalle lo explica.
    */
   const sePuedeMover = (f: Fila) => !f.id.startsWith('plan:');
+
+  /**
+   * Igual que `sePuedeMover` —una fila del plan no existe todavía, no hay
+   * nada que capturar— y además las dos parejas tienen que conocerse: sin
+   * ellas `ScoreCapture` no tiene a quién darle el resultado (es el caso de
+   * un bye, que ya nace `finished` sin nadie del otro lado).
+   */
+  const sePuedeCapturar = (f: Fila) => sePuedeMover(f) && !!f.parejaAId && !!f.parejaBId;
 
   if (fase.t === 'cargando') {
     return (
@@ -920,6 +962,8 @@ export default function CalendarioScreen() {
                   }}
                   sePuedeMover={sePuedeMover(detalle)}
                   onMover={() => { setMoviendo(detalle); setDetalle(null); }}
+                  sePuedeCapturar={sePuedeCapturar(detalle)}
+                  onCapturar={() => { setCapturando(detalle); setDetalle(null); }}
                 />
               </Hoja>
             )}
@@ -939,6 +983,38 @@ export default function CalendarioScreen() {
           onCerrar={() => setMoviendo(null)}
           onGuardado={() => { setMoviendo(null); void cargar(); }}
         />
+      )}
+
+      {/* La hoja de captura. No reimplementa nada: monta ScoreCapture, que ya
+          valida el marcador, deriva el ganador y llama a la Edge Function
+          correcta —match-result decide sola entre record_match_result
+          (grupo) y record_knockout_result (cuadro) mirando `matches.stage`,
+          así que aquí no hace falta distinguir entre los dos casos. */}
+      {capturando && estado && scoreConfig && capturando.parejaAId && capturando.parejaBId && (
+        <Hoja
+          visible
+          onClose={() => setCapturando(null)}
+          eyebrow={`${capturando.categoria} · ${capturando.etapa}`}
+          titulo={capturando.estado === 'finished' ? 'Editar resultado' : 'Capturar resultado'}
+          ancho={HOJA_FORMULARIO}
+          subtitulo={
+            <Text style={{ fontFamily: font.body, fontSize: 14, color: color.text, lineHeight: 21 }}>
+              {capturando.parejaA} vs {capturando.parejaB}
+            </Text>
+          }
+        >
+          <ScoreCapture
+            matchId={capturando.id}
+            pairAId={capturando.parejaAId}
+            pairBId={capturando.parejaBId}
+            pairAName={capturando.parejaA ?? '—'}
+            pairBName={capturando.parejaB ?? '—'}
+            setsIniciales={estado.setsPorPartido[capturando.id] ?? []}
+            ganadorInicial={capturando.ganadorId ?? null}
+            scoreConfig={scoreConfig}
+            onSuccess={() => { setCapturando(null); void cargar(); }}
+          />
+        </Hoja>
       )}
 
       {/* 4 · Rehacer el calendario — SOLO CUANDO HACE FALTA.

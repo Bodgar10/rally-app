@@ -55,9 +55,14 @@ interface Props {
   /** Falso en los partidos que aún no existen como fila. Ver la cabecera. */
   sePuedeMover: boolean;
   onMover: () => void;
+  /** Igual que `sePuedeMover`, y además con las dos parejas conocidas. */
+  sePuedeCapturar: boolean;
+  onCapturar: () => void;
 }
 
-export default function DetallePartido({ partido, sePuedeMover, onMover }: Props) {
+export default function DetallePartido({
+  partido, sePuedeMover, onMover, sePuedeCapturar, onCapturar,
+}: Props) {
   const est = ESTADO[partido.estado] ?? ESTADO.scheduled;
   const jugado = partido.estado === 'finished';
 
@@ -97,6 +102,22 @@ export default function DetallePartido({ partido, sePuedeMover, onMover }: Props
           <Text style={[s.datoValor, { color: est.tinte }]}>{est.texto}</Text>
         </View>
       </View>
+
+      {/* CAPTURAR, ANTES QUE MOVER. Es la razón por la que se abre este
+          partido casi siempre — moverlo es la excepción. Recapturar un
+          resultado ya guardado es legítimo (las RPC regraban sets y
+          standings), así que sigue disponible con el partido terminado. */}
+      {sePuedeCapturar && (
+        <Pressable
+          onPress={onCapturar}
+          style={({ pressed }) => [s.capturar, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+        >
+          <Text style={s.capturarTexto}>
+            {jugado ? 'Editar resultado' : 'Capturar resultado'}
+          </Text>
+        </Pressable>
+      )}
 
       {sePuedeMover ? (
         <Pressable
@@ -148,6 +169,13 @@ const s = StyleSheet.create({
   dato:  { flex: 1, gap: space[1] },
   datoEtiqueta: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
   datoValor:    { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+
+  // Sólido y arriba de "mover": es la acción principal de este panel.
+  capturar: {
+    backgroundColor: color.gold, borderRadius: radius.sm,
+    minHeight: touchTarget, alignItems: 'center', justifyContent: 'center',
+  },
+  capturarTexto: { fontFamily: font.body, fontSize: 15, fontWeight: '600', color: color.onGold },
 
   mover: {
     borderWidth: 1, borderColor: color.gold, borderRadius: radius.sm,
