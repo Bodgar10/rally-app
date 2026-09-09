@@ -41,7 +41,7 @@ import { horaDeTorneo } from '@/lib/fechas';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import {
   estadoDeCancha, fraseDeRetraso, fraseDeCola, fraseDeTurno,
-  type PartidoEnCancha,
+  type PartidoEnCancha, type PartidoDeCola,
 } from '@/lib/cancha-ahora';
 
 const ETAPA: Record<string, string> = {
@@ -85,6 +85,13 @@ interface Vista {
   ocupanteEsMio: boolean;
   /** Partidos sin terminar por delante del mío, el ocupante incluido. */
   partidosAntes: number;
+  /**
+   * La cola completa de esta cancha antes de mi partido, en orden de hora —
+   * terminados incluidos, no solo los que faltan por jugar. Es lo que
+   * `partidosAntes` no puede decir: QUIÉNES juegan y CÓMO van. Vacía si mi
+   * partido es el primero de la cancha.
+   */
+  antes: PartidoDeCola[];
   miHoraPublicada: string | null;
   miRetraso: number;
   miInicioEstimado: string | null;
@@ -138,6 +145,34 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     categories: { display_name: string } | null;
   }>;
 
+  // 3. Nombres e identidad de TODAS las parejas de la cancha, y sus sets, en
+  //    una sola consulta cada uno — no una por partido. Antes esto solo se
+  //    pedía para el ocupante; ahora hace falta para toda la cola que se
+  //    pinta debajo.
+  const idsDeLaCancha = filas.map((m) => m.id);
+  const [parejas, { data: setsDeLaCancha }] = await Promise.all([
+    fetchParejasPublicas(filas.flatMap((m) => [m.pair_a_id, m.pair_b_id])),
+    idsDeLaCancha.length > 0
+      ? supabase
+          .from('match_sets')
+          .select('match_id, set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
+          .in('match_id', idsDeLaCancha)
+      : Promise.resolve({ data: [] as Array<{ match_id: string }> }),
+  ]);
+
+  const setsPorPartido = new Map<string, Array<{
+    set_number: number; games_a: number; games_b: number;
+    is_super_tiebreak: boolean; tiebreak_a: number | null; tiebreak_b: number | null;
+  }>>();
+  for (const s of (setsDeLaCancha ?? []) as Array<{
+    match_id: string; set_number: number; games_a: number; games_b: number;
+    is_super_tiebreak: boolean; tiebreak_a: number | null; tiebreak_b: number | null;
+  }>) {
+    const arr = setsPorPartido.get(s.match_id) ?? [];
+    arr.push(s);
+    setsPorPartido.set(s.match_id, arr);
+  }
+
   const cola: PartidoEnCancha[] = filas.map((m) => ({
     id: m.id,
     scheduledAt: m.scheduled_at,
@@ -146,6 +181,13 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     // La señal directa. Antes no se pasaba porque nadie escribía este estado;
     // con la captura set a set sí, y decide sin tener que deducir nada.
     enJuego: m.status === 'in_progress',
+    categoria: m.categories?.display_name ?? '—',
+    // Sin `?? m.stage`: un stage que no conocemos es un id nuestro
+    // ('round_of_64'), y antes que enseñárselo al jugador, nada.
+    etapa: ETAPA[m.stage] ?? '',
+    parejaA: m.pair_a_id ? nombreDePareja(parejas.get(m.pair_a_id)) : '—',
+    parejaB: m.pair_b_id ? nombreDePareja(parejas.get(m.pair_b_id)) : '—',
+    marcador: marcadorParcial(setsPorPartido.get(m.id) ?? []),
   }));
 
   const estado = estadoDeCancha({
@@ -168,23 +210,14 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
   if (estado.ocupanteId && !ocupanteEsMio) {
     const fila = filas.find((m) => m.id === estado.ocupanteId);
     if (fila) {
-      const [parejas, { data: sets }] = await Promise.all([
-        fetchParejasPublicas([fila.pair_a_id, fila.pair_b_id].filter((x): x is string => !!x)),
-        supabase
-          .from('match_sets')
-          .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
-          .eq('match_id', fila.id),
-      ]);
       ocupante = {
         categoria: fila.categories?.display_name ?? '—',
-        // Sin `?? fila.stage`: un stage que no conocemos es un id nuestro
-        // ('round_of_64'), y antes que enseñárselo al jugador, nada.
         ronda: ETAPA[fila.stage] ?? '',
         parejaA: fila.pair_a_id ? nombreDePareja(parejas.get(fila.pair_a_id)) : '—',
         parejaB: fila.pair_b_id ? nombreDePareja(parejas.get(fila.pair_b_id)) : '—',
         desde: estado.ocupanteDesde,
         lleva: estado.ocupanteLleva,
-        sets: marcadorParcial(sets ?? []),
+        sets: marcadorParcial(setsPorPartido.get(fila.id) ?? []),
       };
     }
   }
@@ -194,6 +227,7 @@ async function fetchCancha(pairIds: string[]): Promise<Vista | null> {
     ocupante,
     ocupanteEsMio,
     partidosAntes: estado.partidosAntesDelMio,
+    antes: estado.colaDetallada,
     miHoraPublicada: mio.scheduled_at,
     miRetraso: estado.miRetraso,
     miInicioEstimado: estado.miInicioEstimado,
@@ -256,6 +290,81 @@ function FilaDeMarcador({
   );
 }
 
+/**
+ * Una fila de la cola de antes: quién juega, y cómo va — no solo un
+ * contador. Tres estados y solo tres, por lo que pide el producto:
+ *   - terminado: marcador final + quién ganó.
+ *   - en curso:  marcador parcial + "en vivo".
+ *   - por jugar: solo la hora — nunca un marcador inventado.
+ */
+function FilaDeCola({ partido }: { partido: PartidoDeCola }) {
+  const hayMarcador = partido.marcador.length > 0;
+  // El ganador solo se afirma con marcador de verdad delante: sin sets no
+  // hay quién ganó, aunque `finished` diga lo contrario (no debería pasar).
+  const ganadorA = partido.finished && hayMarcador && ganaA(partido.marcador);
+  const ganadorB = partido.finished && hayMarcador && ganaB(partido.marcador);
+
+  return (
+    <View style={{ paddingVertical: space[2], gap: 2 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
+        <Text
+          style={{
+            flex: 1, minWidth: 0,
+            fontFamily: font.body, fontSize: fontSize.caption, color: color.muted,
+          }}
+          numberOfLines={1}
+        >
+          {partido.categoria}{partido.etapa ? ` · ${partido.etapa}` : ''}
+        </Text>
+        {partido.enJuego && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.live }} />
+            <Text style={{ fontFamily: font.body, fontSize: 9, color: color.live }}>en vivo</Text>
+          </View>
+        )}
+      </View>
+
+      <Text
+        style={{
+          fontFamily: font.body, fontSize: fontSize.body,
+          fontWeight: ganadorA ? '600' : '400',
+          color: ganadorA ? color.text : color.muted,
+        }}
+        numberOfLines={1}
+      >
+        {partido.parejaA}
+      </Text>
+      <Text
+        style={{
+          fontFamily: font.body, fontSize: fontSize.body,
+          fontWeight: ganadorB ? '600' : '400',
+          color: ganadorB ? color.text : color.muted,
+        }}
+        numberOfLines={1}
+      >
+        {partido.parejaB}
+      </Text>
+
+      {/* Marcador solo si de verdad hay uno — nunca un 0-0 inventado para un
+          partido "por jugar" o que se marcó en curso sin sets todavía. */}
+      {hayMarcador ? (
+        <Text
+          style={{
+            fontFamily: font.display, fontSize: fontSize.caption,
+            color: partido.enJuego ? color.goldBright : color.champagne,
+          }}
+        >
+          {partido.marcador.map(([a, b]) => `${a}-${b}`).join(', ')}
+        </Text>
+      ) : (
+        <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted }}>
+          {horaDeTorneo(partido.scheduledAt)}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
   const [vista, setVista] = useState<Vista | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -308,6 +417,33 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
     ];
     return () => { setEnVivo(false); combineUnsubs(...unsubs)(); };
   }, [vista?.cancha, cargar]);
+
+  // ── Suscripción a los SETS de la cola ─────────────────────────────────────
+  //
+  // El canal de arriba escucha `matches`, y anotar un set no toca esa tabla:
+  // escribe en `match_sets`. Mismo caso que resolvió `MyNextMatch` para el
+  // partido propio — aquí hace falta un canal por partido de la cola, porque
+  // Realtime no acepta un filtro `in` (un solo canal no puede escuchar varios
+  // match_id a la vez).
+  //
+  // La clave de dependencia es la lista de ids, no el array: `vista.antes` es
+  // un array nuevo en cada carga y usarlo directo reabriría los canales en
+  // cada evento.
+  const idsEnCola = (vista?.antes ?? []).map((p) => p.id);
+  const idsEnColaClave = idsEnCola.join(',');
+  useEffect(() => {
+    if (idsEnCola.length === 0) return;
+    const unsubs = idsEnCola.map((id) =>
+      subscribeToTable<Record<string, unknown>>({
+        channelName: `cancha:${id}:sets`,
+        table: 'match_sets',
+        filter: `match_id=eq.${id}`,
+        onData: () => void cargar(),
+      }),
+    );
+    return combineUnsubs(...unsubs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsEnColaClave, cargar]);
 
   // Un reloj de un minuto: "lleva 75 minutos" tiene que seguir subiendo aunque
   // no llegue ningún evento. Sin esto, la tarjeta se congela justo cuando el
@@ -476,6 +612,36 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
             Entras hacia las {horaDeTorneo(vista.miInicioEstimado)}.
           </Text>
         )
+      )}
+
+      {/* LA COLA COMPLETA, NO SOLO EL CONTADOR.
+          "Falta 1 partido antes del tuyo" no dice quiénes juegan ni cómo van
+          — es justo lo que faltaba en el caso real. Terminados incluidos: el
+          de las 14:00 ya se sabe, y verlo ayuda a leer el de las 15:00.
+          Vacía si mi partido es el primero de la cancha: no hay nada que
+          pintar y no se pinta la sección. */}
+      {vista.antes.length > 0 && (
+        <View style={{ marginTop: space[2] }}>
+          <Text
+            style={{
+              fontFamily: font.display, fontSize: 10, color: color.champagne,
+              textTransform: 'uppercase', letterSpacing: 1.2,
+              marginBottom: space[1],
+            }}
+          >
+            Antes del tuyo en esta cancha
+          </Text>
+          <View style={{ gap: 0 }}>
+            {vista.antes.map((p, i) => (
+              <View
+                key={p.id}
+                style={i > 0 ? { borderTopWidth: 1, borderTopColor: color.lineSoft } : undefined}
+              >
+                <FilaDeCola partido={p} />
+              </View>
+            ))}
+          </View>
+        </View>
       )}
     </View>
   );

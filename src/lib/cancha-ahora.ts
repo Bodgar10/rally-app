@@ -87,6 +87,41 @@ export interface PartidoEnCancha {
    * punto. Para el reloj manda `inicioReal`.
    */
   enJuego?: boolean;
+  /**
+   * Lo que hace falta para PINTAR este partido en la cola detallada
+   * (`EstadoDeCancha.colaDetallada`), no para calcular nada de lo de arriba.
+   * Opcionales: quien solo necesita `ocupanteId`/`partidosAntesDelMio` —el
+   * comportamiento de siempre— no tiene que mandarlos.
+   */
+  categoria?: string;
+  etapa?: string;
+  parejaA?: string;
+  parejaB?: string;
+  /**
+   * Los games de cada set, por pareja: `[[6,2],[3,1]]` es 6-2 y 3-1. Mismo
+   * formato que `Ocupante.sets` en EnMiCancha, para poder reusar `ganaA`/
+   * `ganaB` sobre la cola entera. Vacío o ausente = sin sets capturados —
+   * nunca se rellena con un `[0,0]` inventado.
+   */
+  marcador?: Array<[number, number]>;
+}
+
+/**
+ * Un partido de la cola, ya con lo necesario para pintarlo (no solo su id).
+ * Ver `EstadoDeCancha.colaDetallada`.
+ */
+export interface PartidoDeCola {
+  id: string;
+  categoria: string;
+  etapa: string;
+  parejaA: string;
+  parejaB: string;
+  /** Hora publicada, ISO. Nunca null aquí: `cola` ya descartó los sin hora. */
+  scheduledAt: string;
+  finished: boolean;
+  enJuego: boolean;
+  /** Como `Ocupante.sets`. `[]` sin sets capturados. */
+  marcador: Array<[number, number]>;
 }
 
 export interface EstadoDeCancha {
@@ -116,6 +151,20 @@ export interface EstadoDeCancha {
   partidosAntesDelMio: number;
   /** Los ids de esos partidos, en orden de cancha. El primero es el ocupante. */
   colaAntesDelMio: string[];
+  /**
+   * Los partidos de esta cancha ANTES del mío, en orden de hora — con
+   * categoría, parejas, hora y marcador para poder pintarlos.
+   *
+   * NO es lo mismo que `colaAntesDelMio`: aquella solo cuenta lo que falta
+   * por jugar (los terminados no cuentan, porque no hay nada que esperar de
+   * ellos). Esta trae TODOS los de antes, terminados incluidos — porque aquí
+   * no se cuenta una espera, se pinta una cola: "el de las 14:00 ya acabó
+   * 6-4 6-3, el de las 15:00 va 6-2 3-1 ahora mismo".
+   *
+   * El bye no aparece: nace sin `scheduled_at` (no ocupa cancha, no se
+   * juega) y `cola` ya descarta los partidos sin hora.
+   */
+  colaDetallada: PartidoDeCola[];
   /**
    * Lo de esta cancha ya no es de hoy: no hay NADA que decir.
    *
@@ -180,7 +229,7 @@ export function estadoDeCancha(args: {
   const vacio: EstadoDeCancha = {
     ocupanteId: null, ocupanteDesde: null, ocupanteLleva: 0,
     miInicioEstimado: null, miRetraso: 0,
-    partidosAntesDelMio: 0, colaAntesDelMio: [],
+    partidosAntesDelMio: 0, colaAntesDelMio: [], colaDetallada: [],
     sinJornada: false,
   };
   if (cola.length === 0) return vacio;
@@ -199,6 +248,8 @@ export function estadoDeCancha(args: {
    * llegar a mi partido: lo que viene detrás no me hace esperar.
    */
   const antesDelMio: string[] = [];
+  /** La cola completa de antes, terminados incluidos — ver `colaDetallada`. */
+  const detalleAntesDelMio: PartidoDeCola[] = [];
   let yaLlegueAlMio = false;
 
   for (const p of cola) {
@@ -210,9 +261,24 @@ export function estadoDeCancha(args: {
       miInicio = inicioReal;
       miPrevisto = previsto;
       yaLlegueAlMio = true;
-    } else if (!yaLlegueAlMio && !p.finished) {
-      // Sin terminar y por delante: es tiempo que voy a esperar de verdad.
-      antesDelMio.push(p.id);
+    } else if (!yaLlegueAlMio) {
+      // Terminado o no, es un partido de esta cancha que va ANTES del mío en
+      // la hora: entra en la cola que se pinta completa.
+      detalleAntesDelMio.push({
+        id: p.id,
+        categoria: p.categoria ?? '—',
+        etapa: p.etapa ?? '',
+        parejaA: p.parejaA ?? '—',
+        parejaB: p.parejaB ?? '—',
+        scheduledAt: p.scheduledAt as string, // `cola` ya descartó los sin hora
+        finished: p.finished,
+        enJuego: !!p.enJuego,
+        marcador: p.marcador ?? [],
+      });
+      if (!p.finished) {
+        // Sin terminar y por delante: es tiempo que voy a esperar de verdad.
+        antesDelMio.push(p.id);
+      }
     }
 
     if (p.finished) {
@@ -274,6 +340,7 @@ export function estadoDeCancha(args: {
       : Math.max(0, Math.round((miInicio - miPrevisto) / MIN)),
     partidosAntesDelMio: antesDelMio.length,
     colaAntesDelMio: antesDelMio,
+    colaDetallada: detalleAntesDelMio,
     sinJornada: false,
   };
 }
