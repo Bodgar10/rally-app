@@ -342,6 +342,10 @@ export default function OrgTournamentScreen() {
    */
   const desfasado = esAbierto && categories.length > 0 && abiertas.length === 0;
 
+  // El tier es inmutable desde 'registration_closed' (migración 073): el
+  // aviso de "falta" no aplica ahí, porque ya no hay nada que el organizador
+  // pueda hacer al respecto desde esta tarjeta.
+  const tierBloqueado   = !esDraft && !esAbierto;
   const tieneSede       = !!tournament.venues;
   // Default true: es lo que hacían todos los torneos antes de la migración 052.
   // `=== true`: lo desconocido se lee apagado, que es la regla del formato.
@@ -471,7 +475,7 @@ export default function OrgTournamentScreen() {
             icon="star"
             title="Tier"
             value={resumenDeTier(tournament.tier)}
-            iconColor={tournament.tier ? undefined : color.alive}
+            iconColor={(!tournament.tier && !tierBloqueado) ? color.alive : undefined}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/tier`)}
           />
           <TarjetaAjuste
