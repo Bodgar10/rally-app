@@ -29,7 +29,9 @@ import Icon from '@/components/ui/Icon';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import { diaYHoraDeTorneo } from '@/lib/fechas';
 import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
-import { fetchSiguienteRonda, type SiguienteRonda } from '@/lib/siguiente-ronda';
+import {
+  comoLlegaste, fetchSiguienteRonda, textoDelRival, type SiguienteRonda,
+} from '@/lib/siguiente-ronda';
 
 export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] }) {
   const [donde, setDonde] = useState<SiguienteRonda | null>(null);
@@ -75,6 +77,11 @@ export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] })
       {/* Verde, no dorado: es el color de la victoria en el resto de la app. */}
       <View style={{ height: 3, backgroundColor: color.live, borderRadius: 2, marginBottom: space[1] }} />
 
+      {/* GANAR Y PASAR NO SON LO MISMO.
+          Un bye nace ya terminado y con ganador, así que por dentro avanza
+          igual que una victoria. Pero felicitar por ganar a quien no jugó —y en
+          este torneo son 12 parejas— le quita credibilidad a todo lo demás que
+          dice la tarjeta. */}
       <Text
         style={{
           fontFamily: font.display,
@@ -84,7 +91,7 @@ export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] })
           letterSpacing: 1.2,
         }}
       >
-        Ganaste
+        {comoLlegaste(donde.fueBye)}
       </Text>
 
       <Text style={{ fontFamily: font.display, fontSize: fontSize.metric, color: color.goldBright }}>
@@ -116,11 +123,13 @@ export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] })
       )}
 
       {/* Contra quién. Va en su propia línea: pegada a la hora, la incógnita
-          contamina el dato cierto. */}
+          contamina el dato cierto.
+
+          Y solo se dice "el ganador de…" cuando de verdad falta por decidirse.
+          Si su hermano de cuadro ya tiene ganador —un bye, o un partido
+          terminado— el rival es un hecho y se nombra: ver `@/lib/siguiente-ronda`. */}
       <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 }}>
-        {donde.rivalSaleDe
-          ? `Contra el ganador de ${donde.rivalSaleDe.parejaA} vs ${donde.rivalSaleDe.parejaB}`
-          : 'Rival por definir'}
+        {textoDelRival(donde.rivalSaleDe)}
       </Text>
     </View>
   );

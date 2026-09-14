@@ -101,7 +101,20 @@ export interface Ubicacion {
   slotIndex: number;
   /** El partido de su misma ronda del que saldrá su rival. */
   rivalDesdeMatchId: string;
+  /**
+   * Lo que lo colocó ahí fue un BYE: nadie jugó.
+   *
+   * Un bye nace ya terminado y con ganador (migración 045), así que por dentro
+   * se trata igual que una victoria — avanza igual y ocupa el mismo hueco. Pero
+   * NO SE DICE IGUAL: felicitar por ganar a quien no jugó es la clase de
+   * detalle que le quita credibilidad a todo lo demás que dice la tarjeta.
+   */
+  fueBye: boolean;
 }
+
+/** Nadie al otro lado: es un pase directo, no un partido. */
+const esBye = (m: { pairAId: string | null; pairBId: string | null }): boolean =>
+  !m.pairAId || !m.pairBId;
 
 /** El ganador efectivo: el marcado, o la pareja presente si el rival no existe. */
 function ganadorDe(m: { pairAId: string | null; pairBId: string | null; winnerPairId: string | null }): string | null {
@@ -189,14 +202,73 @@ export function ubicacionTrasGanar(
     stage,
     slotIndex,
     rivalDesdeMatchId,
+    fueBye: esBye(ganado),
   };
 }
 
-/** De dónde sale su rival, ya en nombres. */
-export interface DeDondeSaleElRival {
-  /** Las dos parejas de ese partido. Solo se llena cuando se conocen LAS DOS. */
-  parejaA: string;
-  parejaB: string;
+/**
+ * De dónde sale su rival, ya en nombres. Dos niveles, y el de arriba manda.
+ *
+ * EL CASO QUE LO PARTIÓ EN DOS
+ *   El partido del que sale su rival puede ser un BYE — alguien que también
+ *   pasó sin jugar— o estar ya terminado. En los dos casos el rival NO ES UNA
+ *   INCÓGNITA: se sabe con certeza quién es. Exigir las dos parejas para decir
+ *   algo tiraba ese dato cierto a "Rival por definir", que es justo lo que esta
+ *   tarjeta existe para no hacer.
+ */
+export type DeDondeSaleElRival =
+  /** Ya se sabe quién es: su hermano de cuadro tiene ganador. */
+  | { tipo: 'decidido'; pareja: string }
+  /** Se juega todavía: se nombran las dos parejas que se lo disputan. */
+  | { tipo: 'pendiente'; parejaA: string; parejaB: string };
+
+/**
+ * Quién es su rival, dados el partido del que sale y un buscador de nombres.
+ *
+ * `nombre` devuelve `null` cuando la pareja no se puede resolver — pasa
+ * legítimamente si la categoría sigue abierta—, y entonces no se afirma nada:
+ * "Contra —" es peor que "Rival por definir".
+ *
+ * Puro y aparte para poder probar los tres niveles sin base de datos.
+ */
+export function deDondeSaleElRival(
+  partido: PartidoDeCuadro | null,
+  nombre: (pairId: string) => string | null,
+): DeDondeSaleElRival | null {
+  if (!partido) return null;
+
+  // PRIMERO SE PREGUNTA SI YA SE SABE. Un bye —o un partido ya terminado— da
+  // un rival CIERTO, y tratarlo como incógnita tiraba un dato que existe.
+  const decidido = ganadorDe(partido);
+  if (decidido) {
+    const suyo = nombre(decidido);
+    return suyo ? { tipo: 'decidido', pareja: suyo } : null;
+  }
+
+  // Sigue en juego: las DOS parejas o ninguna. "El ganador de Fulano / Mengano
+  // y alguien" no dice nada que "rival por definir" no diga mejor.
+  const a = partido.pairAId ? nombre(partido.pairAId) : null;
+  const b = partido.pairBId ? nombre(partido.pairBId) : null;
+  return a && b ? { tipo: 'pendiente', parejaA: a, parejaB: b } : null;
+}
+
+/** "Contra quién", en los tres niveles de certeza que hay. */
+export function textoDelRival(rival: DeDondeSaleElRival | null): string {
+  if (!rival) return 'Rival por definir';
+  return rival.tipo === 'decidido'
+    ? `Contra ${rival.pareja}`
+    : `Contra el ganador de ${rival.parejaA} vs ${rival.parejaB}`;
+}
+
+/**
+ * Cómo llegó hasta ahí.
+ *
+ * GANAR Y PASAR NO SON LO MISMO. Un bye nace ya terminado y con ganador, así
+ * que por dentro avanza igual que una victoria — pero felicitar por ganar a
+ * quien no jugó le quita credibilidad a todo lo demás que dice la tarjeta.
+ */
+export function comoLlegaste(fueBye: boolean): string {
+  return fueBye ? 'Pasas sin jugar' : 'Ganaste';
 }
 
 /** Lo que se le puede decir hoy al jugador que acaba de ganar. */
@@ -209,8 +281,10 @@ export interface SiguienteRonda {
   /** ISO, o `null` si el plan no reserva nada para ese hueco. Nunca inventado. */
   scheduledAt: string | null;
   courtLabel: string | null;
-  /** `null` mientras no se conozcan las dos parejas del partido del que sale. */
+  /** `null` solo cuando ni siquiera se conocen las parejas que se lo disputan. */
   rivalSaleDe: DeDondeSaleElRival | null;
+  /** Llegó por un bye: nadie jugó. Cambia cómo se le anuncia, no dónde está. */
+  fueBye: boolean;
 }
 
 // ───────────────────────────────────────────
@@ -317,12 +391,22 @@ export async function fetchSiguienteRonda(
   const hueco = (plan ?? [])[0] ?? null;
 
   // ── De dónde sale su rival ─────────────────────────────────────────────
-  const partidoDelRival = (data ?? []).find((m) => m.id === ubicacion.rivalDesdeMatchId);
+  // El hermano de cuadro puede ser un bye —alguien que también pasó sin jugar—
+  // o estar ya terminado: en los dos casos el rival es un hecho. Quién decide
+  // eso es `deDondeSaleElRival`; aquí solo se le dan las filas y los nombres.
+  const filaDelRival = (data ?? []).find((m) => m.id === ubicacion.rivalDesdeMatchId);
+  const partidoDelRival = filaDelRival ? aPartido(filaDelRival as FilaDeCuadro) : null;
+
   const nombres = await fetchParejasPublicas([
-    partidoDelRival?.pair_a_id, partidoDelRival?.pair_b_id,
+    partidoDelRival?.pairAId, partidoDelRival?.pairBId,
   ]);
-  const parejaA = partidoDelRival?.pair_a_id ? nombres.get(partidoDelRival.pair_a_id) : undefined;
-  const parejaB = partidoDelRival?.pair_b_id ? nombres.get(partidoDelRival.pair_b_id) : undefined;
+
+  const rivalSaleDe = deDondeSaleElRival(
+    partidoDelRival,
+    // `nombreDePareja` cae a '—' cuando la vista no resuelve la pareja, y
+    // "Contra —" es peor que no decir nada: aquí eso es un `null`.
+    (pairId) => { const p = nombres.get(pairId); return p ? nombreDePareja(p) : null; },
+  );
 
   return {
     categoryId: categoria,
@@ -331,10 +415,7 @@ export async function fetchSiguienteRonda(
     slotIndex: ubicacion.slotIndex,
     scheduledAt: hueco?.scheduled_at ?? null,
     courtLabel: hueco?.court_label ?? null,
-    // Las DOS o ninguna: "contra el ganador de Fulano / Mengano y alguien" no
-    // dice nada que "rival por definir" no diga mejor.
-    rivalSaleDe: parejaA && parejaB
-      ? { parejaA: nombreDePareja(parejaA), parejaB: nombreDePareja(parejaB) }
-      : null,
+    rivalSaleDe,
+    fueBye: ubicacion.fueBye,
   };
 }

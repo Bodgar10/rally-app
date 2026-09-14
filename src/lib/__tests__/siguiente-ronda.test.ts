@@ -18,7 +18,10 @@
 // no encienda medio React Native.
 jest.mock('@/lib/supabase/client', () => ({ supabase: {} }));
 
-import { ubicacionTrasGanar, type PartidoDeCuadro } from '../siguiente-ronda';
+import {
+  comoLlegaste, deDondeSaleElRival, textoDelRival, ubicacionTrasGanar,
+  type PartidoDeCuadro,
+} from '../siguiente-ronda';
 
 /** Un cuarto de final del cuadro, con su etiqueta ordenable. */
 function cuarto(
@@ -44,6 +47,23 @@ const CUARTOS: PartidoDeCuadro[] = [
   cuarto(2, 'P5', 'P6'),
   cuarto(3, 'P7', 'P8'),
 ];
+
+/**
+ * UN BYE COMO LO CREA LA BASE (migración 045): nace `status='finished'` con
+ * `winner_pair_id` = la pareja presente y el otro lado en null. Nadie jugó.
+ *
+ * Es la forma que sale por la PRIMERA rama de `ganadorDe` —la del ganador ya
+ * escrito—, no por las de "la pareja presente". Durante un tiempo los tests
+ * solo cubrían esas segundas, que en producción no ocurren.
+ */
+const BYE_REAL: PartidoDeCuadro = {
+  id: 'q0',
+  stage: 'quarter',
+  roundLabel: 'quarter-01',
+  pairAId: 'P1',
+  pairBId: null,
+  winnerPairId: 'P1',
+};
 
 describe('ubicacionTrasGanar', () => {
   it('te coloca en el hueco que dice el motor, con la ronda a medias', () => {
@@ -92,15 +112,57 @@ describe('ubicacionTrasGanar', () => {
     expect(ubicacionTrasGanar(conSemis, ['P1'])).toBeNull();
   });
 
-  it('el bye de la primera ronda también te coloca', () => {
-    // Sin rival, el ganador es la pareja presente aunque `winner_pair_id` sea
-    // null: es el mismo criterio que usa el motor.
+  // ── LOS BYES ──────────────────────────────────────────────────────────
+  // En este torneo hay 12. Son la mitad del cuadro de alguien, no un caso raro.
+  //
+  // Y TIENEN DOS FORMAS, no una. La que la base produce de verdad (migración
+  // 045) nace `status='finished'` CON `winner_pair_id` puesto; la otra —sin
+  // ganador escrito— es el respaldo defensivo que también sabe leer el motor.
+  // Se prueban las dos: durante un tiempo solo estuvo cubierta la que no
+  // existe en producción.
+
+  it('el bye REAL te coloca: terminado, con ganador, y un lado en null', () => {
+    const u = ubicacionTrasGanar([BYE_REAL, cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')], ['P1']);
+    expect(u!.stage).toBe('semi');
+    expect(u!.slotIndex).toBe(0);
+    expect(u!.miPairId).toBe('P1');
+    expect(u!.rivalDesdeMatchId).toBe('q1');
+  });
+
+  it('el bye real por el lado B: `pair_a_id` en null y el ganador en B', () => {
+    const porB: PartidoDeCuadro = {
+      id: 'q0', stage: 'quarter', roundLabel: 'quarter-01',
+      pairAId: null, pairBId: 'P1', winnerPairId: 'P1',
+    };
+    const u = ubicacionTrasGanar([porB, cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')], ['P1']);
+    expect(u!.slotIndex).toBe(0);
+    expect(u!.miPairId).toBe('P1');
+  });
+
+  it('el bye SIN ganador escrito también: la pareja presente es la que pasa', () => {
     const u = ubicacionTrasGanar(
       [cuarto(0, 'P1', null), cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')],
       ['P1'],
     );
     expect(u!.stage).toBe('semi');
     expect(u!.slotIndex).toBe(0);
+  });
+
+  // CAMBIO 2: ganar y pasar no se anuncian igual.
+  it('marca `fueBye` para que la tarjeta no felicite a quien no jugó', () => {
+    expect(ubicacionTrasGanar([BYE_REAL, cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')], ['P1'])!.fueBye)
+      .toBe(true);
+    expect(ubicacionTrasGanar(
+      [cuarto(0, 'P1', null), cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')], ['P1'],
+    )!.fueBye).toBe(true);
+    // Y el partido de verdad no se marca: ahí sí ganó.
+    expect(ubicacionTrasGanar(CUARTOS, ['P1'])!.fueBye).toBe(false);
+  });
+
+  it('el bye del rival no te coloca a ti', () => {
+    // El hueco es del que pasa, no del que mira. Con `P3` no hay nada que decir.
+    expect(ubicacionTrasGanar([BYE_REAL, cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')], ['P3']))
+      .toBeNull();
   });
 
   it('manda la ronda más avanzada cuando ganó varias', () => {
@@ -145,5 +207,103 @@ describe('ubicacionTrasGanar', () => {
     expect(u!.stage).toBe('final');
     expect(u!.slotIndex).toBe(0);
     expect(u!.rivalDesdeMatchId).toBe('s1');
+  });
+});
+
+/**
+ * CAMBIO 1 · CONTRA QUIÉN
+ *
+ * El partido del que sale su rival puede estar ya decidido —un bye, o un
+ * partido terminado— y eso NO es una incógnita. Exigir las dos parejas para
+ * decir algo mandaba ese dato cierto a "Rival por definir", que es exactamente
+ * lo que esta tarjeta existe para no hacer.
+ */
+describe('de dónde sale su rival', () => {
+  /** Los nombres que la vista sí resuelve. Lo que no esté, no se puede afirmar. */
+  const guia = (dir: Record<string, string>) => (id: string) => dir[id] ?? null;
+
+  const NOMBRES = guia({
+    P3: 'Gerardo Ortiz / Héctor Pérez',
+    P4: 'Ana Ruiz / Marta Gil',
+  });
+
+  it('un hermano BYE da un rival con nombre, no un "por definir"', () => {
+    // La forma real: terminado, con ganador, y el otro lado en null.
+    const hermanoBye: PartidoDeCuadro = {
+      id: 'q1', stage: 'quarter', roundLabel: 'quarter-02',
+      pairAId: 'P3', pairBId: null, winnerPairId: 'P3',
+    };
+    const r = deDondeSaleElRival(hermanoBye, NOMBRES);
+    expect(r).toEqual({ tipo: 'decidido', pareja: 'Gerardo Ortiz / Héctor Pérez' });
+    expect(textoDelRival(r)).toBe('Contra Gerardo Ortiz / Héctor Pérez');
+  });
+
+  it('y el bye sin ganador escrito, igual: la pareja presente es el rival', () => {
+    const sinGanador: PartidoDeCuadro = {
+      id: 'q1', stage: 'quarter', roundLabel: 'quarter-02',
+      pairAId: 'P3', pairBId: null, winnerPairId: null,
+    };
+    expect(textoDelRival(deDondeSaleElRival(sinGanador, NOMBRES)))
+      .toBe('Contra Gerardo Ortiz / Héctor Pérez');
+  });
+
+  it('un hermano ya TERMINADO también: se nombra al que ganó', () => {
+    const jugado: PartidoDeCuadro = {
+      id: 'q1', stage: 'quarter', roundLabel: 'quarter-02',
+      pairAId: 'P3', pairBId: 'P4', winnerPairId: 'P4',
+    };
+    expect(textoDelRival(deDondeSaleElRival(jugado, NOMBRES)))
+      .toBe('Contra Ana Ruiz / Marta Gil');
+  });
+
+  it('solo cuando sigue en juego se dice "el ganador de"', () => {
+    const enJuego: PartidoDeCuadro = {
+      id: 'q1', stage: 'quarter', roundLabel: 'quarter-02',
+      pairAId: 'P3', pairBId: 'P4', winnerPairId: null,
+    };
+    expect(deDondeSaleElRival(enJuego, NOMBRES)).toEqual({
+      tipo: 'pendiente',
+      parejaA: 'Gerardo Ortiz / Héctor Pérez',
+      parejaB: 'Ana Ruiz / Marta Gil',
+    });
+    expect(textoDelRival(deDondeSaleElRival(enJuego, NOMBRES)))
+      .toBe('Contra el ganador de Gerardo Ortiz / Héctor Pérez vs Ana Ruiz / Marta Gil');
+  });
+
+  it('sin las DOS parejas no se afirma media frase', () => {
+    const aMedias: PartidoDeCuadro = {
+      id: 'q1', stage: 'quarter', roundLabel: 'quarter-02',
+      pairAId: 'P3', pairBId: 'P9', winnerPairId: null,
+    };
+    expect(deDondeSaleElRival(aMedias, NOMBRES)).toBeNull();
+    expect(textoDelRival(null)).toBe('Rival por definir');
+  });
+
+  it('un nombre que la vista no resuelve no se pinta como "Contra —"', () => {
+    const decididoSinNombre: PartidoDeCuadro = {
+      id: 'q1', stage: 'quarter', roundLabel: 'quarter-02',
+      pairAId: 'P9', pairBId: null, winnerPairId: 'P9',
+    };
+    expect(deDondeSaleElRival(decididoSinNombre, NOMBRES)).toBeNull();
+  });
+
+  it('sin partido del que salir, no hay nada que decir', () => {
+    expect(deDondeSaleElRival(null, NOMBRES)).toBeNull();
+  });
+});
+
+/** CAMBIO 2 · a un bye no se le ganó nada: nadie jugó. */
+describe('cómo llegaste', () => {
+  it('distingue el partido ganado del pase directo', () => {
+    expect(comoLlegaste(false)).toBe('Ganaste');
+    expect(comoLlegaste(true)).toBe('Pasas sin jugar');
+  });
+
+  it('y lo que decide cuál es `fueBye`, que sale del cuadro', () => {
+    const conBye = ubicacionTrasGanar(
+      [BYE_REAL, cuarto(1, 'P3', 'P4'), cuarto(2, 'P5', 'P6'), cuarto(3, 'P7', 'P8')], ['P1'],
+    );
+    expect(comoLlegaste(conBye!.fueBye)).toBe('Pasas sin jugar');
+    expect(comoLlegaste(ubicacionTrasGanar(CUARTOS, ['P1'])!.fueBye)).toBe('Ganaste');
   });
 });
