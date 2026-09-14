@@ -38,14 +38,16 @@
  * Solo lectura, como todo lo que hay debajo.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import Icon from '@/components/ui/Icon';
 import { color, font, fontSize, gradient, radius, space } from '@/lib/design-tokens';
 import { diaYHoraDeTorneo } from '@/lib/fechas';
-import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
+import {
+  subscribeToTable, categoryChannel, pairChannel, combineUnsubs,
+} from '@/lib/realtime/channels';
 import { tratoDeNivel } from '@/lib/escala-de-ronda';
 import {
   comoLlegaste, fetchSiguienteRonda, textoDelRival, type LecturaSiguienteRonda,
@@ -54,11 +56,72 @@ import {
 export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] }) {
   const [lectura, setLectura] = useState<LecturaSiguienteRonda | null>(null);
 
+  /**
+   * QUÉ RESPUESTA MANDA CUANDO HAY VARIAS EN VUELO.
+   *
+   * Al completarse la ronda llegan varios eventos casi a la vez —su partido y
+   * el del hermano de cuadro— y cada uno lanza su lectura. Con reintentos de
+   * por medio pueden tardar cosas distintas, así que una lectura VIEJA puede
+   * contestar después de una nueva.
+   *
+   * Eso no es un detalle: la vieja diría "estás en la final" (la calculó antes
+   * de que naciera el partido) y pisaría al "nada" de la nueva. Resultado: esta
+   * tarjeta encendida Y `MyNextMatch` enseñando el mismo partido — las dos a la
+   * vez, que es justo lo que no puede pasar.
+   *
+   * Cada lectura se lleva un número. Solo escribe la última que se pidió; las
+   * que lleguen tarde se tiran. Va en una ref porque cambiarlo no tiene que
+   * repintar nada.
+   */
+  const ultimaPeticion = useRef(0);
+
   const cargar = useCallback(async () => {
-    setLectura(await fetchSiguienteRonda(pairIds));
+    const mia = ++ultimaPeticion.current;
+    const r = await fetchSiguienteRonda(pairIds);
+    if (mia !== ultimaPeticion.current) return; // llegó tarde: ya hay una más nueva
+    setLectura(r);
   }, [pairIds]);
 
-  useEffect(() => { void cargar(); }, [cargar]);
+  useEffect(() => {
+    void cargar();
+    // Al desmontar (o al cambiar de parejas) se invalida lo que siga en vuelo.
+    return () => { ultimaPeticion.current++; };
+  }, [cargar]);
+
+  /**
+   * QUE SE ENTERE DE QUE GANÓ, NO SOLO DE QUE SE ACABÓ.
+   *
+   * Antes esta tarjeta solo calculaba al montarse, y su única suscripción
+   * existía para APAGARSE. O sea que el jugador con la app abierta ganaba su
+   * semifinal, el juez capturaba, y no pasaba nada hasta que recargaba: la
+   * noticia llegaba tarde justo el día que importa.
+   *
+   * Un canal por pareja y por lado, como `MyNextMatch` y `MisResultados`:
+   * Realtime no acepta filtros `in`, así que no hay forma de escuchar "mis
+   * partidos" en una sola suscripción. Sufijos propios para no pisar los tres
+   * pares de canales que ya escuchan estas mismas filas.
+   *
+   * SOLO `matches`, y basta. El juez captura y la RPC escribe `winner_pair_id`
+   * y `status='finished'` en la MISMA transacción, así que un evento trae ya el
+   * resultado entero. `match_sets` no se escucha a propósito: un set suelto no
+   * decide nada y solo traería lecturas que devuelven lo mismo.
+   */
+  useEffect(() => {
+    if (pairIds.length === 0) return;
+    const unsubs = pairIds.flatMap((pid) => [
+      subscribeToTable({
+        channelName: `${pairChannel(pid)}:siguiente_a`,
+        table: 'matches', filter: `pair_a_id=eq.${pid}`,
+        onData: () => void cargar(),
+      }),
+      subscribeToTable({
+        channelName: `${pairChannel(pid)}:siguiente_b`,
+        table: 'matches', filter: `pair_b_id=eq.${pid}`,
+        onData: () => void cargar(),
+      }),
+    ]);
+    return combineUnsubs(...unsubs);
+  }, [pairIds, cargar]);
 
   /**
    * Lo que hay que pintar, o nada.
@@ -71,18 +134,28 @@ export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] })
    */
   const donde = lectura?.estado === 'hay' ? lectura.donde : null;
 
-  // Al cuadro de SU categoría, que es donde va a nacer el partido que jubila
-  // esta tarjeta. No se puede suscribir antes de saber cuál es, y no hace
-  // falta: hasta entonces no hay nada pintado.
+  /**
+   * Y al resto de SU categoría, que es de donde sale el rival.
+   *
+   * Los canales de arriba solo traen SUS partidos, y hay algo que cambia sin
+   * que él juegue: cuando se resuelve el otro cruce, "contra el ganador de A vs
+   * B" pasa a ser un nombre. Eso vive en la categoría, no en sus filas.
+   *
+   * Depende del `categoryId` y no del objeto entero: cada lectura devuelve un
+   * objeto nuevo, así que con `donde` en las dependencias este canal se cerraba
+   * y se reabría en cada recálculo, sin que hubiera cambiado nada.
+   */
+  const categoryId = donde?.categoryId ?? null;
+
   useEffect(() => {
-    if (!donde) return;
+    if (!categoryId) return;
     return subscribeToTable({
-      channelName: `${categoryChannel(donde.categoryId)}:siguiente_ronda`,
+      channelName: `${categoryChannel(categoryId)}:siguiente_ronda`,
       table: 'matches',
-      filter: `category_id=eq.${donde.categoryId}`,
+      filter: `category_id=eq.${categoryId}`,
       onData: () => void cargar(),
     });
-  }, [donde, cargar]);
+  }, [categoryId, cargar]);
 
   // Mientras carga no se pinta un spinner: esto no es la respuesta que el
   // jugador vino a buscar, es una que se le adelanta. Un hueco girando encima

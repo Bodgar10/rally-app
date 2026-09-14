@@ -448,7 +448,36 @@ describe('el caso de 5ª Varonil: ganó la semifinal', () => {
     expect(nivelDeRonda(u!.stage)).toBe(4);
   });
 
-  it('y con la final ya nacida se calla, que es el relevo de MyNextMatch', () => {
+  /**
+   * EL RELEVO, PASO A PASO.
+   *
+   * Cuando se completa la ronda entera llegan varios eventos casi a la vez y el
+   * mismo instante puede encender y apagar. Lo que no puede pasar es que se
+   * queden las DOS tarjetas, ni que no quede NINGUNA. Se recorre el momento
+   * entero, que es donde vive el riesgo.
+   */
+  it('1 · con el hermano aún sin jugar: encendida, y el rival por decidir', () => {
+    const u = ubicacionTrasGanar(CUADRO, [MI_PAIR]);
+    expect(u!.stage).toBe('final');
+    const rival = CUADRO.find((m) => m.id === u!.rivalDesdeMatchId)!;
+    expect(deDondeSaleElRival(rival, (id) => id)).toEqual({
+      tipo: 'pendiente', parejaA: 'A4', parejaB: 'A6',
+    });
+  });
+
+  it('2 · hermano resuelto y final TODAVÍA sin nacer: sigue encendida', () => {
+    // Este es el hueco peligroso: la ronda ya está completa, pero la fila de la
+    // final aún no existe. Si aquí se apagara, no quedaría ninguna tarjeta.
+    const rondaCompleta = CUADRO.map((m) => (m.id === 's1' ? { ...m, winnerPairId: 'A4' } : m));
+    const u = ubicacionTrasGanar(rondaCompleta, [MI_PAIR]);
+    expect(u).not.toBeNull();
+    expect(u!.stage).toBe('final');
+    // Y el rival ya tiene nombre: el hermano está decidido.
+    const rival = rondaCompleta.find((m) => m.id === u!.rivalDesdeMatchId)!;
+    expect(deDondeSaleElRival(rival, (id) => id)).toEqual({ tipo: 'decidido', pareja: 'A4' });
+  });
+
+  it('3 · con la final ya nacida se calla, que es el relevo de MyNextMatch', () => {
     const conFinal: PartidoDeCuadro[] = [
       ...CUADRO.map((m) => (m.id === 's1' ? { ...m, winnerPairId: 'A4' } : m)),
       { id: 'f0', stage: 'final', roundLabel: 'final-01', pairAId: MI_PAIR, pairBId: 'A4', winnerPairId: null },
