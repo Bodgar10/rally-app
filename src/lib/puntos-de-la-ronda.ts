@@ -140,3 +140,32 @@ export async function fetchPuntosDelPartido(args: {
     groupWins: ((standing.data ?? [])[0] as { won: number } | undefined)?.won ?? null,
   });
 }
+
+/**
+ * La frase, tal y como se lee en las dos tarjetas.
+ *
+ *     1,700 pts de ranking para cada uno · Si ganan, 2,400
+ *
+ * "PARA CADA UNO" NO ES UN ADORNO. Antes decía "Tienes 1,200 pts garantizados",
+ * y eso se puede leer como que son de la PAREJA y que a cada quien le tocan
+ * 600. Los puntos son individuales: los dos jugadores reciben el número
+ * completo, cada uno. Es la regla del pádel profesional y es lo que hace el
+ * motor — `compute-ranking-points` mete una fila en el ledger POR JUGADOR con
+ * los mismos `points`.
+ *
+ * Se escribe aquí y no en cada tarjeta porque las dos la pintan y tienen que
+ * decir lo mismo: cuando estaba repartida, una decía "Si ganan:" y la otra
+ * "Si ganan,".
+ *
+ * Sigue sin decir "definitivos": son GARANTIZADOS, y un resultado corregido
+ * puede moverlos. Eso ya lo dice la palabra, sin gastar una línea en repetirlo.
+ */
+export function frasePuntos(puntos: PuntosGarantizados, stage: string): string {
+  // En grupos no hay ronda que garantizar: lo que hay es lo que suma ganar.
+  if (stage === 'group') {
+    const suma = puntos.siGanan - puntos.garantizados;
+    return `Ganar este partido: +${suma.toLocaleString()} pts de ranking para cada uno`;
+  }
+  return `${puntos.garantizados.toLocaleString()} pts de ranking para cada uno`
+    + ` · Si ganan, ${puntos.siGanan.toLocaleString()}`;
+}

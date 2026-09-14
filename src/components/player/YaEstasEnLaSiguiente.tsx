@@ -49,6 +49,7 @@ import {
   subscribeToTable, categoryChannel, pairChannel, combineUnsubs,
 } from '@/lib/realtime/channels';
 import { tratoDeNivel } from '@/lib/escala-de-ronda';
+import { frasePuntos } from '@/lib/puntos-de-la-ronda';
 import {
   comoLlegaste, fetchSiguienteRonda, textoDelRival, type LecturaSiguienteRonda,
 } from '@/lib/siguiente-ronda';
@@ -338,8 +339,7 @@ export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] })
             lineHeight: 18,
           }}
         >
-          {`Tienes ${donde.puntos.garantizados.toLocaleString()} pts de ranking garantizados`}
-          {` · Si ganan, ${donde.puntos.siGanan.toLocaleString()}`}
+          {frasePuntos(donde.puntos, donde.stage)}
         </Text>
       )}
     </>

@@ -8,7 +8,7 @@
 
 jest.mock('@/lib/supabase/client', () => ({ supabase: {} }));
 
-import { puntosDelPartido } from '../puntos-de-la-ronda';
+import { frasePuntos, puntosDelPartido } from '../puntos-de-la-ronda';
 import { puntosGarantizados, rondaMasLejanaAlcanzada } from '../puntos-garantizados';
 import { DEFAULT_RANKING_RULES } from '../engine/ranking-points';
 
@@ -147,5 +147,53 @@ describe('las dos tarjetas dan la misma cifra', () => {
   it('un stage que no conocemos no inventa un peldaño', () => {
     const p = puntosDelPartido({ ...ESTADO, stage: 'round_of_64' })!;
     expect(p.siGanan).toBe(p.garantizados);
+  });
+});
+
+/**
+ * LA FRASE · "PARA CADA UNO" NO ES UN ADORNO
+ *
+ * Decía "Tienes 1,200 pts garantizados", y eso se puede leer como que son de la
+ * PAREJA y que a cada quien le tocan 600. Los puntos son individuales: los dos
+ * jugadores reciben el número completo. Es lo que hace el motor —
+ * `compute-ranking-points` mete una fila en el ledger POR JUGADOR con los
+ * mismos `points`.
+ */
+describe('la frase de los puntos', () => {
+  const ESTADO = { tier: 'major' as const, parejasEnCategoria: 30, groupWins: 2 };
+
+  it('dice que el número es para cada jugador, no para la pareja', () => {
+    const p = puntosDelPartido({ ...ESTADO, stage: 'final' })!;
+    expect(frasePuntos(p, 'final'))
+      .toBe('1,700 pts de ranking para cada uno · Si ganan, 2,400');
+  });
+
+  it('y en la fase de grupos, lo mismo con lo que suma ganar', () => {
+    const p = puntosDelPartido({ ...ESTADO, stage: 'group' })!;
+    expect(frasePuntos(p, 'group')).toBe('Ganar este partido: +100 pts de ranking para cada uno');
+  });
+
+  it('nunca insinúa que haya que repartirlos', () => {
+    for (const stage of ['group', 'round_of_16', 'quarter', 'semi', 'final']) {
+      const frase = frasePuntos(puntosDelPartido({ ...ESTADO, stage })!, stage);
+      expect(frase).toContain('para cada uno');
+      // "Tienes" era el sujeto ambiguo: ni el jugador ni la pareja quedaban
+      // claros. El número va primero y sin dueño gramatical.
+      expect(frase).not.toContain('Tienes');
+    }
+  });
+
+  it('las dos tarjetas dicen exactamente la misma frase', () => {
+    // MyNextMatch la pinta con `match.stage`; YaEstasEnLaSiguiente con
+    // `donde.stage`. Es el mismo valor, así que es la misma frase.
+    const p = puntosDelPartido({ ...ESTADO, stage: 'semi' })!;
+    expect(frasePuntos(p, 'semi')).toBe(frasePuntos(p, 'semi'));
+  });
+
+  it('cabe en una línea de móvil: 52 caracteres con números de cuatro cifras', () => {
+    // A `fontSize.caption` (12px) en Inter caben ~58 en los 350px útiles de un
+    // iPhone. Si un cambio la alarga, este test lo dice antes que la pantalla.
+    const p = puntosDelPartido({ ...ESTADO, stage: 'final' })!;
+    expect(frasePuntos(p, 'final').length).toBeLessThanOrEqual(58);
   });
 });

@@ -38,7 +38,7 @@ import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/cha
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 import { fechaHoraDeTorneo } from '@/lib/fechas';
 import { elegirProximo, momentoDelPartido, type MomentoDelPartido } from '@/lib/proximo-partido';
-import { fetchPuntosDelPartido } from '@/lib/puntos-de-la-ronda';
+import { fetchPuntosDelPartido, frasePuntos } from '@/lib/puntos-de-la-ronda';
 import type { PuntosGarantizados } from '@/lib/puntos-garantizados';
 import { fetchCabezaDeSerie } from '@/lib/cabeza-de-serie';
 
@@ -681,9 +681,9 @@ export function TarjetaProximoPartido({ match }: { match: NextMatch }) {
             marginBottom: 12,
           }}
         >
-          {match.stage === 'group'
-            ? `Ganar este partido: +${match.puntos.siGanan - match.puntos.garantizados} pts de ranking`
-            : `Tienes ${match.puntos.garantizados.toLocaleString()} pts garantizados · Si ganan: ${match.puntos.siGanan.toLocaleString()}`}
+          {/* La frase vive en `@/lib/puntos-de-la-ronda`: la pintan las dos
+              tarjetas del jugador y tienen que decir exactamente lo mismo. */}
+          {frasePuntos(match.puntos, match.stage)}
         </Text>
       )}
 
