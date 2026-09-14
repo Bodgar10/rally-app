@@ -19,7 +19,7 @@
  * Estilo: Doc D §8 (tarjetas, banners, botones).
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -33,6 +33,7 @@ import { useRouter } from 'expo-router';
 import type { User } from '@supabase/supabase-js';
 
 import { supabase } from '@/lib/supabase/client';
+import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import MyNextMatch from '@/components/realtime/MyNextMatch';
 import TorneoPorEmpezar, { type TorneoInscrito } from '@/components/realtime/TorneoPorEmpezar';
 import { ProBenefitsSheet } from '@/components/checkout/ProBenefitsSheet';
@@ -105,18 +106,6 @@ export default function DashboardScreen() {
       const ids = (pairs ?? []).map((p: { id: string }) => p.id);
       if (pairs) setPairIds(ids);
 
-      // El resumen de SUS partidos: con hora publicada y sin terminar.
-      if (ids.length > 0) {
-        const { data: suyos } = await supabase
-          .from('matches')
-          .select('status, scheduled_at')
-          .or(`pair_a_id.in.(${ids.join(',')}),pair_b_id.in.(${ids.join(',')})`);
-        setResumen({
-          conHorario: (suyos ?? []).filter((m) => m.scheduled_at !== null).length,
-          pendientes: (suyos ?? []).filter((m) => m.status !== 'finished').length,
-        });
-      }
-
       // Torneo inscrito más próximo, para cuando todavía no hay partido.
       const { data: mias } = await supabase
         .from('my_pairs')
@@ -182,6 +171,67 @@ export default function DashboardScreen() {
     }
     loadUserData();
   }, []);
+
+  /**
+   * EL RESUMEN NO PUEDE SER UNA FOTO DEL ARRANQUE.
+   *
+   * De aquí sale `bloques.proximoPartido`, que es el interruptor de la sección
+   * entera (ver `bloquesDelDashboard`). Se calculaba dentro del efecto de
+   * arranque, con dependencias vacías, así que no se recalculaba NUNCA.
+   *
+   * EL HUECO QUE ABRÍA
+   *   El jugador gana cuartos. Su semifinal todavía no existe, así que
+   *   `pendientes` es 0 y el interruptor queda apagado; la tarjeta de "ya estás
+   *   en semifinales" ocupa ese sitio y todo está bien. Cuando se completa la
+   *   ronda y nace la semifinal, esa tarjeta SÍ se entera —está suscrita— y se
+   *   apaga. Pero `MyNextMatch` seguía sin montarse, porque el interruptor
+   *   seguía leyendo un número de hacía horas. Y sin montarse, su propia
+   *   suscripción tampoco existía: nadie iba a encender nada.
+   *
+   *   Resultado: el jugador se quedaba mirando una pantalla sin su partido,
+   *   justo en el relevo entre las dos tarjetas, hasta que recargaba la app.
+   */
+  const cargarResumen = useCallback(async () => {
+    if (pairIds.length === 0) return;
+    const { data: suyos } = await supabase
+      .from('matches')
+      .select('status, scheduled_at')
+      .or(`pair_a_id.in.(${pairIds.join(',')}),pair_b_id.in.(${pairIds.join(',')})`);
+    setResumen({
+      conHorario: (suyos ?? []).filter((m) => m.scheduled_at !== null).length,
+      pendientes: (suyos ?? []).filter((m) => m.status !== 'finished').length,
+    });
+  }, [pairIds]);
+
+  /**
+   * Y se vuelve a calcular con cada cambio en SUS partidos.
+   *
+   * Un canal por pareja y por lado, como en `MyNextMatch` y `MisResultados`:
+   * Realtime no acepta filtros `in`, así que no hay forma de escuchar "mis
+   * partidos" en una sola suscripción. Los nombres llevan sufijo propio para no
+   * pisar los canales que esos dos ya tienen abiertos sobre las mismas filas.
+   *
+   * El efecto depende de `pairIds` y de la propia función, las dos estables
+   * mientras no cambien las parejas: los canales se abren una vez y se cierran
+   * al desmontar. Esta pantalla vive abierta el torneo entero.
+   */
+  useEffect(() => {
+    void cargarResumen();
+    if (pairIds.length === 0) return;
+    const unsubs = pairIds.flatMap((pid) => [
+      subscribeToTable({
+        channelName: `${pairChannel(pid)}:resumen_a`,
+        table: 'matches', filter: `pair_a_id=eq.${pid}`,
+        onData: () => void cargarResumen(),
+      }),
+      subscribeToTable({
+        channelName: `${pairChannel(pid)}:resumen_b`,
+        table: 'matches', filter: `pair_b_id=eq.${pid}`,
+        onData: () => void cargarResumen(),
+      }),
+    ]);
+    return combineUnsubs(...unsubs);
+  }, [pairIds, cargarResumen]);
 
   // Deep link de regreso desde la web de suscripción (la BD es la fuente de verdad).
   const incomingURL = useURL();

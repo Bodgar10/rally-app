@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 import { fechaHoraDeTorneo } from '@/lib/fechas';
+import { elegirProximo, momentoDelPartido, type MomentoDelPartido } from '@/lib/proximo-partido';
 import {
   puntosGarantizados, rondaMasLejanaAlcanzada,
   type PuntosGarantizados, type EstadoParaPuntos,
@@ -64,6 +65,17 @@ interface NextMatch {
   venue: { name: string; address: string | null; city: string | null } | null;
   status: 'scheduled' | 'in_progress' | 'finished';
   /**
+   * En qué momento está respecto del reloj. Ver `@/lib/proximo-partido`.
+   *
+   * EL RÓTULO NO PUEDE MENTIR. Una semifinal del domingo a las 23:00, sin
+   * capturar, se pintaba el miércoles bajo "Próximo partido". Con el día ya
+   * cambiado eso deja de ser un próximo partido y pasa a ser uno pendiente, y
+   * decirlo es todo lo que hace falta: nada de cuentas atrás ni de "lleva 3
+   * días de retraso", que envejecen mal y dejan de creerse en cuanto fallan
+   * una vez.
+   */
+  momento: MomentoDelPartido;
+  /**
    * Lo que va del partido: '6-2', '6-2 3-1'. Null si no hay sets capturados.
    *
    * EL JUGADOR QUE ESTÁ JUGANDO NO VEÍA SU PROPIO MARCADOR. La tarjeta decía
@@ -107,6 +119,10 @@ function formatScheduledAt(iso: string | null): string {
   // En la zona del CLUB, no en la del dispositivo: un jugador que mire la app
   // desde otro huso —o con el móvil mal configurado— tiene que leer la hora a
   // la que se juega, no la que marca su reloj.
+  //
+  // Y SIEMPRE CON SU DÍA: 'dom, 13 sept, 08:00', nunca '08:00' a secas ni
+  // "faltan 3 horas". En un torneo de tres días una hora suelta no identifica
+  // nada, y una cuenta atrás envejece con cada partido que se corre.
   return fechaHoraDeTorneo(iso) || 'Por definir';
 }
 
@@ -149,128 +165,95 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   // `tier` del torneo se agregan para poder calcular los puntos de ranking
   // garantizados (ver `@/lib/puntos-garantizados`) sin otra consulta aparte
   // por el torneo.
-  const { data: asA, error: errA } = await supabase
-    .from('matches')
-    .select(
-      `id, stage, scheduled_at, status, court_label, category_id,
-       pair_a_id, pair_b_id,
-       tournaments:tournament_id ( name, tier, venues:venue_id ( name, address, city ) ),
-       categories:category_id ( display_name )`
-    )
-    .in('pair_a_id', pairIds)
-    .neq('status', 'finished')
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
-    .limit(1);
+  // SIN `.limit(1)`. Antes se pedía UN partido por lado, el más antiguo por
+  // hora — y el más antiguo no es el más próximo. Un jugador con su semifinal
+  // ya nacida y un partido del viernes sin capturar veía el del viernes, porque
+  // la base ya había descartado el otro antes de que nadie pudiera compararlos.
+  // La elección se hace aquí, con el reloj delante: ver `@/lib/proximo-partido`.
+  //
+  // El tope de 20 es solo un cinturón: nadie juega tantos partidos a la vez.
+  const columnas =
+    `id, stage, scheduled_at, status, court_label, category_id,
+     pair_a_id, pair_b_id,
+     tournaments:tournament_id ( name, tier, venues:venue_id ( name, address, city ) ),
+     categories:category_id ( display_name )`;
 
-  const { data: asB, error: errB } = await supabase
-    .from('matches')
-    .select(
-      `id, stage, scheduled_at, status, court_label, category_id,
-       pair_a_id, pair_b_id,
-       tournaments:tournament_id ( name, tier, venues:venue_id ( name, address, city ) ),
-       categories:category_id ( display_name )`
-    )
-    .in('pair_b_id', pairIds)
-    .neq('status', 'finished')
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
-    .limit(1);
+  const [{ data: asA, error: errA }, { data: asB, error: errB }] = await Promise.all([
+    supabase.from('matches').select(columnas)
+      .in('pair_a_id', pairIds)
+      .neq('status', 'finished')
+      .order('scheduled_at', { ascending: true, nullsFirst: false })
+      .limit(20),
+    supabase.from('matches').select(columnas)
+      .in('pair_b_id', pairIds)
+      .neq('status', 'finished')
+      .order('scheduled_at', { ascending: true, nullsFirst: false })
+      .limit(20),
+  ]);
 
   if (errA || errB) {
     console.error('[MyNextMatch] fetch error', errA ?? errB);
     return null;
   }
 
-  // Elegir el más próximo entre los dos resultados
-  /** `soyA`, `categoryId`, `miPairId` y `rivalPairId` son de trabajo: para
-      orientar el marcador y calcular los puntos garantizados y la cabeza de
-      serie del rival. No salen a la interfaz. */
-  const candidates: Array<
-    Omit<NextMatch, 'marcador' | 'puntos' | 'rankingRival'> & {
-      soyA: boolean; categoryId: string; miPairId: string; rivalPairId: string | null; tier: string | null;
-    }
-  > = [];
+  /** Una fila de `matches` con sus dos embeds. */
+  type Fila = {
+    id: string; stage: string; category_id: string;
+    scheduled_at: string | null; status: string; court_label: string | null;
+    pair_a_id: string | null; pair_b_id: string | null;
+    tournaments: { name: string; tier: string | null; venues: { name: string; address: string | null; city: string | null } | null };
+    categories: { display_name: string };
+  };
 
-  // Los dos rivales posibles se resuelven de una vez, antes de decidir cuál
-  // de los dos partidos es el más próximo.
-  const rivales = await fetchParejasPublicas([
-    (asA?.[0] as { pair_b_id?: string } | undefined)?.pair_b_id,
-    (asB?.[0] as { pair_a_id?: string } | undefined)?.pair_a_id,
-  ]);
+  /** `soyA` orienta el marcador; el resto alimenta puntos y cabeza de serie. */
+  const candidatos = [
+    ...((asA ?? []) as unknown as Fila[]).map((row) => ({ row, soyA: true })),
+    ...((asB ?? []) as unknown as Fila[]).map((row) => ({ row, soyA: false })),
+  ]
+    // Sin el `pair_id` de su propio lado la fila no es suya de verdad.
+    .filter(({ row, soyA }) => (soyA ? row.pair_a_id : row.pair_b_id) !== null)
+    .map(({ row, soyA }) => ({
+      row,
+      soyA,
+      scheduledAt: row.scheduled_at,
+      status: row.status,
+    }));
 
-  if (asA && asA.length > 0) {
-    const row = asA[0] as unknown as {
-      id: string; stage: string; category_id: string;
-      scheduled_at: string | null; status: string; court_label: string | null;
-      pair_a_id: string | null; pair_b_id: string | null;
-      tournaments: { name: string; tier: string | null; venues: { name: string; address: string | null; city: string | null } | null };
-      categories: { display_name: string };
-    };
-    const rival = row.pair_b_id ? rivales.get(row.pair_b_id) : undefined;
-    if (row.pair_a_id) {
-      candidates.push({
-        soyA: true,
-        categoryId: row.category_id,
-        miPairId: row.pair_a_id,
-        rivalPairId: row.pair_b_id,
-        tier: row.tournaments?.tier ?? null,
-        matchId: row.id,
-        tournamentName: row.tournaments?.name ?? '—',
-        categoryName: row.categories?.display_name ?? '—',
-        stage: row.stage,
-        scheduledAt: row.scheduled_at,
-        rivalPlayer1: rival?.player1_name ?? '—',
-        rivalPlayer2: rival?.player2_name ?? '—',
-        rivalPlayer1Id: rival?.player1_id ?? '',
-        rivalPlayer2Id: rival?.player2_id ?? '',
-        courtName: row.court_label ?? null,
-        venue: row.tournaments?.venues ?? null,
-        status: row.status as NextMatch['status'],
-      });
-    }
-  }
+  const elegido = elegirProximo(candidatos);
+  if (!elegido) return null;
 
-  if (asB && asB.length > 0) {
-    const row = asB[0] as unknown as {
-      id: string; stage: string; category_id: string;
-      scheduled_at: string | null; status: string; court_label: string | null;
-      pair_a_id: string | null; pair_b_id: string | null;
-      tournaments: { name: string; tier: string | null; venues: { name: string; address: string | null; city: string | null } | null };
-      categories: { display_name: string };
-    };
-    const rival = row.pair_a_id ? rivales.get(row.pair_a_id) : undefined;
-    if (row.pair_b_id) {
-      candidates.push({
-        soyA: false,
-        categoryId: row.category_id,
-        miPairId: row.pair_b_id,
-        rivalPairId: row.pair_a_id,
-        tier: row.tournaments?.tier ?? null,
-        matchId: row.id,
-        tournamentName: row.tournaments?.name ?? '—',
-        categoryName: row.categories?.display_name ?? '—',
-        stage: row.stage,
-        scheduledAt: row.scheduled_at,
-        rivalPlayer1: rival?.player1_name ?? '—',
-        rivalPlayer2: rival?.player2_name ?? '—',
-        rivalPlayer1Id: rival?.player1_id ?? '',
-        rivalPlayer2Id: rival?.player2_id ?? '',
-        courtName: row.court_label ?? null,
-        venue: row.tournaments?.venues ?? null,
-        status: row.status as NextMatch['status'],
-      });
-    }
-  }
+  const row = elegido.row;
+  const miPairId = (elegido.soyA ? row.pair_a_id : row.pair_b_id) as string;
+  const rivalPairId = elegido.soyA ? row.pair_b_id : row.pair_a_id;
 
-  if (candidates.length === 0) return null;
+  // LOS NOMBRES, SOLO DEL ELEGIDO. Antes se resolvían los dos rivales posibles
+  // antes de decidir; ahora se decide primero y se pide uno.
+  const rival = rivalPairId
+    ? (await fetchParejasPublicas([rivalPairId])).get(rivalPairId)
+    : undefined;
 
-  // Ordenar por scheduled_at para elegir el más próximo
-  candidates.sort((a, b) => {
-    if (!a.scheduledAt) return 1;
-    if (!b.scheduledAt) return -1;
-    return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
-  });
-
-  const elegido = candidates[0];
+  const base = {
+    soyA: elegido.soyA,
+    categoryId: row.category_id,
+    miPairId,
+    rivalPairId,
+    tier: row.tournaments?.tier ?? null,
+    matchId: row.id,
+    tournamentName: row.tournaments?.name ?? '—',
+    categoryName: row.categories?.display_name ?? '—',
+    stage: row.stage,
+    scheduledAt: row.scheduled_at,
+    rivalPlayer1: rival?.player1_name ?? '—',
+    rivalPlayer2: rival?.player2_name ?? '—',
+    rivalPlayer1Id: rival?.player1_id ?? '',
+    rivalPlayer2Id: rival?.player2_id ?? '',
+    courtName: row.court_label ?? null,
+    venue: row.tournaments?.venues ?? null,
+    status: row.status as NextMatch['status'],
+    // En qué momento está respecto del reloj. Decide el rótulo: un partido de
+    // otro día sin resultado no es "Próximo partido".
+    momento: momentoDelPartido({ scheduledAt: row.scheduled_at, status: row.status }),
+  };
 
   // Los sets, solo del partido que se va a pintar: una consulta más, y solo
   // cuando hay algo que pintar. Se piden SIEMPRE y no solo si está 'in_progress'
@@ -284,23 +267,23 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
     supabase
       .from('match_sets')
       .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
-      .eq('match_id', elegido.matchId),
+      .eq('match_id', base.matchId),
     fetchEstadoParaPuntos({
-      categoryId: elegido.categoryId,
-      miPairId: elegido.miPairId,
-      tier: elegido.tier,
-      proximoStage: elegido.stage,
+      categoryId: base.categoryId,
+      miPairId: base.miPairId,
+      tier: base.tier,
+      proximoStage: base.stage,
     }),
-    elegido.rivalPairId ? fetchCabezaDeSerie(elegido.categoryId) : Promise.resolve(null),
+    base.rivalPairId ? fetchCabezaDeSerie(base.categoryId) : Promise.resolve(null),
   ]);
 
-  const rivalOrdenado = elegido.rivalPairId
-    ? (ordenPorPuntos ?? []).find((p) => p.pairId === elegido.rivalPairId) ?? null
+  const rivalOrdenado = base.rivalPairId
+    ? (ordenPorPuntos ?? []).find((p) => p.pairId === base.rivalPairId) ?? null
     : null;
 
   return {
-    ...elegido,
-    marcador: marcadorParcial(sets ?? [], elegido.soyA),
+    ...base,
+    marcador: marcadorParcial(sets ?? [], base.soyA),
     puntos: puntosGarantizados(estado),
     rankingRival: rivalOrdenado
       ? {
@@ -482,7 +465,9 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
     );
   }
 
-  const isLive = match.status === 'in_progress';
+  const isLive = match.momento === 'en_curso';
+  /** Su hora fue otro día y sigue sin resultado. */
+  const atrasado = match.momento === 'atrasado';
 
   return (
     <View
@@ -523,7 +508,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
           marginTop: isLive ? 6 : 0,
         }}
       >
-        {isLive ? '🟢 En curso' : 'Próximo partido'}
+        {isLive ? '🟢 En curso' : atrasado ? 'Partido pendiente' : 'Próximo partido'}
       </Text>
 
       {/* EL MARCADOR DE TU PROPIO PARTIDO.
