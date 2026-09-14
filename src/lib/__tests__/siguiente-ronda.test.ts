@@ -371,3 +371,88 @@ describe('la ronda sola, para el titular', () => {
     expect(`Estás en ${nombreDeLaRonda('final').toLowerCase()}`).toBe('Estás en la final');
   });
 });
+
+/**
+ * EL CASO REAL · 5ª Varonil del torneo bb8e137e
+ *
+ * Ganó su semifinal y la tarjeta no apareció. Los datos de la base, tal cual:
+ *
+ *   · semi-01 — finished, `winner_pair_id` = su pareja, las dos parejas.
+ *   · semi-02 — scheduled, sin ganador, las dos parejas.
+ *   · ganó también su octavo y su cuarto.
+ *   · NO existe fila de `final` ni de `third_place`.
+ *
+ * Es EXACTAMENTE para lo que existe la tarjeta: ganó, la ronda no está
+ * completa, el partido siguiente no existe. Se construye entero —con las
+ * rondas previas dentro, que es lo que la consulta trae de verdad y lo que los
+ * otros tests no tenían— para que este caso no se vuelva a perder.
+ */
+describe('el caso de 5ª Varonil: ganó la semifinal', () => {
+  const MI_PAIR = '98e7a2ae-04ad-4602-a97d-72e59d446c6b';
+
+  /** El cuadro completo tal y como lo devuelve `.neq('stage','group')`. */
+  const CUADRO: PartidoDeCuadro[] = [
+    // Octavos: 8 partidos, todos jugados. El suyo es el primero.
+    ...Array.from({ length: 8 }, (_, i): PartidoDeCuadro => ({
+      id: `o${i}`,
+      stage: 'round_of_16',
+      roundLabel: `round_of_16-0${i + 1}`,
+      pairAId: i === 0 ? MI_PAIR : `A${i}`,
+      pairBId: `B${i}`,
+      winnerPairId: i === 0 ? MI_PAIR : `A${i}`,
+    })),
+    // Cuartos: 4 partidos, todos jugados. El suyo es el primero.
+    ...Array.from({ length: 4 }, (_, i): PartidoDeCuadro => ({
+      id: `q${i}`,
+      stage: 'quarter',
+      roundLabel: `quarter-0${i + 1}`,
+      pairAId: i === 0 ? MI_PAIR : `A${i * 2}`,
+      pairBId: `A${i * 2 + 1}`,
+      winnerPairId: i === 0 ? MI_PAIR : `A${i * 2}`,
+    })),
+    // Semifinales: la suya jugada y ganada, la otra todavía no.
+    {
+      id: 's0', stage: 'semi', roundLabel: 'semi-01',
+      pairAId: MI_PAIR, pairBId: 'A2', winnerPairId: MI_PAIR,
+    },
+    {
+      id: 's1', stage: 'semi', roundLabel: 'semi-02',
+      pairAId: 'A4', pairBId: 'A6', winnerPairId: null,
+    },
+  ];
+
+  it('lo coloca EN LA FINAL', () => {
+    const u = ubicacionTrasGanar(CUADRO, [MI_PAIR]);
+    expect(u).not.toBeNull();
+    expect(u!.stage).toBe('final');
+  });
+
+  it('en el hueco 0, que es el único que tiene la final', () => {
+    const u = ubicacionTrasGanar(CUADRO, [MI_PAIR]);
+    expect(u!.slotIndex).toBe(0);
+  });
+
+  it('y su rival sale de la otra semifinal', () => {
+    const u = ubicacionTrasGanar(CUADRO, [MI_PAIR]);
+    expect(u!.rivalDesdeMatchId).toBe('s1');
+    expect(u!.desdeMatchId).toBe('s0');
+    expect(u!.miPairId).toBe(MI_PAIR);
+    expect(u!.fueBye).toBe(false);
+  });
+
+  it('manda la SEMIFINAL, no el octavo ni el cuarto que también ganó', () => {
+    // Las rondas previas están en la lista y todas son victorias suyas. Si el
+    // orden fallara, saldría "estás en cuartos" — o nada.
+    const u = ubicacionTrasGanar(CUADRO, [MI_PAIR]);
+    expect(u!.desdeMatchId).toBe('s0');
+    expect(nivelDeRonda(u!.stage)).toBe(4);
+  });
+
+  it('y con la final ya nacida se calla, que es el relevo de MyNextMatch', () => {
+    const conFinal: PartidoDeCuadro[] = [
+      ...CUADRO.map((m) => (m.id === 's1' ? { ...m, winnerPairId: 'A4' } : m)),
+      { id: 'f0', stage: 'final', roundLabel: 'final-01', pairAId: MI_PAIR, pairBId: 'A4', winnerPairId: null },
+    ];
+    expect(ubicacionTrasGanar(conFinal, [MI_PAIR])).toBeNull();
+  });
+});
