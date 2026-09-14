@@ -3,6 +3,21 @@
  *
  * RALLY · Próximo partido del jugador autenticado, en tiempo real.
  *
+ * LA TARJETA CRECE CON LA RONDA
+ *   Es la que el jugador mira durante horas, y la que tiene delante mientras
+ *   espera su final — así que es la que más necesitaba escalar. Usa la MISMA
+ *   escala de cuatro niveles que `YaEstasEnLaSiguiente`, definida una sola vez
+ *   en `@/lib/escala-de-ronda`: si las dos no escalaran igual, el jugador vería
+ *   su final tratada como algo grande los diez minutos que dura la otra tarjeta
+ *   y como un partido cualquiera el resto del día.
+ *
+ *   Lo que crece es el TITULAR: a partir de cuartos la ronda sale de la línea
+ *   gris de la categoría y pasa a ser la palabra grande de la tarjeta. La hora,
+ *   la cancha, el rival y el marcador no escalan ni se mueven: son el dato que
+ *   hace levantarse a alguien de la cama.
+ *
+ *   La fase de grupos se queda en el nivel 1 y se ve exactamente como siempre.
+ *
  * REGLAS:
  * - Lee `matches` filtrando por pair_ids del usuario. Solo muestra.
  * - Se actualiza sin recargar si cambia el calendario (scheduled_at).
@@ -12,10 +27,12 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import ComoLlegar from '@/components/tournament/ComoLlegar';
 import Icon from '@/components/ui/Icon';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
-import { color, radius, font } from '@/lib/design-tokens';
+import { color, radius, font, fontSize, gradient, space } from '@/lib/design-tokens';
+import { tratoDeRonda } from '@/lib/escala-de-ronda';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
@@ -44,7 +61,7 @@ interface RankingRival {
   jugador2Posicion: number | null;
 }
 
-interface NextMatch {
+export interface NextMatch {
   matchId: string;
   tournamentName: string;
   categoryName: string;
@@ -465,34 +482,74 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
     );
   }
 
+  return <TarjetaProximoPartido match={match} />;
+}
+
+// ───────────────────────────────────────────
+// La tarjeta
+// ───────────────────────────────────────────
+
+/**
+ * Solo presentación: recibe el partido ya resuelto y lo pinta.
+ *
+ * SEPARADA DEL FETCH A PROPÓSITO. La tarjeta escala con la ronda y hay cuatro
+ * tratos distintos que mirar; con la consulta dentro, la única forma de ver el
+ * de la final era tener a alguien jugando una final de verdad. Así se puede
+ * pintar con datos de prueba sin tocar la base.
+ *
+ * `MyNextMatch` sigue consultando y suscribiéndose como siempre: lo que se
+ * separó es el dibujo, no el dato.
+ */
+export function TarjetaProximoPartido({ match }: { match: NextMatch }) {
   const isLive = match.momento === 'en_curso';
   /** Su hora fue otro día y sigue sin resultado. */
   const atrasado = match.momento === 'atrasado';
 
-  return (
-    <View
-      style={{
-        backgroundColor: color.surface,
-        borderRadius: radius.xl2,
-        padding: 18,
-        borderWidth: 1,
-        borderColor: isLive ? color.gold : color.lineSoft,
-        // Barra de acento superior dorada en partidos en vivo
-        overflow: 'hidden',
-      }}
-    >
-      {/* Barra de acento superior */}
-      {isLive && (
-        <View
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 3,
-            backgroundColor: color.gold,
-          }}
-        />
+  // CUÁNTO PESA ESTA RONDA. Mismo trato que `YaEstasEnLaSiguiente`: las dos
+  // tarjetas nunca se ven a la vez, pero el jugador las ve una detrás de otra y
+  // tienen que parecer hermanas. Ver `@/lib/escala-de-ronda`.
+  const trato = tratoDeRonda(match.stage);
+  /** Desde cuartos, la ronda deja de ser una nota gris y pasa a ser el titular. */
+  const conTitular = trato.nivel >= 2;
+  const titular = stageLabel(match.stage);
+
+  const contenido = (
+    <>
+      {/* LA BARRA DE ACENTO.
+          En el nivel 1 es la de siempre: solo aparece en vivo, dorada y pegada
+          al borde. Desde cuartos es la del trato de la ronda y está siempre —
+          es la primera señal de que este partido pesa más que el anterior. */}
+      {conTitular ? (
+        trato.acento.colors ? (
+          <LinearGradient
+            colors={[...trato.acento.colors] as [string, string, ...string[]]}
+            start={gradient.rule.start}
+            end={gradient.rule.end}
+            style={{ height: trato.acento.alto, borderRadius: 2, marginBottom: space[2] }}
+          />
+        ) : (
+          <View
+            style={{
+              height: trato.acento.alto,
+              backgroundColor: trato.acento.plano,
+              borderRadius: 2,
+              marginBottom: space[2],
+            }}
+          />
+        )
+      ) : (
+        isLive && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              backgroundColor: color.gold,
+            }}
+          />
+        )
       )}
 
       {/* Eyebrow */}
@@ -501,15 +558,66 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
           fontFamily: font.display,
           fontSize: 10,
           fontWeight: '500',
-          color: color.champagne,
+          color: trato.nivel >= 3 ? trato.colorTitular : color.champagne,
           textTransform: 'uppercase',
           letterSpacing: 1.2,
           marginBottom: 6,
-          marginTop: isLive ? 6 : 0,
+          marginTop: !conTitular && isLive ? 6 : 0,
         }}
       >
         {isLive ? '🟢 En curso' : atrasado ? 'Partido pendiente' : 'Próximo partido'}
       </Text>
+
+      {/* EL TITULAR: LA RONDA.
+          Hasta octavos vive donde siempre, en la línea gris junto a la
+          categoría. Desde cuartos sale de ahí y se pone en grande — y en
+          semifinales y la final, en mayúsculas: la palabra es lo que el
+          jugador va a enseñarle a alguien. */}
+      {conTitular && !!titular && (
+        <Text
+          style={{
+            fontFamily: font.display,
+            fontSize: trato.tamanoTitular,
+            fontWeight: '600',
+            color: trato.colorTitular,
+            textTransform: trato.titularPartido ? 'uppercase' : 'none',
+            letterSpacing: 0.5,
+            lineHeight: trato.tamanoTitular * 1.1,
+            marginBottom: 6,
+          }}
+        >
+          {titular}
+        </Text>
+      )}
+
+      {/* EL SELLO DE LA FINAL. Lo único que ninguna otra ronda tiene. */}
+      {trato.sello && (
+        <LinearGradient
+          colors={[...gradient.seal.colors] as [string, string, ...string[]]}
+          start={gradient.seal.start}
+          end={gradient.seal.end}
+          style={{
+            alignSelf: 'flex-start',
+            borderRadius: radius.pill,
+            paddingHorizontal: space[3],
+            paddingVertical: space[1.5],
+            marginBottom: space[2],
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: font.display,
+              fontSize: fontSize.eyebrow,
+              fontWeight: '600',
+              color: color.onGold,
+              textTransform: 'uppercase',
+              letterSpacing: 1,
+            }}
+          >
+            {trato.sello}
+          </Text>
+        </LinearGradient>
+      )}
 
       {/* EL MARCADOR DE TU PROPIO PARTIDO.
           Estaba en `match_sets` y no salía a ninguna pantalla del jugador: la
@@ -523,7 +631,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
             fontFamily: font.display,
             fontSize: 24,
             fontWeight: '600',
-            color: color.goldBright,
+            color: trato.colorTitular,
             marginBottom: 6,
           }}
         >
@@ -537,7 +645,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
           fontFamily: font.display,
           fontSize: 17,
           fontWeight: '600',
-          color: color.text,
+          color: trato.colorTexto,
           marginBottom: 2,
         }}
       >
@@ -547,7 +655,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
         style={{
           fontFamily: font.body,
           fontSize: 12,
-          color: color.muted,
+          color: trato.colorTenue,
           marginBottom: 12,
         }}
       >
@@ -555,9 +663,12 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
             con zero-padding para poder ordenar el cuadro, y no significa nada
             para el jugador: con la categoría y la ronda ya sabe qué partido es.
             Se quitó también del tipo, porque el dato que sigue ahí es el que
-            vuelve a colarse. */}
+            vuelve a colarse.
+
+            Y la ronda solo va aquí si NO es ya el titular: decirla dos veces en
+            la misma tarjeta la convierte en ruido. */}
         {match.categoryName}
-        {stageLabel(match.stage) ? ` · ${stageLabel(match.stage)}` : ''}
+        {!conTitular && titular ? ` · ${titular}` : ''}
       </Text>
 
       {/* Rival */}
@@ -565,7 +676,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
         style={{
           fontFamily: font.body,
           fontSize: 11,
-          color: color.muted,
+          color: trato.colorTenue,
           textTransform: 'uppercase',
           letterSpacing: 0.8,
           marginBottom: 4,
@@ -578,7 +689,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
           fontFamily: font.display,
           fontSize: 15,
           fontWeight: '600',
-          color: color.text,
+          color: trato.colorTexto,
           marginBottom: 12,
         }}
       >
@@ -592,7 +703,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
       {match.rankingRival && (
         <View style={{ marginBottom: 12, gap: 4 }}>
           <RankingBadge variant="seed" value={match.rankingRival.cabezaDeSerie} compact />
-          <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>
+          <Text style={{ fontFamily: font.body, fontSize: 12, color: trato.colorTenue }}>
             {nombreConPosicion(match.rivalPlayer1, match.rankingRival.jugador1Posicion)}
             {' · '}
             {nombreConPosicion(match.rivalPlayer2, match.rankingRival.jugador2Posicion)}
@@ -632,7 +743,7 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <View
           style={{
-            backgroundColor: color.surface2,
+            backgroundColor: trato.ficha.fondo,
             borderRadius: radius.sm,
             paddingHorizontal: 10,
             paddingVertical: 5,
@@ -644,22 +755,22 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
         >
           {/* Ícono de trazo en vez de 🕐: el emoji lo dibuja cada plataforma
               con su color, así que ignoraba color.text. */}
-          <Icon name="clock" size={13} color={color.text} />
-          <Text style={{ fontFamily: font.body, fontSize: 12, color: color.text }}>
+          <Icon name="clock" size={13} color={trato.ficha.texto} />
+          <Text style={{ fontFamily: font.body, fontSize: 12, color: trato.ficha.texto }}>
             {formatScheduledAt(match.scheduledAt)}
           </Text>
         </View>
         {match.courtName && (
           <View
             style={{
-              backgroundColor: color.surface2,
+              backgroundColor: trato.ficha.fondo,
               borderRadius: radius.sm,
               paddingHorizontal: 10,
               paddingVertical: 5,
               flexShrink: 0,
             }}
           >
-            <Text style={{ fontFamily: font.body, fontSize: 12, color: color.text }} numberOfLines={1}>
+            <Text style={{ fontFamily: font.body, fontSize: 12, color: trato.ficha.texto }} numberOfLines={1}>
               🎾 {match.courtName}
             </Text>
           </View>
@@ -668,6 +779,37 @@ export default function MyNextMatch({ pairIds, sinPartidoAun }: MyNextMatchProps
         {/* El momento de verdad: "juego en 40 min, ¿dónde es?" */}
         <ComoLlegar venue={match.venue} variant="compact" />
       </View>
-    </View>
+    </>
+  );
+
+  const estiloTarjeta = {
+    borderRadius: radius.xl2,
+    padding: trato.padding,
+    borderWidth: 1,
+    // En vivo el borde sigue siendo oro pleno, esté en la ronda que esté: es
+    // una señal de estado y gana a la de jerarquía.
+    //
+    // Y en el nivel 1 manda el borde QUE ESTA TARJETA YA TENÍA. "Nivel 1" no
+    // es un trato, es "como estaba" — y las dos tarjetas no estaban igual:
+    // esta llevaba `lineSoft` y la de siguiente ronda `line`. La escala empieza
+    // a decidir en cuartos, que es donde empieza a haber algo que decir.
+    borderColor: isLive ? color.gold : trato.nivel === 1 ? color.lineSoft : trato.borde,
+    overflow: 'hidden' as const,
+  };
+
+  // El degradado solo desde semifinales. Debajo, superficie plana: una tarjeta
+  // de octavos con fondo degradado competiría con la de la final, que es justo
+  // lo que esto viene a arreglar.
+  return trato.fondo ? (
+    <LinearGradient
+      colors={[...trato.fondo.colors] as [string, string, ...string[]]}
+      start={trato.fondo.start}
+      end={trato.fondo.end}
+      style={estiloTarjeta}
+    >
+      {contenido}
+    </LinearGradient>
+  ) : (
+    <View style={[estiloTarjeta, { backgroundColor: trato.fondoPlano }]}>{contenido}</View>
   );
 }

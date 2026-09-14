@@ -49,6 +49,12 @@ import { supabase } from '@/lib/supabase/client';
 import { advanceBracket, type RoundMatch } from '@/lib/engine/bracket';
 import { stageForBracketSize, type MatchStage } from '@/lib/engine/seeding';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
+/**
+ * CUÁNTO PESA LA RONDA. No vive aquí porque no es solo de esta tarjeta:
+ * `MyNextMatch` escala con la misma escala, y una sola de las dos escalando
+ * sería peor que ninguna. Ver `@/lib/escala-de-ronda`.
+ */
+import { nivelDeRonda, type NivelDeRonda } from '@/lib/escala-de-ronda';
 
 // ───────────────────────────────────────────
 // Vocabulario
@@ -83,29 +89,6 @@ const LA_RONDA: Record<MatchStage, string> = {
   quarter: 'Cuartos de final',
   semi: 'Semifinales',
   final: 'La final',
-};
-
-/**
- * CUÁNTO PESA VISUALMENTE ESTA RONDA. 1 la más lejana, 4 la final.
- *
- * La tarjeta se veía igual en la ronda de 32 que en la final, y eso es plano
- * de una forma que el torneo no es: llegar a la final es lo más grande que te
- * pasa en el fin de semana y la pantalla no se enteraba.
- *
- * Vive aquí y no en el componente porque es una decisión sobre el CUADRO
- * —qué tan lejos has llegado—, no sobre píxeles. El componente decide qué
- * hacer con el número; cuál es el número lo decide el torneo.
- */
-export type NivelDeRonda = 1 | 2 | 3 | 4;
-
-const NIVEL: Record<MatchStage, NivelDeRonda> = {
-  // Las dos primeras comparten nivel a propósito: entre la ronda de 32 y los
-  // octavos no hay un salto que contarle a nadie. El salto empieza en cuartos.
-  round_of_32: 1,
-  round_of_16: 1,
-  quarter: 2,
-  semi: 3,
-  final: 4,
 };
 
 /** Las etapas del cuadro, de la más lejana a la más cercana al título. */
@@ -310,11 +293,17 @@ export function comoLlegaste(fueBye: boolean): string {
   return fueBye ? 'Pasas sin jugar' : 'Ganaste';
 }
 
-/** Cuánto pesa la ronda a la que ACABA de entrar. No la que ganó. */
-export const nivelDeRonda = (stage: MatchStage): NivelDeRonda => NIVEL[stage];
-
 /** La ronda sola, para el titular. */
 export const nombreDeLaRonda = (stage: MatchStage): string => LA_RONDA[stage];
+
+/**
+ * Cuánto pesa la ronda a la que ACABA de entrar. No la que ganó.
+ *
+ * Se reexporta desde `@/lib/escala-de-ronda`, que es donde vive: ahí la lee
+ * también `MyNextMatch`, para que las dos tarjetas escalen igual.
+ */
+export { nivelDeRonda };
+export type { NivelDeRonda };
 
 /** Lo que se le puede decir hoy al jugador que acaba de ganar. */
 export interface SiguienteRonda {
@@ -462,7 +451,7 @@ export async function fetchSiguienteRonda(
     stage: ubicacion.stage,
     ronda: ESTAS_EN[ubicacion.stage],
     rondaSola: LA_RONDA[ubicacion.stage],
-    nivel: NIVEL[ubicacion.stage],
+    nivel: nivelDeRonda(ubicacion.stage),
     slotIndex: ubicacion.slotIndex,
     scheduledAt: hueco?.scheduled_at ?? null,
     courtLabel: hueco?.court_label ?? null,
