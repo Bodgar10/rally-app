@@ -316,6 +316,32 @@ export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] })
       <Text style={{ fontFamily: font.body, fontSize: fontSize.caption, color: trato.colorTenue, lineHeight: 18 }}>
         {textoDelRival(donde.rivalSaleDe)}
       </Text>
+
+      {/* LO QUE YA ES SUYO POR ESTAR AQUÍ.
+          Estaba en `MyNextMatch` y no aquí — o sea que faltaba justo en la
+          final, que es donde más pesa: 650 puntos asegurados y 1000 si gana.
+
+          GARANTIZADOS, no definitivos: un resultado corregido puede moverlos.
+          Y no se pinta nada si el helper no pudo calcularlos — sin guiones y
+          sin un número aproximado, que sería peor que el hueco.
+
+          Su tamaño NO escala con la ronda, igual que la hora y la cancha: es un
+          dato, y los datos se leen igual en octavos que en la final. El color
+          sale del trato, que sobre el granate ya resuelve el contraste. */}
+      {donde.puntos && (
+        <Text
+          style={{
+            fontFamily: font.body,
+            fontSize: fontSize.caption,
+            fontWeight: '600',
+            color: trato.colorTitular,
+            lineHeight: 18,
+          }}
+        >
+          {`Tienes ${donde.puntos.garantizados.toLocaleString()} pts de ranking garantizados`}
+          {` · Si ganan, ${donde.puntos.siGanan.toLocaleString()}`}
+        </Text>
+      )}
     </>
   );
 

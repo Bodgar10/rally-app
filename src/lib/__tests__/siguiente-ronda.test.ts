@@ -23,6 +23,8 @@ import {
   nivelDeRonda, nombreDeLaRonda, textoDelRival, ubicacionTrasGanar,
   type PartidoDeCuadro,
 } from '../siguiente-ronda';
+import { puntosGarantizados, rondaMasLejanaAlcanzada } from '../puntos-garantizados';
+import { DEFAULT_RANKING_RULES } from '../engine/ranking-points';
 
 /** Un cuarto de final del cuadro, con su etiqueta ordenable. */
 function cuarto(
@@ -574,5 +576,60 @@ describe('distinguir el fallo de la ausencia', () => {
       console.error = original;
     }
     expect(visto[0]).toMatchObject({ crudo: 'objeto vacío: el fetch no llegó a salir' });
+  });
+});
+
+/**
+ * LOS PUNTOS DE ESTAR AQUÍ
+ *
+ * Estaban en `MyNextMatch` y no en esta tarjeta — o sea que faltaban justo en
+ * la final, que es donde más pesan.
+ *
+ * LA REGLA: estar en la ronda YA los garantiza, sin jugarla. Quien pierde la
+ * final sigue siendo subcampeón y se lleva los 650. Por eso `garantizados` es
+ * el tope de la ronda a la que entra y `siGanan` el del peldaño siguiente, que
+ * en la final es ser campeón.
+ *
+ * La aritmética no se prueba aquí: es del motor y ya tiene sus tests. Lo que se
+ * fija es que se le pregunta por los DOS peldaños correctos.
+ */
+describe('los puntos de la ronda a la que entra', () => {
+  // Un torneo donde el multiplicador de tier es 1: así los números del test son
+  // los de la tabla del motor y se leen de un vistazo.
+  const BASE = { tier: 'p1' as const, parejasEnCategoria: 16, groupWins: 0, qualified: true };
+
+  const enLaRonda = (stage: string) =>
+    puntosGarantizados({ ...BASE, furthestRound: rondaMasLejanaAlcanzada([stage]) })!.garantizados;
+
+  it('la tabla del motor es la que manda', () => {
+    expect(DEFAULT_RANKING_RULES.roundPoints.final).toBe(650);
+    expect(DEFAULT_RANKING_RULES.roundPoints.champion).toBe(1000);
+  });
+
+  it('estar en la final ya vale el tope de finalista, sin jugarla', () => {
+    // El caso del enunciado: 650 garantizados.
+    expect(enLaRonda('final')).toBe(650 + DEFAULT_RANKING_RULES.qualifyBonus);
+  });
+
+  it('y ganarla es el campeonato, que NO es otra ronda del cuadro', () => {
+    // Ser campeón no tiene fila en `matches`: por eso la escalera lo nombra
+    // aparte. Si se proyectara con el `stage` de la final saldría 650 otra vez.
+    const campeon = puntosGarantizados({ ...BASE, furthestRound: 'champion' })!.garantizados;
+    expect(campeon).toBe(1000 + DEFAULT_RANKING_RULES.qualifyBonus);
+    expect(campeon).toBeGreaterThan(enLaRonda('final'));
+  });
+
+  it('cada ronda vale más que la anterior', () => {
+    const escalera = ['round_of_16', 'quarter', 'semi', 'final'].map(enLaRonda);
+    expect(escalera).toEqual([...escalera].sort((a, b) => a - b));
+    expect(new Set(escalera).size).toBe(escalera.length);
+  });
+
+  it('sin tier no se inventa un número', () => {
+    expect(puntosGarantizados({ ...BASE, tier: null, furthestRound: 'final' })).toBeNull();
+  });
+
+  it('ni sin saber cuántas parejas hay en la categoría', () => {
+    expect(puntosGarantizados({ ...BASE, parejasEnCategoria: 0, furthestRound: 'final' })).toBeNull();
   });
 });

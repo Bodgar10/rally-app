@@ -56,6 +56,11 @@ import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
  */
 import { nivelDeRonda, type NivelDeRonda } from '@/lib/escala-de-ronda';
 import { esFalloDeRed, registrarFallo } from '@/lib/errores-red';
+import {
+  puntosGarantizados, rondaMasLejanaAlcanzada,
+  type PuntosGarantizados,
+} from '@/lib/puntos-garantizados';
+import type { RoundReached, Tier } from '@/lib/engine/ranking-points';
 
 // ───────────────────────────────────────────
 // Vocabulario
@@ -90,6 +95,24 @@ const LA_RONDA: Record<MatchStage, string> = {
   quarter: 'Cuartos de final',
   semi: 'Semifinales',
   final: 'La final',
+};
+
+/**
+ * A qué ronda te sube GANAR esta. La escalera, no la aritmética.
+ *
+ * Los puntos salen enteros de `puntosGarantizados`, que a su vez llama al
+ * motor: aquí no se suma ni se multiplica nada. Lo único que hace falta añadir
+ * es qué peldaño viene después, y eso no lo puede decir un `stage` porque
+ * GANAR LA FINAL NO TIENE STAGE — no hay una fila de `matches` para ser
+ * campeón. Por eso la final apunta a `'champion'` y no a otra etapa.
+ */
+const RONDA_SI_GANA: Record<MatchStage, RoundReached> = {
+  // El motor no puntúa la ronda de 32: ganarla te mete en octavos, que sí.
+  round_of_32: 'r16',
+  round_of_16: 'quarter',
+  quarter: 'semi',
+  semi: 'final',
+  final: 'champion',
 };
 
 /** Las etapas del cuadro, de la más lejana a la más cercana al título. */
@@ -322,6 +345,20 @@ export interface SiguienteRonda {
   courtLabel: string | null;
   /** `null` solo cuando ni siquiera se conocen las parejas que se lo disputan. */
   rivalSaleDe: DeDondeSaleElRival | null;
+  /**
+   * Lo que ya tiene asegurado por estar AQUÍ, y lo que sumaría ganando.
+   *
+   * ESTAR EN LA RONDA YA LOS GARANTIZA. No hace falta jugarla: quien pierde la
+   * final sigue siendo subcampeón y se lleva los 650. Por eso `garantizados`
+   * es el tope de la ronda a la que acaba de entrar, y `siGanan` el del peldaño
+   * siguiente — que en la final es ser campeón.
+   *
+   * `null` si falta cualquier dato para calcularlos (ver
+   * `@/lib/puntos-garantizados`): ahí no se pinta nada, nunca un número
+   * aproximado. Y la palabra es GARANTIZADOS, no definitivos: un resultado
+   * corregido puede cambiarlos.
+   */
+  puntos: PuntosGarantizados | null;
   /** Llegó por un bye: nadie jugó. Cambia cómo se le anuncia, no dónde está. */
   fueBye: boolean;
 }
@@ -471,6 +508,67 @@ async function categoriaDondeGano(
 }
 
 /**
+ * Los puntos que ya tiene asegurados por estar en esa ronda, y los de ganarla.
+ *
+ * TODA la aritmética es de `puntosGarantizados`, que a su vez llama al motor.
+ * Aquí solo se reúne el estado de la pareja y se pregunta DOS veces: una con
+ * la ronda a la que acaba de entrar y otra con el peldaño de arriba. No se usa
+ * `proximoStage` a propósito: ese camino proyecta "si ganas llegas a esta
+ * ronda", y aquí la ronda ya está alcanzada por haber entrado — lo que se
+ * proyecta es el peldaño SIGUIENTE, que en la final es el campeonato y no
+ * tiene `stage` que pasarle.
+ *
+ * `null` en cuanto falte un dato o falle una lectura. Los puntos son un extra:
+ * que no se puedan calcular NO apaga la tarjeta.
+ */
+async function puntosDeLaRonda(
+  categoria: string,
+  miPairId: string,
+  stage: MatchStage,
+): Promise<PuntosGarantizados | null> {
+  const [cat, parejas, standing] = await Promise.all([
+    leerConReintento('tier', () =>
+      supabase.from('categories').select('tournaments:tournament_id ( tier )').eq('id', categoria).limit(1)),
+    // LAS PAREJAS SALEN DE LA VISTA PÚBLICA, NO DE `pairs`.
+    //
+    // `pairs_select` (migración 008) es `player1_id = auth.uid() or
+    // player2_id = auth.uid()`: un jugador contando ahí se cuenta A SÍ MISMO y
+    // a nadie más. Y el número no es decorativo — `tierEfectivo` tiene un piso
+    // de parejas inscritas, así que con 1 esta categoría 'major' de 30 parejas
+    // caía dos escalones a 'p2' y los puntos salían a 0.6× en vez de 2×: 510
+    // donde son 1700. Un número creíble y falso, que es lo peor que puede
+    // pintar esta tarjeta.
+    //
+    // `bracket_pairs_public` (migración 039) publica las parejas de la
+    // categoría saltándose esa RLS, y es la misma vista de la que ya salen los
+    // nombres del rival aquí al lado.
+    leerConReintento('parejas-de-la-categoria', () =>
+      supabase.from('bracket_pairs_public').select('pair_id').eq('category_id', categoria)),
+    leerConReintento('victorias-de-grupo', () =>
+      supabase.from('group_standings').select('won').eq('pair_id', miPairId).limit(1)),
+  ]);
+
+  if (!cat.ok || !parejas.ok || !standing.ok) return null;
+
+  const fila = (cat.data ?? [])[0] as { tournaments: { tier: string | null } | null } | undefined;
+  const base = {
+    tier: (fila?.tournaments?.tier ?? null) as Tier | null,
+    parejasEnCategoria: (parejas.data ?? []).length,
+    groupWins: ((standing.data ?? [])[0] as { won: number } | undefined)?.won ?? null,
+    // Está en el cuadro: la clasificación es un hecho, no una proyección.
+    qualified: true,
+  };
+
+  // Lo que ya es suyo por estar en esta ronda — la haya jugado o no.
+  const aqui = puntosGarantizados({ ...base, furthestRound: rondaMasLejanaAlcanzada([stage]) });
+  // Y lo que sería suyo ganándola.
+  const arriba = puntosGarantizados({ ...base, furthestRound: RONDA_SI_GANA[stage] });
+  if (!aqui || !arriba) return null;
+
+  return { garantizados: aqui.garantizados, siGanan: arriba.garantizados };
+}
+
+/**
  * Dónde está el jugador, si acaba de ganar y su siguiente partido todavía no
  * existe.
  *
@@ -544,6 +642,8 @@ export async function fetchSiguienteRonda(
     partidoDelRival?.pairAId, partidoDelRival?.pairBId,
   ]);
 
+  const puntos = await puntosDeLaRonda(categoria, ubicacion.miPairId, ubicacion.stage);
+
   const rivalSaleDe = deDondeSaleElRival(
     partidoDelRival,
     // `nombreDePareja` cae a '—' cuando la vista no resuelve la pareja, y
@@ -563,6 +663,7 @@ export async function fetchSiguienteRonda(
       scheduledAt: hueco?.scheduled_at ?? null,
       courtLabel: hueco?.court_label ?? null,
       rivalSaleDe,
+      puntos,
       fueBye: ubicacion.fueBye,
     },
   };
