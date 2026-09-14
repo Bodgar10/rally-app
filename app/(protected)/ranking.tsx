@@ -827,8 +827,24 @@ function ChampionRowItem({ champion }: { champion: ChampionRow }) {
   );
 }
 
-/** Estado vacío cuando el jugador no tiene ninguna fila en ranking_public
- *  (aún no jugó ningún torneo terminado en ninguna división). */
+/**
+ * Estado vacío cuando el jugador no tiene ninguna fila en ranking_public.
+ *
+ * DECÍA "Juega tu primer torneo para aparecer aquí", y se lo encontraba gente
+ * que YA había jugado — incluido un campeón recién coronado que llega desde el
+ * botón de su propia tarjeta. Leer que te falta jugar tu primer torneo el día
+ * que ganaste uno no es un detalle de redacción: es la app contradiciendo lo
+ * que el jugador acaba de vivir.
+ *
+ * EL MOTIVO REAL NO ERA ESE. `ranking_points` se escribe cuando el organizador
+ * CIERRA el torneo, y eso puede tardar días después de la final. Hasta
+ * entonces no hay nada que enseñar aunque hayas jugado — y aunque hayas
+ * ganado.
+ *
+ * La copia nueva es cierta en los dos casos: el que no ha jugado nunca y el
+ * que jugó y espera a que le cierren el torneo. Y no promete una fecha, porque
+ * no la sabemos: depende de una persona.
+ */
 function NoRankingEmpty() {
   return (
     <View
@@ -865,12 +881,18 @@ function NoRankingEmpty() {
           lineHeight: 20,
         }}
       >
-        Juega tu primer torneo para aparecer aquí.
+        Los puntos se suman cuando el organizador cierra el torneo. Si ya jugaste
+        alguno, aparecerán aquí en cuanto lo cierre.
       </Text>
     </View>
   );
 }
 
+/**
+ * Y el de "tiene división pero posición 0", que decía lo mismo por otras
+ * palabras: "después de tu primer torneo terminado". Mismo problema —
+ * al campeón le sobra el "primer"— y misma causa: falta que lo cierren.
+ */
 function EmptyRanking() {
   return (
     <View
@@ -907,7 +929,8 @@ function EmptyRanking() {
           lineHeight: 20,
         }}
       >
-        Tu posición en la red aparece aquí después de tu primer torneo terminado.
+        Tu posición se calcula con los torneos ya cerrados. Si jugaste uno y
+        todavía no aparece, es que el organizador no lo ha cerrado.
       </Text>
     </View>
   );
