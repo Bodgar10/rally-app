@@ -48,17 +48,28 @@ import { diaYHoraDeTorneo } from '@/lib/fechas';
 import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
 import { tratoDeNivel } from '@/lib/escala-de-ronda';
 import {
-  comoLlegaste, fetchSiguienteRonda, textoDelRival, type SiguienteRonda,
+  comoLlegaste, fetchSiguienteRonda, textoDelRival, type LecturaSiguienteRonda,
 } from '@/lib/siguiente-ronda';
 
 export default function YaEstasEnLaSiguiente({ pairIds }: { pairIds: string[] }) {
-  const [donde, setDonde] = useState<SiguienteRonda | null>(null);
+  const [lectura, setLectura] = useState<LecturaSiguienteRonda | null>(null);
 
   const cargar = useCallback(async () => {
-    setDonde(await fetchSiguienteRonda(pairIds));
+    setLectura(await fetchSiguienteRonda(pairIds));
   }, [pairIds]);
 
   useEffect(() => { void cargar(); }, [cargar]);
+
+  /**
+   * Lo que hay que pintar, o nada.
+   *
+   * `'no-se-pudo'` no pinta nada, IGUAL que `'nada'` — pero por una razón
+   * distinta y ya no se confunden. No se inventa una tarjeta con huecos ni se
+   * le enseña al jugador un error rojo por una lectura que falló: lo que vino a
+   * buscar está debajo. Lo que sí queda es el rastro, con código y contexto,
+   * que `leerConReintento` escribió después de reintentar.
+   */
+  const donde = lectura?.estado === 'hay' ? lectura.donde : null;
 
   // Al cuadro de SU categoría, que es donde va a nacer el partido que jubila
   // esta tarjeta. No se puede suscribir antes de saber cuál es, y no hace

@@ -55,6 +55,7 @@ import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
  * sería peor que ninguna. Ver `@/lib/escala-de-ronda`.
  */
 import { nivelDeRonda, type NivelDeRonda } from '@/lib/escala-de-ronda';
+import { esFalloDeRed, registrarFallo } from '@/lib/errores-red';
 
 // ───────────────────────────────────────────
 // Vocabulario
@@ -329,6 +330,90 @@ export interface SiguienteRonda {
 // Lectura
 // ───────────────────────────────────────────
 
+/**
+ * CALLARSE PORQUE NO HAY NADA Y CALLARSE PORQUE NO SE PUDO LEER NO SON LO MISMO
+ *
+ * Las dos cosas devolvían `null` y la tarjeta desaparecía igual, con un
+ * `console.warn` como único rastro. Un fallo de transporte —la red del club, un
+ * reintento disparado por Realtime justo sin cobertura— apagaba la tarjeta de
+ * un jugador que SÍ estaba en la final, y no quedaba nada que mirar después.
+ *
+ * Y el warn tampoco servía: decía `undefined`, porque el error de un `fetch`
+ * que ni sale no es un `Error` y no trae `.message`.
+ */
+export type LecturaSiguienteRonda =
+  /** Hay algo que anunciar. */
+  | { estado: 'hay'; donde: SiguienteRonda }
+  /** Se leyó bien y no hay nada que decir. El caso normal, y el más frecuente. */
+  | { estado: 'nada' }
+  /** No se pudo leer. No es lo mismo que no haber nada, y ya quedó registrado. */
+  | { estado: 'no-se-pudo' };
+
+/**
+ * ¿El error impidió HABLAR con la base, o lo dijo la base?
+ *
+ * Un error de Postgres o de PostgREST SIEMPRE trae `code` ('42501', 'PGRST116'…).
+ * Un `fetch` que no llegó a salir deja un objeto sin código —en la sonda que
+ * destapó esto llegó literalmente vacío— y ese es el único que tiene sentido
+ * reintentar: repetir un `42501` devuelve `42501` otra vez.
+ */
+export function esFalloDeTransporte(e: unknown): boolean {
+  if (esFalloDeRed(e)) return true;
+  if (typeof e === 'object' && e !== null) {
+    const { code } = e as { code?: unknown };
+    return code === undefined || code === null || code === '';
+  }
+  return false;
+}
+
+/**
+ * Lo que de verdad trae un error de Supabase.
+ *
+ * `registrarFallo` lee `.message`, que en un error de red no existe: por eso el
+ * log decía `undefined`. Aquí se sacan los cuatro campos de `PostgrestError` a
+ * mano, y si el objeto viene vacío se dice eso mismo en vez de callar.
+ */
+function detalleDelError(e: unknown): Record<string, unknown> {
+  if (typeof e !== 'object' || e === null) return { crudo: String(e) };
+  const o = e as Record<string, unknown>;
+  if (Object.keys(o).length === 0) return { crudo: 'objeto vacío: el fetch no llegó a salir' };
+  return { code: o.code ?? null, message: o.message ?? null, details: o.details ?? null, hint: o.hint ?? null };
+}
+
+/** Esperas entre intentos. Cortas: el jugador está mirando la pantalla. */
+const ESPERAS_MS = [300, 900];
+
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Una lectura, reintentada SOLO si no se pudo hablar con la base.
+ *
+ * `{ ok: false }` cuando se agotaron los intentos o cuando el error lo dijo la
+ * base, que reintentado daría lo mismo. Quien llama decide si eso apaga la
+ * tarjeta entera o solo le quita un dato.
+ */
+export async function leerConReintento<T>(
+  contexto: string,
+  leer: () => PromiseLike<{ data: T | null; error: unknown }>,
+  esperas: number[] = ESPERAS_MS,
+): Promise<{ ok: true; data: T | null } | { ok: false }> {
+  for (let intento = 0; intento <= esperas.length; intento++) {
+    const { data, error } = await leer();
+    if (!error) return { ok: true, data };
+
+    const reintentable = esFalloDeTransporte(error) && intento < esperas.length;
+    registrarFallo(`siguiente-ronda/${contexto}`, error, {
+      intento: intento + 1,
+      de: esperas.length + 1,
+      reintentable,
+      ...detalleDelError(error),
+    });
+    if (!reintentable) return { ok: false };
+    await dormir(esperas[intento]);
+  }
+  return { ok: false };
+}
+
 /** Una fila de `matches` traída para esto. */
 interface FilaDeCuadro {
   id: string;
@@ -354,17 +439,18 @@ const aPartido = (r: FilaDeCuadro): PartidoDeCuadro => ({
  * La más avanzada si hay varias —dos categorías el mismo fin de semana—, que es
  * donde está la noticia. `null` si no ganó ninguno.
  */
-async function categoriaDondeGano(pairIds: string[]): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('matches')
-    .select('category_id, stage, pair_a_id, pair_b_id, winner_pair_id')
-    .neq('stage', 'group')
-    .or(`pair_a_id.in.(${pairIds.join(',')}),pair_b_id.in.(${pairIds.join(',')})`);
+async function categoriaDondeGano(
+  pairIds: string[],
+): Promise<{ ok: true; categoria: string | null } | { ok: false }> {
+  const lectura = await leerConReintento('victorias-de-cuadro', () =>
+    supabase
+      .from('matches')
+      .select('category_id, stage, pair_a_id, pair_b_id, winner_pair_id')
+      .neq('stage', 'group')
+      .or(`pair_a_id.in.(${pairIds.join(',')}),pair_b_id.in.(${pairIds.join(',')})`));
 
-  if (error) {
-    console.warn('[siguiente-ronda] victorias de cuadro:', error.message);
-    return null;
-  }
+  if (!lectura.ok) return { ok: false };
+  const data = lectura.data;
 
   const mios = new Set(pairIds);
   const filas = (data ?? [])
@@ -373,11 +459,15 @@ async function categoriaDondeGano(pairIds: string[]): Promise<string | null> {
       const g = ganadorDe({ pairAId: m.pair_a_id, pairBId: m.pair_b_id, winnerPairId: m.winner_pair_id });
       return g !== null && mios.has(g);
     });
-  if (filas.length === 0) return null;
+  // No ganó ningún partido de cuadro. Se leyó bien: no hay nada que anunciar.
+  if (filas.length === 0) return { ok: true, categoria: null };
 
-  return [...filas]
-    .sort((a, b) => ORDEN.indexOf(b.stage as MatchStage) - ORDEN.indexOf(a.stage as MatchStage))[0]
-    .category_id;
+  return {
+    ok: true,
+    categoria: [...filas]
+      .sort((a, b) => ORDEN.indexOf(b.stage as MatchStage) - ORDEN.indexOf(a.stage as MatchStage))[0]
+      .category_id,
+  };
 }
 
 /**
@@ -388,45 +478,60 @@ async function categoriaDondeGano(pairIds: string[]): Promise<string | null> {
  * dashboard no la sabe —`MiSituacion` devuelve `null` en cuanto el jugador
  * entra al cuadro, que es precisamente este caso.
  *
- * `null` si falta cualquier dato. Solo lectura.
+ * `'nada'` cuando se leyó bien y no hay nada que anunciar; `'no-se-pudo'`
+ * cuando la lectura falló, y eso YA quedó registrado. No son lo mismo, y
+ * confundirlos es lo que apagaba la tarjeta sin dejar rastro. Solo lectura.
  */
 export async function fetchSiguienteRonda(
   pairIds: string[],
   categoryId?: string,
-): Promise<SiguienteRonda | null> {
-  if (pairIds.length === 0) return null;
+): Promise<LecturaSiguienteRonda> {
+  if (pairIds.length === 0) return { estado: 'nada' };
 
-  const categoria = categoryId ?? (await categoriaDondeGano(pairIds));
-  if (!categoria) return null;
+  let categoria = categoryId;
+  if (!categoria) {
+    const donde = await categoriaDondeGano(pairIds);
+    if (!donde.ok) return { estado: 'no-se-pudo' };
+    if (!donde.categoria) return { estado: 'nada' };
+    categoria = donde.categoria;
+  }
 
   // TODO el cuadro de la categoría: el motor empareja la ronda entera, no un
   // partido suelto.
-  const { data, error } = await supabase
-    .from('matches')
-    .select('id, stage, round_label, pair_a_id, pair_b_id, winner_pair_id')
-    .eq('category_id', categoria)
-    .neq('stage', 'group');
+  const cuadro = await leerConReintento('cuadro', () =>
+    supabase
+      .from('matches')
+      .select('id, stage, round_label, pair_a_id, pair_b_id, winner_pair_id')
+      .eq('category_id', categoria as string)
+      .neq('stage', 'group'));
 
-  if (error) {
-    console.warn('[siguiente-ronda] cuadro:', error.message);
-    return null;
-  }
+  if (!cuadro.ok) return { estado: 'no-se-pudo' };
+  const data = cuadro.data;
 
   const ubicacion = ubicacionTrasGanar((data ?? []).map((r) => aPartido(r as FilaDeCuadro)), pairIds);
-  if (!ubicacion) return null;
+  // Se leyó el cuadro entero y no hay nada que anunciar: ganó la final, perdió,
+  // o su partido siguiente ya existe y lo enseña `MyNextMatch`.
+  if (!ubicacion) return { estado: 'nada' };
 
   // ── La hora y la cancha, del PLAN ──────────────────────────────────────
   // `match_schedule` las reserva por (categoría, etapa, hueco) desde que se
   // programa el día. Sin fila no hay hora: se dice la ronda y punto.
-  const { data: plan } = await supabase
-    .from('match_schedule')
-    .select('scheduled_at, court_label')
-    .eq('category_id', categoria)
-    .eq('stage', ubicacion.stage)
-    .eq('slot_index', ubicacion.slotIndex)
-    .limit(1);
+  //
+  // ESTA SÍ PUEDE FALLAR SIN APAGAR LA TARJETA. Saber que estás en la final vale
+  // por sí solo, y sin hora se dice la ronda y punto — lo mismo que cuando el
+  // plan no tiene fila. Pero se reintenta y se REGISTRA: perder la hora por un
+  // fallo de red no es lo mismo que no estar programada, y antes las dos
+  // acababan igual y en silencio, porque el error ni se miraba.
+  const plan = await leerConReintento('plan-del-dia', () =>
+    supabase
+      .from('match_schedule')
+      .select('scheduled_at, court_label')
+      .eq('category_id', categoria as string)
+      .eq('stage', ubicacion.stage)
+      .eq('slot_index', ubicacion.slotIndex)
+      .limit(1));
 
-  const hueco = (plan ?? [])[0] ?? null;
+  const hueco = plan.ok ? (plan.data ?? [])[0] ?? null : null;
 
   // ── De dónde sale su rival ─────────────────────────────────────────────
   // El hermano de cuadro puede ser un bye —alguien que también pasó sin jugar—
@@ -447,15 +552,18 @@ export async function fetchSiguienteRonda(
   );
 
   return {
-    categoryId: categoria,
-    stage: ubicacion.stage,
-    ronda: ESTAS_EN[ubicacion.stage],
-    rondaSola: LA_RONDA[ubicacion.stage],
-    nivel: nivelDeRonda(ubicacion.stage),
-    slotIndex: ubicacion.slotIndex,
-    scheduledAt: hueco?.scheduled_at ?? null,
-    courtLabel: hueco?.court_label ?? null,
-    rivalSaleDe,
-    fueBye: ubicacion.fueBye,
+    estado: 'hay',
+    donde: {
+      categoryId: categoria,
+      stage: ubicacion.stage,
+      ronda: ESTAS_EN[ubicacion.stage],
+      rondaSola: LA_RONDA[ubicacion.stage],
+      nivel: nivelDeRonda(ubicacion.stage),
+      slotIndex: ubicacion.slotIndex,
+      scheduledAt: hueco?.scheduled_at ?? null,
+      courtLabel: hueco?.court_label ?? null,
+      rivalSaleDe,
+      fueBye: ubicacion.fueBye,
+    },
   };
 }
