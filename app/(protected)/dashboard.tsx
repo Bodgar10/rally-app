@@ -53,6 +53,7 @@ import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
 import MisResultados from '@/components/player/MisResultados';
+import YaEstasEnLaSiguiente from '@/components/player/YaEstasEnLaSiguiente';
 import EnMiCancha from '@/components/player/EnMiCancha';
 import { porQueNoHayPartido } from '@/lib/situacion-jugador';
 import { bloquesDelDashboard, type ResumenDePartidos } from '@/lib/dashboard-jugador';
@@ -413,6 +414,23 @@ export default function DashboardScreen() {
             <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
           </View>
         )}
+
+        {/* ── YA ESTÁS EN LA SIGUIENTE RONDA ──────────────────────
+             Gana los cuartos y la app no le decía nada: su semifinal todavía
+             no existe como partido —el cuadro avanza con la ronda COMPLETA— así
+             que "Mi próximo partido" no tenía qué enseñar y "Mi situación" ya
+             se había callado porque está en el cuadro. Lo único que veía era su
+             lista de resultados, justo después de ganar.
+
+             La ronda sale del mismo motor que armará el cruce y la hora de
+             `match_schedule`, que la reserva desde que se programa el día. Ver
+             `@/lib/siguiente-ronda`.
+
+             Va ENCIMA de los resultados y no dentro del bloque de "próximo
+             partido": no es un partido, es dónde está. Y se apaga sola en
+             cuanto nace el partido de verdad, que es cuando MyNextMatch toma
+             el relevo — el helper devuelve null desde ese instante. */}
+        {pairIds.length > 0 && <YaEstasEnLaSiguiente pairIds={pairIds} />}
 
         {/* ── MIS RESULTADOS ──────────────────────────────────────
              Debajo de la situación y del próximo partido, que es el orden en
