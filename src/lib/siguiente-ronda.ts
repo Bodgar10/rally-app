@@ -69,6 +69,45 @@ const ESTAS_EN: Record<MatchStage, string> = {
   final: 'en la final',
 };
 
+/**
+ * El nombre de la ronda SOLO, sin preposición: el titular de la tarjeta.
+ *
+ * `ESTAS_EN` mete la ronda dentro de una frase; esto la saca para poder
+ * ponerla en grande y sola. En las rondas altas el titular es la palabra, no
+ * la oración: "Estás en" pequeño arriba y SEMIFINALES debajo, que es lo que
+ * el jugador va a enseñarle a alguien.
+ */
+const LA_RONDA: Record<MatchStage, string> = {
+  round_of_32: 'Ronda de 32',
+  round_of_16: 'Octavos',
+  quarter: 'Cuartos de final',
+  semi: 'Semifinales',
+  final: 'La final',
+};
+
+/**
+ * CUÁNTO PESA VISUALMENTE ESTA RONDA. 1 la más lejana, 4 la final.
+ *
+ * La tarjeta se veía igual en la ronda de 32 que en la final, y eso es plano
+ * de una forma que el torneo no es: llegar a la final es lo más grande que te
+ * pasa en el fin de semana y la pantalla no se enteraba.
+ *
+ * Vive aquí y no en el componente porque es una decisión sobre el CUADRO
+ * —qué tan lejos has llegado—, no sobre píxeles. El componente decide qué
+ * hacer con el número; cuál es el número lo decide el torneo.
+ */
+export type NivelDeRonda = 1 | 2 | 3 | 4;
+
+const NIVEL: Record<MatchStage, NivelDeRonda> = {
+  // Las dos primeras comparten nivel a propósito: entre la ronda de 32 y los
+  // octavos no hay un salto que contarle a nadie. El salto empieza en cuartos.
+  round_of_32: 1,
+  round_of_16: 1,
+  quarter: 2,
+  semi: 3,
+  final: 4,
+};
+
 /** Las etapas del cuadro, de la más lejana a la más cercana al título. */
 const ORDEN: MatchStage[] = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
 
@@ -271,12 +310,22 @@ export function comoLlegaste(fueBye: boolean): string {
   return fueBye ? 'Pasas sin jugar' : 'Ganaste';
 }
 
+/** Cuánto pesa la ronda a la que ACABA de entrar. No la que ganó. */
+export const nivelDeRonda = (stage: MatchStage): NivelDeRonda => NIVEL[stage];
+
+/** La ronda sola, para el titular. */
+export const nombreDeLaRonda = (stage: MatchStage): string => LA_RONDA[stage];
+
 /** Lo que se le puede decir hoy al jugador que acaba de ganar. */
 export interface SiguienteRonda {
   categoryId: string;
   stage: MatchStage;
   /** 'en semifinales' — ya con su preposición y su artículo. */
   ronda: string;
+  /** 'Semifinales' — la ronda sola, para ponerla en grande. */
+  rondaSola: string;
+  /** Cuánto pesa esta ronda: 1 la más lejana, 4 la final. */
+  nivel: NivelDeRonda;
   slotIndex: number;
   /** ISO, o `null` si el plan no reserva nada para ese hueco. Nunca inventado. */
   scheduledAt: string | null;
@@ -412,6 +461,8 @@ export async function fetchSiguienteRonda(
     categoryId: categoria,
     stage: ubicacion.stage,
     ronda: ESTAS_EN[ubicacion.stage],
+    rondaSola: LA_RONDA[ubicacion.stage],
+    nivel: NIVEL[ubicacion.stage],
     slotIndex: ubicacion.slotIndex,
     scheduledAt: hueco?.scheduled_at ?? null,
     courtLabel: hueco?.court_label ?? null,

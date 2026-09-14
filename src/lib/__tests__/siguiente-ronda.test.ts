@@ -19,7 +19,8 @@
 jest.mock('@/lib/supabase/client', () => ({ supabase: {} }));
 
 import {
-  comoLlegaste, deDondeSaleElRival, textoDelRival, ubicacionTrasGanar,
+  comoLlegaste, deDondeSaleElRival, nivelDeRonda, nombreDeLaRonda,
+  textoDelRival, ubicacionTrasGanar,
   type PartidoDeCuadro,
 } from '../siguiente-ronda';
 
@@ -305,5 +306,68 @@ describe('cómo llegaste', () => {
     );
     expect(comoLlegaste(conBye!.fueBye)).toBe('Pasas sin jugar');
     expect(comoLlegaste(ubicacionTrasGanar(CUARTOS, ['P1'])!.fueBye)).toBe('Ganaste');
+  });
+});
+
+/**
+ * CUÁNTO PESA LA RONDA
+ *
+ * La tarjeta se veía igual en la ronda de 32 que en la final. El nivel es lo
+ * que la hace crecer, y sale del CUADRO —qué tan lejos has llegado—, no de una
+ * decisión de píxeles: por eso se prueba aquí y no en el componente.
+ */
+describe('nivel de la ronda', () => {
+  it('sube con la ronda, y la final es el techo', () => {
+    expect(nivelDeRonda('round_of_32')).toBe(1);
+    expect(nivelDeRonda('round_of_16')).toBe(1);
+    expect(nivelDeRonda('quarter')).toBe(2);
+    expect(nivelDeRonda('semi')).toBe(3);
+    expect(nivelDeRonda('final')).toBe(4);
+  });
+
+  it('nunca baja al avanzar: cada ronda pesa al menos lo que la anterior', () => {
+    const camino = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'] as const;
+    const niveles = camino.map(nivelDeRonda);
+    expect(niveles).toEqual([...niveles].sort((a, b) => a - b));
+  });
+
+  // EL NIVEL SALE DE DONDE ENTRA, NO DE LO QUE GANÓ. Ganar cuartos te pone en
+  // semifinales: nivel 3, no 2.
+  it('ganar cuartos te da el nivel de SEMIFINALES', () => {
+    const u = ubicacionTrasGanar(CUARTOS, ['P1']);
+    expect(u!.stage).toBe('semi');
+    expect(nivelDeRonda(u!.stage)).toBe(3);
+  });
+
+  it('y ganar una semifinal, el de la final', () => {
+    const semis: PartidoDeCuadro[] = [
+      { id: 's0', stage: 'semi', roundLabel: 'semi-01', pairAId: 'P1', pairBId: 'P3', winnerPairId: 'P1' },
+      { id: 's1', stage: 'semi', roundLabel: 'semi-02', pairAId: 'P5', pairBId: 'P7', winnerPairId: null },
+    ];
+    expect(nivelDeRonda(ubicacionTrasGanar(semis, ['P1'])!.stage)).toBe(4);
+  });
+});
+
+describe('la ronda sola, para el titular', () => {
+  it('es el nombre sin preposición, listo para ir en grande', () => {
+    expect(nombreDeLaRonda('semi')).toBe('Semifinales');
+    expect(nombreDeLaRonda('final')).toBe('La final');
+    expect(nombreDeLaRonda('quarter')).toBe('Cuartos de final');
+    expect(nombreDeLaRonda('round_of_16')).toBe('Octavos');
+    expect(nombreDeLaRonda('round_of_32')).toBe('Ronda de 32');
+  });
+
+  it('cabe en una línea: el titular grande no puede empujar la hora fuera', () => {
+    // El titular va en mayúsculas y en display condensada. Por encima de ~18
+    // caracteres deja de caber en un móvil estrecho a 42px.
+    for (const stage of ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'] as const) {
+      expect(nombreDeLaRonda(stage).length).toBeLessThanOrEqual(18);
+    }
+  });
+
+  it('"Estás en" + la ronda sola vuelve a decir la frase entera', () => {
+    // Las dos líneas del titular partido tienen que leerse como una oración.
+    expect(`Estás en ${nombreDeLaRonda('semi').toLowerCase()}`).toBe('Estás en semifinales');
+    expect(`Estás en ${nombreDeLaRonda('final').toLowerCase()}`).toBe('Estás en la final');
   });
 });
