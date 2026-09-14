@@ -8,7 +8,7 @@
 
 jest.mock('@/lib/supabase/client', () => ({ supabase: {} }));
 
-import { frasePuntos, puntosDelPartido } from '../puntos-de-la-ronda';
+import { fraseCampeon, frasePuntos, puntosDelPartido } from '../puntos-de-la-ronda';
 import { puntosGarantizados, rondaMasLejanaAlcanzada } from '../puntos-garantizados';
 import { DEFAULT_RANKING_RULES } from '../engine/ranking-points';
 
@@ -195,5 +195,24 @@ describe('la frase de los puntos', () => {
     // iPhone. Si un cambio la alarga, este test lo dice antes que la pantalla.
     const p = puntosDelPartido({ ...ESTADO, stage: 'final' })!;
     expect(frasePuntos(p, 'final').length).toBeLessThanOrEqual(58);
+  });
+});
+
+describe('la frase del campeón', () => {
+  const ESTADO = { tier: 'major' as const, parejasEnCategoria: 30, groupWins: 2 };
+
+  it('un solo número, y sigue diciendo que es para cada jugador', () => {
+    expect(fraseCampeon(2400)).toBe('2,400 pts de ranking para cada uno');
+  });
+
+  it('el número del campeón es el `siGanan` de su final: no se mueve al ganarla', () => {
+    // Lo que le decía la tarjeta antes de jugar la final es lo que se lleva.
+    const antes = puntosDelPartido({ ...ESTADO, stage: 'final' })!;
+    expect(fraseCampeon(antes.siGanan)).toBe('2,400 pts de ranking para cada uno');
+    expect(frasePuntos(antes, 'final')).toContain('Si ganan, 2,400');
+  });
+
+  it('no promete nada más: ya ganó', () => {
+    expect(fraseCampeon(2400)).not.toContain('Si ganan');
   });
 });

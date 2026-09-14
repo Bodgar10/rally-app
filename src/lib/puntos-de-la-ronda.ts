@@ -169,3 +169,16 @@ export function frasePuntos(puntos: PuntosGarantizados, stage: string): string {
   return `${puntos.garantizados.toLocaleString()} pts de ranking para cada uno`
     + ` · Si ganan, ${puntos.siGanan.toLocaleString()}`;
 }
+
+/**
+ * La del campeón: un solo número, ya sin "si ganan".
+ *
+ *     2,400 pts de ranking para cada uno
+ *
+ * Misma redacción que `frasePuntos` y por el mismo motivo: son individuales,
+ * los dos jugadores reciben el número completo. Lo único que cambia es que ya
+ * no hay nada que proyectar — ganó.
+ */
+export function fraseCampeon(puntos: number): string {
+  return `${puntos.toLocaleString()} pts de ranking para cada uno`;
+}

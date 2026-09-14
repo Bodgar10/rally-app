@@ -55,6 +55,7 @@ import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
 import MisResultados from '@/components/player/MisResultados';
 import YaEstasEnLaSiguiente from '@/components/player/YaEstasEnLaSiguiente';
+import EresCampeon from '@/components/player/EresCampeon';
 import EnMiCancha from '@/components/player/EnMiCancha';
 import { porQueNoHayPartido } from '@/lib/situacion-jugador';
 import { bloquesDelDashboard, type ResumenDePartidos } from '@/lib/dashboard-jugador';
@@ -342,6 +343,22 @@ export default function DashboardScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* ── GANASTE EL TORNEO ───────────────────────────────────
+             ARRIBA DEL TODO, por encima incluso de lo que arbitra y de lo que
+             organiza: el día que ganas un torneo no hay nada en esta pantalla
+             que compita con eso.
+
+             Antes el campeón se quedaba sin nada. `YaEstasEnLaSiguiente` se
+             apaga —después de la final no hay ronda siguiente— y `MyNextMatch`
+             no tiene partido que enseñar, así que el único momento del torneo
+             que el jugador va a recordar era el único que la app no contaba.
+
+             Y no se pisa con las otras dos: deja de pintarse en cuanto el
+             jugador está inscrito en otro torneo vivo, que es justo cuando
+             `MyNextMatch` vuelve a tener algo que decir. Ver
+             `SIGUE_SIENDO_NOTICIA` en `@/lib/campeon`. */}
+        {pairIds.length > 0 && <EresCampeon pairIds={pairIds} />}
 
         {/* ── LO QUE ARBITRA Y LO QUE ORGANIZA, arriba ────────────
              Cada una sube por su cuenta. Ver `ordenDelDashboard`. */}
