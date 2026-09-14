@@ -38,12 +38,9 @@ import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/cha
 import { fetchParejasPublicas } from '@/lib/parejas-publicas';
 import { fechaHoraDeTorneo } from '@/lib/fechas';
 import { elegirProximo, momentoDelPartido, type MomentoDelPartido } from '@/lib/proximo-partido';
-import {
-  puntosGarantizados, rondaMasLejanaAlcanzada,
-  type PuntosGarantizados, type EstadoParaPuntos,
-} from '@/lib/puntos-garantizados';
+import { fetchPuntosDelPartido } from '@/lib/puntos-de-la-ronda';
+import type { PuntosGarantizados } from '@/lib/puntos-garantizados';
 import { fetchCabezaDeSerie } from '@/lib/cabeza-de-serie';
-import type { Tier } from '@/lib/engine/ranking-points';
 
 // ───────────────────────────────────────────
 // Tipos
@@ -280,16 +277,19 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   // La cabeza de serie es de la CATEGORÍA (todas sus parejas), no solo del
   // rival: se pide una vez y se busca la fila del rival adentro. Sin rival
   // conocido (bye, o la vista no resolvió la pareja) no hay nada que pedir.
-  const [{ data: sets }, estado, ordenPorPuntos] = await Promise.all([
+  const [{ data: sets }, puntos, ordenPorPuntos] = await Promise.all([
     supabase
       .from('match_sets')
       .select('set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b')
       .eq('match_id', base.matchId),
-    fetchEstadoParaPuntos({
+    // LOS PUNTOS, DE LA MISMA CUENTA QUE `YaEstasEnLaSiguiente`.
+    // Antes esto tenía su propia versión y le salía otro número para el mismo
+    // jugador: ver `@/lib/puntos-de-la-ronda`.
+    fetchPuntosDelPartido({
       categoryId: base.categoryId,
       miPairId: base.miPairId,
+      stage: base.stage,
       tier: base.tier,
-      proximoStage: base.stage,
     }),
     base.rivalPairId ? fetchCabezaDeSerie(base.categoryId) : Promise.resolve(null),
   ]);
@@ -301,7 +301,7 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
   return {
     ...base,
     marcador: marcadorParcial(sets ?? [], base.soyA),
-    puntos: puntosGarantizados(estado),
+    puntos,
     rankingRival: rivalOrdenado
       ? {
           cabezaDeSerie: rivalOrdenado.cabezaDeSerie,
@@ -314,50 +314,6 @@ async function fetchNextMatch(pairIds: string[]): Promise<NextMatch | null> {
           jugador2Posicion: rivalOrdenado.jugador2.posicion,
         }
       : null,
-  };
-}
-
-/**
- * Reúne el estado de la pareja que necesita `puntosGarantizados`: victorias
- * de grupo (de `group_standings.won`, ya calculado por el motor de
- * resultados) y, si el próximo partido es de cuadro, la ronda más lejana ya
- * asegurada (de sus partidos de cuadro ya resueltos). En fase de grupos no
- * hace falta esa segunda consulta: `qualified` es `false` y `furthestRound`
- * es `'none'` porque todavía no se llegó al cuadro.
- */
-async function fetchEstadoParaPuntos(args: {
-  categoryId: string;
-  miPairId: string;
-  tier: string | null;
-  proximoStage: string;
-}): Promise<EstadoParaPuntos> {
-  const { categoryId, miPairId, tier, proximoStage } = args;
-  const enCuadro = proximoStage !== 'group';
-
-  const [{ count: parejasEnCategoria }, { data: standing }, previos] = await Promise.all([
-    supabase.from('pairs').select('*', { count: 'exact', head: true }).eq('category_id', categoryId),
-    supabase.from('group_standings').select('won').eq('pair_id', miPairId).maybeSingle(),
-    enCuadro
-      ? supabase
-          .from('matches')
-          .select('stage')
-          .eq('category_id', categoryId)
-          .neq('stage', 'group')
-          .eq('status', 'finished')
-          .not('winner_pair_id', 'is', null)
-          .or(`pair_a_id.eq.${miPairId},pair_b_id.eq.${miPairId}`)
-      : Promise.resolve({ data: null }),
-  ]);
-
-  return {
-    tier: tier as Tier | null,
-    parejasEnCategoria: parejasEnCategoria ?? null,
-    groupWins: standing?.won ?? null,
-    qualified: enCuadro,
-    furthestRound: enCuadro
-      ? rondaMasLejanaAlcanzada((previos.data ?? []).map((m) => m.stage))
-      : 'none',
-    proximoStage,
   };
 }
 

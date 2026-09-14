@@ -55,12 +55,15 @@ import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
  * sería peor que ninguna. Ver `@/lib/escala-de-ronda`.
  */
 import { nivelDeRonda, type NivelDeRonda } from '@/lib/escala-de-ronda';
-import { esFalloDeRed, registrarFallo } from '@/lib/errores-red';
-import {
-  puntosGarantizados, rondaMasLejanaAlcanzada,
-  type PuntosGarantizados,
-} from '@/lib/puntos-garantizados';
-import type { RoundReached, Tier } from '@/lib/engine/ranking-points';
+import { leerConReintento } from '@/lib/lectura-reintentada';
+/**
+ * LOS PUNTOS NO SE CALCULAN AQUÍ. La misma cuenta la enseña `MyNextMatch`, y
+ * dos cuentas para un solo hecho es peor que ninguna: ver
+ * `@/lib/puntos-de-la-ronda`, que decide QUÉ preguntarle al motor una vez para
+ * las dos tarjetas.
+ */
+import { fetchPuntosDelPartido } from '@/lib/puntos-de-la-ronda';
+import type { PuntosGarantizados } from '@/lib/puntos-garantizados';
 
 // ───────────────────────────────────────────
 // Vocabulario
@@ -95,24 +98,6 @@ const LA_RONDA: Record<MatchStage, string> = {
   quarter: 'Cuartos de final',
   semi: 'Semifinales',
   final: 'La final',
-};
-
-/**
- * A qué ronda te sube GANAR esta. La escalera, no la aritmética.
- *
- * Los puntos salen enteros de `puntosGarantizados`, que a su vez llama al
- * motor: aquí no se suma ni se multiplica nada. Lo único que hace falta añadir
- * es qué peldaño viene después, y eso no lo puede decir un `stage` porque
- * GANAR LA FINAL NO TIENE STAGE — no hay una fila de `matches` para ser
- * campeón. Por eso la final apunta a `'champion'` y no a otra etapa.
- */
-const RONDA_SI_GANA: Record<MatchStage, RoundReached> = {
-  // El motor no puntúa la ronda de 32: ganarla te mete en octavos, que sí.
-  round_of_32: 'r16',
-  round_of_16: 'quarter',
-  quarter: 'semi',
-  semi: 'final',
-  final: 'champion',
 };
 
 /** Las etapas del cuadro, de la más lejana a la más cercana al título. */
@@ -386,71 +371,6 @@ export type LecturaSiguienteRonda =
   /** No se pudo leer. No es lo mismo que no haber nada, y ya quedó registrado. */
   | { estado: 'no-se-pudo' };
 
-/**
- * ¿El error impidió HABLAR con la base, o lo dijo la base?
- *
- * Un error de Postgres o de PostgREST SIEMPRE trae `code` ('42501', 'PGRST116'…).
- * Un `fetch` que no llegó a salir deja un objeto sin código —en la sonda que
- * destapó esto llegó literalmente vacío— y ese es el único que tiene sentido
- * reintentar: repetir un `42501` devuelve `42501` otra vez.
- */
-export function esFalloDeTransporte(e: unknown): boolean {
-  if (esFalloDeRed(e)) return true;
-  if (typeof e === 'object' && e !== null) {
-    const { code } = e as { code?: unknown };
-    return code === undefined || code === null || code === '';
-  }
-  return false;
-}
-
-/**
- * Lo que de verdad trae un error de Supabase.
- *
- * `registrarFallo` lee `.message`, que en un error de red no existe: por eso el
- * log decía `undefined`. Aquí se sacan los cuatro campos de `PostgrestError` a
- * mano, y si el objeto viene vacío se dice eso mismo en vez de callar.
- */
-function detalleDelError(e: unknown): Record<string, unknown> {
-  if (typeof e !== 'object' || e === null) return { crudo: String(e) };
-  const o = e as Record<string, unknown>;
-  if (Object.keys(o).length === 0) return { crudo: 'objeto vacío: el fetch no llegó a salir' };
-  return { code: o.code ?? null, message: o.message ?? null, details: o.details ?? null, hint: o.hint ?? null };
-}
-
-/** Esperas entre intentos. Cortas: el jugador está mirando la pantalla. */
-const ESPERAS_MS = [300, 900];
-
-const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Una lectura, reintentada SOLO si no se pudo hablar con la base.
- *
- * `{ ok: false }` cuando se agotaron los intentos o cuando el error lo dijo la
- * base, que reintentado daría lo mismo. Quien llama decide si eso apaga la
- * tarjeta entera o solo le quita un dato.
- */
-export async function leerConReintento<T>(
-  contexto: string,
-  leer: () => PromiseLike<{ data: T | null; error: unknown }>,
-  esperas: number[] = ESPERAS_MS,
-): Promise<{ ok: true; data: T | null } | { ok: false }> {
-  for (let intento = 0; intento <= esperas.length; intento++) {
-    const { data, error } = await leer();
-    if (!error) return { ok: true, data };
-
-    const reintentable = esFalloDeTransporte(error) && intento < esperas.length;
-    registrarFallo(`siguiente-ronda/${contexto}`, error, {
-      intento: intento + 1,
-      de: esperas.length + 1,
-      reintentable,
-      ...detalleDelError(error),
-    });
-    if (!reintentable) return { ok: false };
-    await dormir(esperas[intento]);
-  }
-  return { ok: false };
-}
-
 /** Una fila de `matches` traída para esto. */
 interface FilaDeCuadro {
   id: string;
@@ -479,7 +399,7 @@ const aPartido = (r: FilaDeCuadro): PartidoDeCuadro => ({
 async function categoriaDondeGano(
   pairIds: string[],
 ): Promise<{ ok: true; categoria: string | null } | { ok: false }> {
-  const lectura = await leerConReintento('victorias-de-cuadro', () =>
+  const lectura = await leerConReintento('siguiente-ronda/victorias-de-cuadro', () =>
     supabase
       .from('matches')
       .select('category_id, stage, pair_a_id, pair_b_id, winner_pair_id')
@@ -505,67 +425,6 @@ async function categoriaDondeGano(
       .sort((a, b) => ORDEN.indexOf(b.stage as MatchStage) - ORDEN.indexOf(a.stage as MatchStage))[0]
       .category_id,
   };
-}
-
-/**
- * Los puntos que ya tiene asegurados por estar en esa ronda, y los de ganarla.
- *
- * TODA la aritmética es de `puntosGarantizados`, que a su vez llama al motor.
- * Aquí solo se reúne el estado de la pareja y se pregunta DOS veces: una con
- * la ronda a la que acaba de entrar y otra con el peldaño de arriba. No se usa
- * `proximoStage` a propósito: ese camino proyecta "si ganas llegas a esta
- * ronda", y aquí la ronda ya está alcanzada por haber entrado — lo que se
- * proyecta es el peldaño SIGUIENTE, que en la final es el campeonato y no
- * tiene `stage` que pasarle.
- *
- * `null` en cuanto falte un dato o falle una lectura. Los puntos son un extra:
- * que no se puedan calcular NO apaga la tarjeta.
- */
-async function puntosDeLaRonda(
-  categoria: string,
-  miPairId: string,
-  stage: MatchStage,
-): Promise<PuntosGarantizados | null> {
-  const [cat, parejas, standing] = await Promise.all([
-    leerConReintento('tier', () =>
-      supabase.from('categories').select('tournaments:tournament_id ( tier )').eq('id', categoria).limit(1)),
-    // LAS PAREJAS SALEN DE LA VISTA PÚBLICA, NO DE `pairs`.
-    //
-    // `pairs_select` (migración 008) es `player1_id = auth.uid() or
-    // player2_id = auth.uid()`: un jugador contando ahí se cuenta A SÍ MISMO y
-    // a nadie más. Y el número no es decorativo — `tierEfectivo` tiene un piso
-    // de parejas inscritas, así que con 1 esta categoría 'major' de 30 parejas
-    // caía dos escalones a 'p2' y los puntos salían a 0.6× en vez de 2×: 510
-    // donde son 1700. Un número creíble y falso, que es lo peor que puede
-    // pintar esta tarjeta.
-    //
-    // `bracket_pairs_public` (migración 039) publica las parejas de la
-    // categoría saltándose esa RLS, y es la misma vista de la que ya salen los
-    // nombres del rival aquí al lado.
-    leerConReintento('parejas-de-la-categoria', () =>
-      supabase.from('bracket_pairs_public').select('pair_id').eq('category_id', categoria)),
-    leerConReintento('victorias-de-grupo', () =>
-      supabase.from('group_standings').select('won').eq('pair_id', miPairId).limit(1)),
-  ]);
-
-  if (!cat.ok || !parejas.ok || !standing.ok) return null;
-
-  const fila = (cat.data ?? [])[0] as { tournaments: { tier: string | null } | null } | undefined;
-  const base = {
-    tier: (fila?.tournaments?.tier ?? null) as Tier | null,
-    parejasEnCategoria: (parejas.data ?? []).length,
-    groupWins: ((standing.data ?? [])[0] as { won: number } | undefined)?.won ?? null,
-    // Está en el cuadro: la clasificación es un hecho, no una proyección.
-    qualified: true,
-  };
-
-  // Lo que ya es suyo por estar en esta ronda — la haya jugado o no.
-  const aqui = puntosGarantizados({ ...base, furthestRound: rondaMasLejanaAlcanzada([stage]) });
-  // Y lo que sería suyo ganándola.
-  const arriba = puntosGarantizados({ ...base, furthestRound: RONDA_SI_GANA[stage] });
-  if (!aqui || !arriba) return null;
-
-  return { garantizados: aqui.garantizados, siGanan: arriba.garantizados };
 }
 
 /**
@@ -596,7 +455,7 @@ export async function fetchSiguienteRonda(
 
   // TODO el cuadro de la categoría: el motor empareja la ronda entera, no un
   // partido suelto.
-  const cuadro = await leerConReintento('cuadro', () =>
+  const cuadro = await leerConReintento('siguiente-ronda/cuadro', () =>
     supabase
       .from('matches')
       .select('id, stage, round_label, pair_a_id, pair_b_id, winner_pair_id')
@@ -620,7 +479,7 @@ export async function fetchSiguienteRonda(
   // plan no tiene fila. Pero se reintenta y se REGISTRA: perder la hora por un
   // fallo de red no es lo mismo que no estar programada, y antes las dos
   // acababan igual y en silencio, porque el error ni se miraba.
-  const plan = await leerConReintento('plan-del-dia', () =>
+  const plan = await leerConReintento('siguiente-ronda/plan-del-dia', () =>
     supabase
       .from('match_schedule')
       .select('scheduled_at, court_label')
@@ -642,7 +501,12 @@ export async function fetchSiguienteRonda(
     partidoDelRival?.pairAId, partidoDelRival?.pairBId,
   ]);
 
-  const puntos = await puntosDeLaRonda(categoria, ubicacion.miPairId, ubicacion.stage);
+  const puntos = await fetchPuntosDelPartido({
+    categoryId: categoria,
+    miPairId: ubicacion.miPairId,
+    // La ronda a la que ACABA de entrar: estar en ella ya la garantiza.
+    stage: ubicacion.stage,
+  });
 
   const rivalSaleDe = deDondeSaleElRival(
     partidoDelRival,
