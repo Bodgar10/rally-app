@@ -91,6 +91,74 @@ describe('las cuatro garantías del formato', () => {
   });
 });
 
+describe('NO juegas contra todos: eso es el exprés', () => {
+  /** Rivales de cada pareja, dentro de su grupo. */
+  function rivales(f: FixtureExpres, grupo: 'A' | 'B'): Map<string, Set<string>> {
+    const g = f.grupos.find((x) => x.grupo === grupo)!;
+    const out = new Map<string, Set<string>>(g.pairIds.map((p) => [p, new Set<string>()]));
+    for (const m of f.partidos.filter((m) => m.grupo === grupo)) {
+      out.get(m.pairAId)!.add(m.pairBId);
+      out.get(m.pairBId)!.add(m.pairAId);
+    }
+    return out;
+  }
+
+  it.each([
+    [16, 8, 2], // grupo de 8: juegas 5 de 7, te quedas sin ver a 2
+    [20, 10, 4], // grupo de 10: 5 de 9
+    [24, 12, 6], // grupo de 12: 5 de 11
+    [32, 16, 10], // grupo de 16: 5 de 15
+  ])('cupo %i (grupo de %i): cada pareja NO se enfrenta a %i rivales', (cupo, tam, sinVer) => {
+    const f = fixture(cupo);
+    const riv = rivales(f, 'A');
+    const miembros = f.grupos[0].pairIds;
+    expect(miembros).toHaveLength(tam);
+    for (const p of miembros) {
+      expect(riv.get(p)!.size).toBe(PARTIDOS_POR_PAREJA); // 5 rivales DISTINTOS
+      expect(riv.get(p)!.has(p)).toBe(false); // nunca contra sí misma
+      const noJugados = miembros.filter((x) => x !== p && !riv.get(p)!.has(x));
+      expect(noJugados).toHaveLength(sinVer);
+    }
+  });
+
+  it('cupo 12 es la excepción: el grupo de 6 SÍ juega contra todos', () => {
+    // 5 partidos y 5 rivales posibles. Funciona y la tabla es correcta, pero
+    // ahí el formato no ahorra nada: es round robin.
+    const f = fixture(12);
+    for (const [, r] of rivales(f, 'A')) expect(r.size).toBe(5);
+    for (const [p, r] of rivales(f, 'A')) {
+      expect(f.grupos[0].pairIds.filter((x) => x !== p && !r.has(x))).toHaveLength(0);
+    }
+  });
+
+  it('nadie está estructuralmente peor: todos se saltan el MISMO número', () => {
+    // La construcción es simétrica, así que ninguna posición del sorteo tiene
+    // ventaja. Lo único que cambia entre parejas es A QUIÉN le toca, no cuánto.
+    const riv = rivales(fixture(20), 'A');
+    const tamanos = [...riv.values()].map((r) => r.size);
+    expect(new Set(tamanos).size).toBe(1);
+  });
+
+  it('a quién te toca sale del sorteo: otra semilla, otros rivales', () => {
+    // La aleatoriedad entra UNA vez, al repartir. Después el círculo es
+    // mecánico — pero como la posición en el círculo salió del sorteo, los 5
+    // rivales de cada pareja son distintos en cada torneo.
+    const a = generarFixtureExpres({ pairIds: parejas(16), semilla: 'domingo-A' });
+    const b = generarFixtureExpres({ pairIds: parejas(16), semilla: 'domingo-B' });
+    const enfrentamientos = (f: FixtureExpres) => new Set(f.partidos.map(clave));
+    expect(enfrentamientos(a)).not.toEqual(enfrentamientos(b));
+
+    // Y una pareja concreta cambia de rivales entre un domingo y otro.
+    const rivalesDe = (f: FixtureExpres, id: string) =>
+      new Set(
+        f.partidos
+          .filter((m) => m.pairAId === id || m.pairBId === id)
+          .map((m) => (m.pairAId === id ? m.pairBId : m.pairAId)),
+      );
+    expect(rivalesDe(a, 'p05')).not.toEqual(rivalesDe(b, 'p05'));
+  });
+});
+
 describe('la alternancia: mientras un grupo juega, el otro descansa', () => {
   it('las franjas van A1, B1, A2, B2, … sin huecos', () => {
     const f = fixture(16);
