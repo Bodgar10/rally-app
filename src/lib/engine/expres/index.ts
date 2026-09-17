@@ -23,6 +23,7 @@ import { repartirGrupos, tamanosDeGrupo } from './sorteo';
 export * from './reglas';
 export * from './suma6';
 export * from './tabla';
+export * from './clinch';
 export { rondasDelCirculo, verificarReparto } from './circulo';
 export {
   barajar,
