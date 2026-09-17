@@ -279,6 +279,73 @@ export type Database = {
           },
         ]
       }
+      expres_config: {
+        Row: {
+          clasifican_por_grupo: number
+          created_at: string
+          cupo: number
+          partidos_por_pareja: number
+          semilla_sorteo: string
+          sorteado_at: string | null
+          tournament_id: string
+        }
+        Insert: {
+          clasifican_por_grupo?: number
+          created_at?: string
+          cupo: number
+          partidos_por_pareja?: number
+          semilla_sorteo: string
+          sorteado_at?: string | null
+          tournament_id: string
+        }
+        Update: {
+          clasifican_por_grupo?: number
+          created_at?: string
+          cupo?: number
+          partidos_por_pareja?: number
+          semilla_sorteo?: string
+          sorteado_at?: string | null
+          tournament_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expres_config_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: true
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expres_etapa: {
+        Row: {
+          formato: Database["public"]["Enums"]["formato_partido"]
+          minutos: number
+          stage: Database["public"]["Enums"]["match_stage"]
+          tournament_id: string
+        }
+        Insert: {
+          formato: Database["public"]["Enums"]["formato_partido"]
+          minutos: number
+          stage: Database["public"]["Enums"]["match_stage"]
+          tournament_id: string
+        }
+        Update: {
+          formato?: Database["public"]["Enums"]["formato_partido"]
+          minutos?: number
+          stage?: Database["public"]["Enums"]["match_stage"]
+          tournament_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expres_etapa_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       feedback: {
         Row: {
           context: Json | null
@@ -322,6 +389,7 @@ export type Database = {
       }
       group_standings: {
         Row: {
+          balance: number | null
           clinch_status: Database["public"]["Enums"]["clinch_status"]
           desempate_manual: number | null
           games_lost: number
@@ -339,6 +407,7 @@ export type Database = {
           won: number
         }
         Insert: {
+          balance?: number | null
           clinch_status?: Database["public"]["Enums"]["clinch_status"]
           desempate_manual?: number | null
           games_lost?: number
@@ -356,6 +425,7 @@ export type Database = {
           won?: number
         }
         Update: {
+          balance?: number | null
           clinch_status?: Database["public"]["Enums"]["clinch_status"]
           desempate_manual?: number | null
           games_lost?: number
@@ -536,6 +606,7 @@ export type Database = {
           category_id: string
           court_label: string | null
           created_at: string
+          formato: Database["public"]["Enums"]["formato_partido"] | null
           group_id: string | null
           id: string
           pair_a_id: string | null
@@ -554,6 +625,7 @@ export type Database = {
           category_id: string
           court_label?: string | null
           created_at?: string
+          formato?: Database["public"]["Enums"]["formato_partido"] | null
           group_id?: string | null
           id?: string
           pair_a_id?: string | null
@@ -572,6 +644,7 @@ export type Database = {
           category_id?: string
           court_label?: string | null
           created_at?: string
+          formato?: Database["public"]["Enums"]["formato_partido"] | null
           group_id?: string | null
           id?: string
           pair_a_id?: string | null
@@ -1008,10 +1081,13 @@ export type Database = {
           drawsize_multipliers: Json
           group_win_points: number
           id: string
+          min_torneos_campeon: number
           qualify_bonus: number
           round_points: Json
           roundrobin_champion_bonus: number
           scope: Database["public"]["Enums"]["rule_scope"]
+          tier_minimos: Json
+          tier_multipliers: Json
           tournament_id: string | null
         }
         Insert: {
@@ -1019,10 +1095,13 @@ export type Database = {
           drawsize_multipliers?: Json
           group_win_points?: number
           id?: string
+          min_torneos_campeon: number
           qualify_bonus?: number
           round_points?: Json
           roundrobin_champion_bonus?: number
           scope?: Database["public"]["Enums"]["rule_scope"]
+          tier_minimos: Json
+          tier_multipliers: Json
           tournament_id?: string | null
         }
         Update: {
@@ -1030,10 +1109,13 @@ export type Database = {
           drawsize_multipliers?: Json
           group_win_points?: number
           id?: string
+          min_torneos_campeon?: number
           qualify_bonus?: number
           round_points?: Json
           roundrobin_champion_bonus?: number
           scope?: Database["public"]["Enums"]["rule_scope"]
+          tier_minimos?: Json
+          tier_multipliers?: Json
           tournament_id?: string | null
         }
         Relationships: [
@@ -1054,6 +1136,7 @@ export type Database = {
           player_id: string
           points: number
           position: number | null
+          season: number
           updated_at: string
         }
         Insert: {
@@ -1063,6 +1146,7 @@ export type Database = {
           player_id: string
           points?: number
           position?: number | null
+          season: number
           updated_at?: string
         }
         Update: {
@@ -1072,6 +1156,7 @@ export type Database = {
           player_id?: string
           points?: number
           position?: number | null
+          season?: number
           updated_at?: string
         }
         Relationships: [
@@ -1725,6 +1810,7 @@ export type Database = {
           end_date: string
           id: string
           match_minutes: number | null
+          modo: Database["public"]["Enums"]["tournament_modo"]
           name: string
           organizer_id: string
           registration_fee: number
@@ -1733,7 +1819,7 @@ export type Database = {
           tercer_lugar: boolean
           tercer_set_formato: Database["public"]["Enums"]["tercer_set_formato"]
           tercer_set_puntos: number
-          tier: string | null
+          tier: Database["public"]["Enums"]["tournament_tier"]
           venue_id: string | null
         }
         Insert: {
@@ -1742,6 +1828,7 @@ export type Database = {
           end_date: string
           id?: string
           match_minutes?: number | null
+          modo?: Database["public"]["Enums"]["tournament_modo"]
           name: string
           organizer_id: string
           registration_fee?: number
@@ -1750,7 +1837,7 @@ export type Database = {
           tercer_lugar?: boolean
           tercer_set_formato?: Database["public"]["Enums"]["tercer_set_formato"]
           tercer_set_puntos?: number
-          tier?: string | null
+          tier: Database["public"]["Enums"]["tournament_tier"]
           venue_id?: string | null
         }
         Update: {
@@ -1759,6 +1846,7 @@ export type Database = {
           end_date?: string
           id?: string
           match_minutes?: number | null
+          modo?: Database["public"]["Enums"]["tournament_modo"]
           name?: string
           organizer_id?: string
           registration_fee?: number
@@ -1767,7 +1855,7 @@ export type Database = {
           tercer_lugar?: boolean
           tercer_set_formato?: Database["public"]["Enums"]["tercer_set_formato"]
           tercer_set_puntos?: number
-          tier?: string | null
+          tier?: Database["public"]["Enums"]["tournament_tier"]
           venue_id?: string | null
         }
         Relationships: [
@@ -2119,7 +2207,15 @@ export type Database = {
           season: number | null
           torneos: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ranking_points_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ranking_public: {
         Row: {
@@ -2241,6 +2337,18 @@ export type Database = {
         Args: { p_division: string; p_history: Json; p_player_ratings: Json }
         Returns: Json
       }
+      record_expres_result: {
+        Args: {
+          p_actor: string
+          p_games_a: number
+          p_games_b: number
+          p_group_state: Json
+          p_match_id: string
+          p_played_at: string
+          p_standings: Json
+        }
+        Returns: Json
+      }
       record_knockout_result: {
         Args: {
           p_actor: string
@@ -2282,6 +2390,15 @@ export type Database = {
         Args: { p_actor: string; p_category_id: string; p_matches: Json }
         Returns: Json
       }
+      sembrar_expres: {
+        Args: {
+          p_actor: string
+          p_category_id: string
+          p_grupos: Json
+          p_partidos: Json
+        }
+        Returns: Json
+      }
       slugify: { Args: { p_text: string }; Returns: string }
       sortear_desempate: {
         Args: { p_group_id: string; p_orden: Json }
@@ -2320,6 +2437,7 @@ export type Database = {
         | "praise"
         | "cancellation"
       format_type: "groups_then_knockout" | "round_robin" | "knockout_only"
+      formato_partido: "suma_6" | "set_oro" | "dos_sets_oro" | "set_star_point"
       lead_status: "new" | "sent" | "contacted"
       match_stage:
         | "group"
@@ -2348,12 +2466,14 @@ export type Database = {
         | "incomplete_expired"
         | "paused"
       tercer_set_formato: "super_muerte" | "set_completo"
+      tournament_modo: "largo" | "expres"
       tournament_status:
         | "draft"
         | "registration_open"
         | "registration_closed"
         | "in_progress"
         | "finished"
+      tournament_tier: "major" | "p1" | "p2"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2497,6 +2617,7 @@ export const Constants = {
         "cancellation",
       ],
       format_type: ["groups_then_knockout", "round_robin", "knockout_only"],
+      formato_partido: ["suma_6", "set_oro", "dos_sets_oro", "set_star_point"],
       lead_status: ["new", "sent", "contacted"],
       match_stage: [
         "group",
@@ -2527,6 +2648,7 @@ export const Constants = {
         "paused",
       ],
       tercer_set_formato: ["super_muerte", "set_completo"],
+      tournament_modo: ["largo", "expres"],
       tournament_status: [
         "draft",
         "registration_open",
@@ -2534,6 +2656,7 @@ export const Constants = {
         "in_progress",
         "finished",
       ],
+      tournament_tier: ["major", "p1", "p2"],
     },
   },
 } as const
