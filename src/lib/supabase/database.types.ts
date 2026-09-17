@@ -2390,18 +2390,18 @@ export type Database = {
         Args: { p_actor: string; p_category_id: string; p_matches: Json }
         Returns: Json
       }
-      sembrar_expres: {
+      slugify: { Args: { p_text: string }; Returns: string }
+      sortear_desempate: {
+        Args: { p_group_id: string; p_orden: Json }
+        Returns: Json
+      }
+      sortear_expres: {
         Args: {
           p_actor: string
           p_category_id: string
           p_grupos: Json
           p_partidos: Json
         }
-        Returns: Json
-      }
-      slugify: { Args: { p_text: string }; Returns: string }
-      sortear_desempate: {
-        Args: { p_group_id: string; p_orden: Json }
         Returns: Json
       }
       tournament_category_counts: {
