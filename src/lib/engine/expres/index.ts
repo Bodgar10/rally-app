@@ -21,6 +21,8 @@ import { rondasDelCirculo, verificarReparto } from './circulo';
 import { repartirGrupos, tamanosDeGrupo } from './sorteo';
 
 export * from './reglas';
+export * from './suma6';
+export * from './tabla';
 export { rondasDelCirculo, verificarReparto } from './circulo';
 export {
   barajar,
