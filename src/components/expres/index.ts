@@ -15,3 +15,9 @@ export type { TablaExpresGrupoProps } from './TablaExpresGrupo';
 
 export { default as DecisionDeEmpate } from './DecisionDeEmpate';
 export type { DecisionDeEmpateProps } from './DecisionDeEmpate';
+
+export { default as SelectorDeModo } from './SelectorDeModo';
+export type { SelectorDeModoProps, ModoTorneo } from './SelectorDeModo';
+
+export { default as CrearExpres } from './CrearExpres';
+export type { CrearExpresProps, ConfigExpres, FinalFormato } from './CrearExpres';

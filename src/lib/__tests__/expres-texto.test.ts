@@ -11,6 +11,7 @@ import {
   textoDeClinch,
   textoDeMarcador,
   textoDePartido,
+  textoDeDuracion,
   textoDeRecorrido,
 } from '@/lib/expres-texto';
 
@@ -191,5 +192,27 @@ describe('el aviso de tabla provisional', () => {
       resultados: [R('a', 'b', 4), R('c', 'd', 3)],
     });
     expect(avisoDeTablaProvisional(tabla)).toBeNull();
+  });
+});
+
+describe('textoDeDuracion', () => {
+  it('los 150 minutos que se anuncian son 2 h 30, no 3 h', () => {
+    // Con Math.round(150/60) salía "3 h 30 min": media hora de pádel regalada
+    // en el cartel del club.
+    expect(textoDeDuracion(150)).toBe('2 h 30 min');
+  });
+
+  it.each([
+    [30, '30 min'],
+    [45, '45 min'],
+    [60, '1 h'],
+    [120, '2 h'],
+    [255, '4 h 15 min'],
+    [405, '6 h 45 min'],
+  ])('%i → "%s"', (min, esperado) => expect(textoDeDuracion(min)).toBe(esperado));
+
+  it('no deja nunca un "0 min" colgando', () => {
+    expect(textoDeDuracion(180)).toBe('3 h');
+    expect(textoDeDuracion(180)).not.toMatch(/0 min/);
   });
 });

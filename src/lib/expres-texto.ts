@@ -157,6 +157,21 @@ export function avisoDeTablaProvisional(tabla: TablaExpres): string | null {
   );
 }
 
+/**
+ * Minutos en horas legibles: 150 → "2 h 30 min".
+ *
+ * Está aquí y no en la pantalla porque se puede escribir mal —y se escribió:
+ * con `Math.round(150 / 60)` salía "3 h 30 min", que es media hora de pádel
+ * regalada en el cartel del club. Una cuenta que se puede equivocar necesita
+ * un test, y los tests viven en la lib.
+ */
+export function textoDeDuracion(minutos: number): string {
+  const h = Math.floor(minutos / 60);
+  const m = minutos % 60;
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
 /** Los siete marcadores, para los botones del juez. */
 export const MARCADORES_ETIQUETA: readonly string[] = [
   '6-0',
