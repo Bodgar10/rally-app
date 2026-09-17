@@ -101,3 +101,31 @@ export type {
   Validacion, Problema, CodigoProblema, EntradaValidacion,
   GrupoAValidar, FilaDeGrupo,
 } from './validacion-siembra';
+
+// ── TORNEO EXPRÉS ───────────────────────────────────────────────────────────
+//
+// Se importa de los módulos explícitos, como todo lo de arriba, y no del barrel
+// de expres: así el treeshake deja fuera lo que solo usa la app (el
+// planificador de la tarde lo consume la pantalla de alta, no el servidor —
+// pero sí entra, porque el sorteo necesita las horas para escribir
+// `scheduled_at` en cada partido).
+//
+// Nada de esto toca los motores de arriba. Son módulos paralelos: el servidor
+// elige uno u otro según `tournaments.modo`, y por eso un fallo aquí no puede
+// alcanzar a los torneos largos.
+export { generarFixtureExpres } from './expres/index';
+export { repartirGrupos, tamanosDeGrupo, generadorDeSemilla } from './expres/sorteo';
+export { computeTablaExpres } from './expres/tabla';
+export { computeClinchExpres } from './expres/clinch';
+export { prepararCapturaExpres, partidosPendientes } from './expres/captura';
+export { planificarExpres, MINUTOS_ESTANDAR } from './expres/plan';
+export { validarMarcadorSuma6, esMarcadorSuma6, MARCADORES_SUMA6, GAMES_POR_PARTIDO } from './expres/suma6';
+export {
+  PARTIDOS_POR_PAREJA, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, GRUPO_MINIMO,
+} from './expres/reglas';
+
+export type { FixtureExpres, GrupoExpres, PartidoExpres, FranjaExpres, GrupoId } from './expres/reglas';
+export type { ResultadoSuma6, TablaExpres, FilaTablaExpres, EmpateExpres, CriterioExpres } from './expres/tabla';
+export type { ClinchExpresResult, EstadoClinchExpres } from './expres/clinch';
+export type { CapturaExpres, FilaStandingExpres, EntradaCapturaExpres } from './expres/captura';
+export type { PlanExpres, FranjaPlanificada, MinutosPorEtapa, VentanaExpres, ZonaExpres } from './expres/plan';

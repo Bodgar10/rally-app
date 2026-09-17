@@ -2145,4 +2145,892 @@ function validarSiembra(entrada) {
   return { bloqueantes, avisos, puedeSembrar: bloqueantes.length === 0 };
 }
 
-export { DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };
+// src/lib/engine/expres/reglas.ts
+var PARTIDOS_POR_PAREJA = 5;
+var CLASIFICAN_POR_GRUPO = 4;
+var GRUPO_MINIMO = 6;
+var CUPO_MINIMO = GRUPO_MINIMO * 2;
+
+// src/lib/engine/expres/circulo.ts
+function rondasDelCirculo(n, k) {
+  if (!Number.isInteger(n) || n < 2) {
+    throw new Error(
+      `rondasDelCirculo: n debe ser un entero >= 2; lleg\xF3 ${JSON.stringify(n)}.`
+    );
+  }
+  if (n % 2 !== 0) {
+    throw new Error(
+      `rondasDelCirculo: n debe ser PAR y lleg\xF3 ${n}. Con un n\xFAmero impar de parejas no existe reparto donde todas jueguen el mismo n\xFAmero de partidos: alguna tendr\xEDa que descansar y su balance de games dejar\xEDa de ser comparable con el del resto.`
+    );
+  }
+  if (!Number.isInteger(k) || k < 1) {
+    throw new Error(
+      `rondasDelCirculo: k debe ser un entero >= 1; lleg\xF3 ${JSON.stringify(k)}.`
+    );
+  }
+  if (k > n - 1) {
+    throw new Error(
+      `rondasDelCirculo: k=${k} es imposible con n=${n}. Cada pareja solo tiene ${n - 1} rivales distintos, as\xED que jugar ${k} partidos sin repetir a ninguno no se puede.`
+    );
+  }
+  const m = n - 1;
+  const rondas = [];
+  for (let r = 0; r < k; r++) {
+    const ronda = [ordenar(m, r)];
+    for (let i = 1; i < n / 2; i++) {
+      ronda.push(ordenar((r + i) % m, ((r - i) % m + m) % m));
+    }
+    rondas.push(ronda);
+  }
+  return rondas;
+}
+function ordenar(a, b) {
+  return a < b ? [a, b] : [b, a];
+}
+function verificarReparto(n, k, rondas) {
+  const fallo = (motivo) => {
+    throw new Error(
+      `verificarReparto: el reparto para n=${n}, k=${k} es inv\xE1lido (${motivo}). Esto es un fallo del motor, no de los datos.`
+    );
+  };
+  if (rondas.length !== k) fallo(`${rondas.length} rondas en vez de ${k}`);
+  const grados = new Array(n).fill(0);
+  const vistos = /* @__PURE__ */ new Set();
+  for (const [idx, ronda] of rondas.entries()) {
+    const ocupados = /* @__PURE__ */ new Set();
+    for (const [a, b] of ronda) {
+      if (a === b) fallo(`una pareja contra s\xED misma en la ronda ${idx + 1}`);
+      if (a < 0 || b >= n) fallo(`\xEDndice fuera de rango en la ronda ${idx + 1}`);
+      if (ocupados.has(a) || ocupados.has(b)) {
+        fallo(`alguien juega dos veces en la ronda ${idx + 1}`);
+      }
+      ocupados.add(a);
+      ocupados.add(b);
+      const clave = `${a}-${b}`;
+      if (vistos.has(clave)) fallo(`rival repetido (${clave})`);
+      vistos.add(clave);
+      grados[a]++;
+      grados[b]++;
+    }
+  }
+  const desigual = grados.findIndex((g2) => g2 !== k);
+  if (desigual !== -1) {
+    fallo(`el \xEDndice ${desigual} juega ${grados[desigual]} partidos y no ${k}`);
+  }
+  if (vistos.size !== n * k / 2) {
+    fallo(`${vistos.size} partidos en vez de ${n * k / 2}`);
+  }
+}
+
+// src/lib/engine/expres/sorteo.ts
+function cyrb128(texto) {
+  let h1 = 1779033703;
+  let h2 = 3144134277;
+  let h3 = 1013904242;
+  let h4 = 2773480762;
+  for (let i = 0; i < texto.length; i++) {
+    const k = texto.charCodeAt(i);
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ h1 >>> 18, 597399067);
+  h2 = Math.imul(h4 ^ h2 >>> 22, 2869860233);
+  h3 = Math.imul(h1 ^ h3 >>> 17, 951274213);
+  h4 = Math.imul(h2 ^ h4 >>> 19, 2716044179);
+  return [
+    (h1 ^ h2 ^ h3 ^ h4) >>> 0,
+    (h2 ^ h1) >>> 0,
+    (h3 ^ h1) >>> 0,
+    (h4 ^ h1) >>> 0
+  ];
+}
+function mulberry32(estado) {
+  let a = estado;
+  return () => {
+    a = a + 1831565813 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function generadorDeSemilla(semilla) {
+  const [a] = cyrb128(semilla);
+  return mulberry32(a);
+}
+function barajar(lista, rnd) {
+  const out = [...lista];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+}
+function tamanosDeGrupo(cupo) {
+  let a = Math.ceil(cupo / 2);
+  if (a % 2 !== 0) a += 1;
+  const b = cupo - a;
+  return { A: a, B: b };
+}
+function repartirGrupos(pairIds, semilla) {
+  const { A, B } = tamanosDeGrupo(pairIds.length);
+  if (A < GRUPO_MINIMO || B < GRUPO_MINIMO) {
+    throw new Error(
+      `repartirGrupos: el cupo ${pairIds.length} dar\xEDa grupos de ${A} y ${B}, y el m\xEDnimo es ${GRUPO_MINIMO} por grupo.`
+    );
+  }
+  const canonica = [...pairIds].sort();
+  const barajadas = barajar(canonica, generadorDeSemilla(semilla));
+  return { A: barajadas.slice(0, A), B: barajadas.slice(A) };
+}
+
+// src/lib/engine/expres/suma6.ts
+var GAMES_POR_PARTIDO = 6;
+var MARCADORES_SUMA6 = [
+  { gamesA: 6, gamesB: 0 },
+  { gamesA: 5, gamesB: 1 },
+  { gamesA: 4, gamesB: 2 },
+  { gamesA: 3, gamesB: 3 },
+  { gamesA: 2, gamesB: 4 },
+  { gamesA: 1, gamesB: 5 },
+  { gamesA: 0, gamesB: 6 }
+];
+function validarMarcadorSuma6(gamesA, gamesB) {
+  const errores = [];
+  const entero = (v, lado) => {
+    if (typeof v !== "number" || !Number.isInteger(v)) {
+      errores.push(`Los games de ${lado} deben ser un n\xFAmero entero; lleg\xF3 ${JSON.stringify(v)}.`);
+      return null;
+    }
+    if (v < 0 || v > GAMES_POR_PARTIDO) {
+      errores.push(`Los games de ${lado} van de 0 a ${GAMES_POR_PARTIDO}; lleg\xF3 ${v}.`);
+      return null;
+    }
+    return v;
+  };
+  const a = entero(gamesA, "la pareja A");
+  const b = entero(gamesB, "la pareja B");
+  if (a === null || b === null) return errores;
+  if (a + b !== GAMES_POR_PARTIDO) {
+    errores.push(
+      `Un partido de suma ${GAMES_POR_PARTIDO} son ${GAMES_POR_PARTIDO} games exactos y ${a}-${b} suma ${a + b}. Los marcadores posibles son 6-0, 5-1, 4-2, 3-3, 2-4, 1-5 y 0-6.`
+    );
+  }
+  return errores;
+}
+function esMarcadorSuma6(gamesA, gamesB) {
+  return validarMarcadorSuma6(gamesA, gamesB).length === 0;
+}
+
+// src/lib/engine/expres/tabla.ts
+function computeTablaExpres(entrada) {
+  const pairIds = exigirParejas(entrada?.pairIds);
+  const resultados = exigirResultados(entrada?.resultados, pairIds);
+  const clasifican = entrada?.clasifican ?? CLASIFICAN_POR_GRUPO;
+  const stats = new Map(
+    pairIds.map((id) => [id, { jugados: 0, gamesFavor: 0, gamesContra: 0 }])
+  );
+  const directo = /* @__PURE__ */ new Map();
+  for (const r of resultados) {
+    if (r.gamesA === null || r.gamesB === null) continue;
+    const a = stats.get(r.pairAId);
+    const b = stats.get(r.pairBId);
+    a.jugados++;
+    b.jugados++;
+    a.gamesFavor += r.gamesA;
+    a.gamesContra += r.gamesB;
+    b.gamesFavor += r.gamesB;
+    b.gamesContra += r.gamesA;
+    directo.set(`${r.pairAId}|${r.pairBId}`, r.gamesA - r.gamesB);
+    directo.set(`${r.pairBId}|${r.pairAId}`, r.gamesB - r.gamesA);
+  }
+  const balanceDe = (id) => {
+    const s = stats.get(id);
+    return s.gamesFavor - s.gamesContra;
+  };
+  const ordenadas = [...pairIds].sort((x, y) => balanceDe(y) - balanceDe(x) || (x < y ? -1 : 1));
+  const bloques = agrupar(ordenadas, balanceDe);
+  const filas = [];
+  const empates = [];
+  for (const bloque of bloques) {
+    if (bloque.length === 1) {
+      filas.push(fila(bloque[0], "balance", []));
+      continue;
+    }
+    const completo = bloque.every(
+      (x, i) => bloque.slice(i + 1).every((y) => directo.has(`${x}|${y}`))
+    );
+    const subBloques = completo ? agrupar(
+      [...bloque].sort(
+        (x, y) => miniBalance(y, bloque, directo) - miniBalance(x, bloque, directo) || (x < y ? -1 : 1)
+      ),
+      (id) => miniBalance(id, bloque, directo)
+    ) : [bloque];
+    for (const sub of subBloques) {
+      if (sub.length === 1) {
+        filas.push(fila(sub[0], "directo", []));
+        continue;
+      }
+      const manual = ordenDelOrganizador(sub, entrada?.ordenManual, pairIds);
+      if (manual) {
+        for (const id of manual) filas.push(fila(id, "manual", []));
+        continue;
+      }
+      const posicionInicial = filas.length + 1;
+      for (const id of sub) {
+        filas.push(fila(id, "sin_resolver", sub.filter((o) => o !== id)));
+      }
+      empates.push({
+        balance: balanceDe(sub[0]),
+        pairIds: [...sub],
+        posiciones: sub.map((_, i) => posicionInicial + i),
+        decideClasificacion: posicionInicial <= clasifican && posicionInicial + sub.length - 1 > clasifican,
+        motivo: completo ? "directo_no_separa" : "no_se_enfrentaron"
+      });
+    }
+  }
+  for (const [i, f] of filas.entries()) f.posicion = i + 1;
+  const jugados = pairIds.map((id) => stats.get(id).jugados);
+  const grupoTerminado = resultados.length > 0 && resultados.every((r) => r.gamesA !== null && r.gamesB !== null);
+  return {
+    grupo: entrada?.grupo ?? "",
+    clasifican,
+    filas,
+    comparable: new Set(jugados).size <= 1,
+    grupoTerminado,
+    empatesSinResolver: empates,
+    bloqueaClasificacion: grupoTerminado && empates.some((e) => e.decideClasificacion)
+  };
+  function fila(pairId, criterio, empatadaCon) {
+    const s = stats.get(pairId);
+    return {
+      pairId,
+      posicion: 0,
+      // se rellena al final
+      jugados: s.jugados,
+      gamesFavor: s.gamesFavor,
+      gamesContra: s.gamesContra,
+      balance: s.gamesFavor - s.gamesContra,
+      criterio,
+      empateSinResolver: criterio === "sin_resolver",
+      empatadaCon
+    };
+  }
+}
+function miniBalance(id, bloque, directo) {
+  let total = 0;
+  for (const otro of bloque) {
+    if (otro === id) continue;
+    total += directo.get(`${id}|${otro}`) ?? 0;
+  }
+  return total;
+}
+function agrupar(ids, valor) {
+  const out = [];
+  for (const id of ids) {
+    const ultimo = out[out.length - 1];
+    if (ultimo && valor(ultimo[0]) === valor(id)) ultimo.push(id);
+    else out.push([id]);
+  }
+  return out;
+}
+function ordenDelOrganizador(bloque, ordenManual, pairIdsDelGrupo) {
+  if (!ordenManual) return null;
+  const conValor = pairIdsDelGrupo.filter((id) => typeof ordenManual[id] === "number");
+  if (conValor.length !== bloque.length) return null;
+  if (!bloque.every((id) => conValor.includes(id))) return null;
+  const valores = bloque.map((id) => ordenManual[id]);
+  if (new Set(valores).size !== valores.length) return null;
+  return [...bloque].sort((x, y) => ordenManual[x] - ordenManual[y]);
+}
+function exigirParejas(pairIds) {
+  if (!Array.isArray(pairIds) || pairIds.length === 0) {
+    throw new Error(
+      `computeTablaExpres: pairIds es obligatorio y debe ser un array no vac\xEDo; lleg\xF3 ${JSON.stringify(pairIds)}.`
+    );
+  }
+  if (pairIds.some((p) => typeof p !== "string" || p.length === 0)) {
+    throw new Error(`computeTablaExpres: hay ids de pareja vac\xEDos o que no son texto.`);
+  }
+  if (new Set(pairIds).size !== pairIds.length) {
+    throw new Error(
+      `computeTablaExpres: hay parejas repetidas en pairIds; sus games contar\xEDan dos veces.`
+    );
+  }
+  return pairIds;
+}
+function exigirResultados(resultados, pairIds) {
+  if (!Array.isArray(resultados)) {
+    throw new Error(
+      `computeTablaExpres: resultados es obligatorio y debe ser un array; lleg\xF3 ${JSON.stringify(resultados)}. Un grupo sin partidos se pasa como [].`
+    );
+  }
+  const enGrupo = new Set(pairIds);
+  const ids = /* @__PURE__ */ new Set();
+  const duelos = /* @__PURE__ */ new Set();
+  for (const r of resultados) {
+    if (typeof r?.matchId !== "string" || r.matchId.length === 0) {
+      throw new Error(`computeTablaExpres: hay un resultado sin matchId.`);
+    }
+    if (ids.has(r.matchId)) {
+      throw new Error(
+        `computeTablaExpres: el matchId "${r.matchId}" aparece dos veces; sus games se contar\xEDan por duplicado.`
+      );
+    }
+    ids.add(r.matchId);
+    if (!enGrupo.has(r.pairAId) || !enGrupo.has(r.pairBId)) {
+      throw new Error(
+        `computeTablaExpres: el partido "${r.matchId}" enfrenta a parejas que no est\xE1n en este grupo (${r.pairAId} vs ${r.pairBId}).`
+      );
+    }
+    if (r.pairAId === r.pairBId) {
+      throw new Error(`computeTablaExpres: el partido "${r.matchId}" es una pareja contra s\xED misma.`);
+    }
+    const duelo = [r.pairAId, r.pairBId].sort().join("|");
+    if (duelos.has(duelo)) {
+      throw new Error(
+        `computeTablaExpres: ${r.pairAId} y ${r.pairBId} aparecen enfrentadas dos veces. En un expr\xE9s nadie repite rival: esto es un fixture corrupto.`
+      );
+    }
+    duelos.add(duelo);
+    const sinJugar = r.gamesA === null && r.gamesB === null;
+    if (sinJugar) continue;
+    if (r.gamesA === null || r.gamesB === null) {
+      throw new Error(
+        `computeTablaExpres: el partido "${r.matchId}" tiene un lado capturado y el otro no. Un suma ${GAMES_POR_PARTIDO} se captura entero: los dos n\xFAmeros salen a la vez.`
+      );
+    }
+    const errores = validarMarcadorSuma6(r.gamesA, r.gamesB);
+    if (errores.length > 0) {
+      throw new Error(`computeTablaExpres: partido "${r.matchId}" \u2014 ${errores.join(" ")}`);
+    }
+  }
+  return resultados;
+}
+
+// src/lib/engine/expres/clinch.ts
+var DELTAS_SUMA6 = [6, 4, 2, 0, -2, -4, -6];
+var MAX_ESCENARIOS = 25e4;
+function computeClinchExpres(entrada) {
+  const clasifican = entrada?.clasifican ?? CLASIFICAN_POR_GRUPO;
+  const tabla = computeTablaExpres({
+    pairIds: entrada?.pairIds,
+    resultados: entrada?.resultados,
+    clasifican
+  });
+  const ids = tabla.filas.map((f) => f.pairId);
+  const indice = new Map(ids.map((id, i) => [id, i]));
+  const balance = ids.map((id) => tabla.filas.find((f) => f.pairId === id).balance);
+  const pendientes = entrada.resultados.filter(
+    (r) => r.gamesA === null || r.gamesB === null
+  );
+  const pendientesDe = new Array(ids.length).fill(0);
+  for (const m of pendientes) {
+    pendientesDe[indice.get(m.pairAId)]++;
+    pendientesDe[indice.get(m.pairBId)]++;
+  }
+  const k = pendientes.length;
+  const escenarios = Math.pow(DELTAS_SUMA6.length, k);
+  const comun = (i) => ({
+    pairId: ids[i],
+    balance: balance[i],
+    pendientes: pendientesDe[i],
+    balanceMaximo: balance[i] + GAMES_POR_PARTIDO * pendientesDe[i],
+    balanceMinimo: balance[i] - GAMES_POR_PARTIDO * pendientesDe[i]
+  });
+  if (escenarios <= MAX_ESCENARIOS) {
+    return exacto(ids, balance, pendientes, indice, clasifican, comun);
+  }
+  return porCotas(ids, pendientes, indice, clasifican, comun);
+}
+function exacto(ids, balanceBase, pendientes, indice, clasifican, comun) {
+  const n = ids.length;
+  const k = pendientes.length;
+  const bal = [...balanceBase];
+  const siempreDentro = new Array(n).fill(true);
+  const puedeDentro = new Array(n).fill(false);
+  const puedeConValor = Array.from(
+    { length: n },
+    () => Array.from({ length: k }, () => new Array(DELTAS_SUMA6.length).fill(false))
+  );
+  const eleccion = new Array(k).fill(0);
+  const idxA = pendientes.map((m) => indice.get(m.pairAId));
+  const idxB = pendientes.map((m) => indice.get(m.pairBId));
+  const evaluar = () => {
+    for (let p = 0; p < n; p++) {
+      let encima = 0;
+      let iguales = 0;
+      for (let q = 0; q < n; q++) {
+        if (q === p) continue;
+        if (bal[q] > bal[p]) encima++;
+        else if (bal[q] === bal[p]) iguales++;
+      }
+      if (encima + iguales + 1 > clasifican) siempreDentro[p] = false;
+      if (encima + 1 <= clasifican) {
+        puedeDentro[p] = true;
+        for (let i = 0; i < k; i++) puedeConValor[p][i][eleccion[i]] = true;
+      }
+    }
+  };
+  const bajar = (i) => {
+    if (i === k) {
+      evaluar();
+      return;
+    }
+    for (let v = 0; v < DELTAS_SUMA6.length; v++) {
+      const d = DELTAS_SUMA6[v];
+      bal[idxA[i]] += d;
+      bal[idxB[i]] -= d;
+      eleccion[i] = v;
+      bajar(i + 1);
+      bal[idxA[i]] -= d;
+      bal[idxB[i]] += d;
+    }
+  };
+  bajar(0);
+  return ids.map((_, p) => {
+    const estado = siempreDentro[p] ? "clinched" : puedeDentro[p] ? "alive" : "eliminated";
+    return {
+      ...comun(p),
+      estado,
+      // Un partido importa si con unos resultados esta pareja puede entrar y
+      // con otros no. Si su suerte ya está decidida, no depende de ninguno.
+      dependeDe: estado === "alive" ? pendientes.filter((_2, i) => new Set(puedeConValor[p][i]).size > 1).map((m) => m.matchId) : [],
+      aproximado: false
+    };
+  });
+}
+function porCotas(ids, pendientes, indice, clasifican, comun) {
+  const n = ids.length;
+  const c = ids.map((_, i) => comun(i));
+  const pares = pendientes.map((m) => [indice.get(m.pairAId), indice.get(m.pairBId)]);
+  return ids.map((_, p) => {
+    const suelo = c[p].balanceMinimo;
+    const techo = c[p].balanceMaximo;
+    const amenazas = [];
+    let segurasEncima = 0;
+    for (let q = 0; q < n; q++) {
+      if (q === p) continue;
+      if (c[q].balanceMaximo > suelo) amenazas.push(q);
+      if (c[q].balanceMinimo > techo) segurasEncima++;
+    }
+    const estado = !puedenEcharla(amenazas, clasifican, suelo, c, pares) ? "clinched" : segurasEncima >= clasifican ? "eliminated" : "alive";
+    return {
+      ...c[p],
+      estado,
+      // Sin enumerar no se puede saber QUÉ partido concreto la mueve; lo
+      // honesto es decir que depende de todos los que faltan.
+      dependeDe: estado === "alive" ? pendientes.map((m) => m.matchId) : [],
+      aproximado: true
+    };
+  });
+}
+function puedenEcharla(amenazas, clasifican, suelo, c, pares) {
+  if (amenazas.length < clasifican) return false;
+  let posible = false;
+  combinaciones(amenazas, clasifican, (grupo) => {
+    const dentro = new Set(grupo);
+    let suma = 0;
+    for (const q of grupo) suma += c[q].balance;
+    for (const [a, b] of pares) {
+      if (dentro.has(a) !== dentro.has(b)) suma += GAMES_POR_PARTIDO;
+    }
+    if (suma > clasifican * suelo) {
+      posible = true;
+      return false;
+    }
+    return true;
+  });
+  return posible;
+}
+function combinaciones(origen, k, visita) {
+  const actual = [];
+  let seguir = true;
+  const bajar = (desde) => {
+    if (!seguir) return;
+    if (actual.length === k) {
+      seguir = visita([...actual]);
+      return;
+    }
+    for (let i = desde; i < origen.length && seguir; i++) {
+      actual.push(origen[i]);
+      bajar(i + 1);
+      actual.pop();
+    }
+  };
+  bajar(0);
+}
+
+// src/lib/engine/expres/captura.ts
+function prepararCapturaExpres(entrada) {
+  const matchId = exigirTexto(entrada?.matchId, "matchId");
+  const resultados = exigirArray(entrada?.resultados);
+  const clasifican = entrada?.clasifican ?? CLASIFICAN_POR_GRUPO;
+  const partido = resultados.find((r) => r.matchId === matchId);
+  if (!partido) {
+    throw new Error(
+      `prepararCapturaExpres: el partido "${matchId}" no est\xE1 entre los ${resultados.length} del grupo. Se capturan los partidos del grupo que se pasa, no cualquiera.`
+    );
+  }
+  const borrando = entrada.gamesA === null && entrada.gamesB === null;
+  if (!borrando) {
+    const errores = validarMarcadorSuma6(entrada?.gamesA, entrada?.gamesB);
+    if (errores.length > 0) {
+      throw new Error(`prepararCapturaExpres: ${errores.join(" ")}`);
+    }
+  }
+  const conElNuevo = resultados.map(
+    (r) => r.matchId === matchId ? { ...r, gamesA: entrada.gamesA, gamesB: entrada.gamesB } : r
+  );
+  const tabla = computeTablaExpres({
+    grupo: typeof entrada?.grupo === "string" ? entrada.grupo : void 0,
+    pairIds: entrada?.pairIds,
+    resultados: conElNuevo,
+    clasifican,
+    ordenManual: entrada?.ordenManual
+  });
+  const clinch = computeClinchExpres({
+    pairIds: entrada?.pairIds,
+    resultados: conElNuevo,
+    clasifican
+  });
+  const estadoDe = new Map(clinch.map((c) => [c.pairId, c.estado]));
+  const standings = tabla.filas.map((f) => ({
+    pairId: f.pairId,
+    played: f.jugados,
+    gamesWon: f.gamesFavor,
+    gamesLost: f.gamesContra,
+    balance: f.balance,
+    position: f.posicion,
+    clinchStatus: estadoDe.get(f.pairId),
+    won: 0,
+    lost: 0,
+    setsWon: 0,
+    setsLost: 0,
+    points: 0
+  }));
+  return {
+    partido: {
+      matchId,
+      status: borrando ? "scheduled" : "finished",
+      winnerPairId: null,
+      formato: "suma_6"
+    },
+    marcador: borrando ? null : {
+      matchId,
+      setNumber: 1,
+      gamesA: entrada.gamesA,
+      gamesB: entrada.gamesB,
+      isSuperTiebreak: false
+    },
+    standings,
+    tabla,
+    clinch
+  };
+}
+function partidosPendientes(resultados) {
+  return exigirArray(resultados).filter((r) => r.gamesA === null || r.gamesB === null).length;
+}
+function exigirTexto(v, campo) {
+  if (typeof v !== "string" || v.length === 0) {
+    throw new Error(
+      `prepararCapturaExpres: ${campo} es obligatorio y debe ser un texto no vac\xEDo; lleg\xF3 ${JSON.stringify(v)}.`
+    );
+  }
+  return v;
+}
+function exigirArray(v) {
+  if (!Array.isArray(v)) {
+    throw new Error(
+      `prepararCapturaExpres: resultados es obligatorio y debe ser un array; lleg\xF3 ${JSON.stringify(v)}.`
+    );
+  }
+  return v;
+}
+
+// src/lib/engine/expres/plan.ts
+var FACTOR_RETRASO2 = 1.25;
+var MARGEN_CIERRE_EXPRES = 30;
+var ZONA_COMODO = 0.7;
+var UMBRAL_LIMITE = 0.85;
+var MINUTOS_ESTANDAR = {
+  group: 30,
+  quarter: 30,
+  semi: 30,
+  final: 45
+};
+function planificarExpres(entrada) {
+  const cupo = exigirCupo(entrada?.cupo);
+  const canchas = exigirEntero2(entrada?.canchas, "canchas", 1);
+  const k = exigirEntero2(entrada?.partidosPorPareja ?? PARTIDOS_POR_PAREJA, "partidosPorPareja", 1);
+  const minutos = { ...MINUTOS_ESTANDAR, ...entrada?.minutos ?? {} };
+  for (const etapa of ["group", "quarter", "semi", "final"]) {
+    exigirEntero2(minutos[etapa], `minutos.${etapa}`, 1);
+  }
+  const margen = entrada?.margenCierreMin ?? MARGEN_CIERRE_EXPRES;
+  const inicioMin = parseHora2(entrada?.ventana?.desde, "ventana.desde");
+  const finMin = parseHora2(entrada?.ventana?.hasta, "ventana.hasta");
+  if (finMin <= inicioMin) {
+    throw new Error(
+      `planificarExpres: la ventana ${entrada.ventana.desde}\u2013${entrada.ventana.hasta} no tiene duraci\xF3n. La hora de cierre tiene que ser posterior a la de apertura.`
+    );
+  }
+  const tamanos = tamanosDeGrupo(cupo);
+  if (k > Math.min(tamanos.A, tamanos.B) - 1) {
+    throw new Error(
+      `planificarExpres: no caben ${k} partidos por pareja en un grupo de ${Math.min(tamanos.A, tamanos.B)}: solo hay ${Math.min(tamanos.A, tamanos.B) - 1} rivales distintos.`
+    );
+  }
+  const franjas = armarFranjas(tamanos, k, canchas, minutos, inicioMin);
+  const minutosTotales = franjas.reduce((t, f) => t + f.minutos, 0);
+  const minutosDisponibles = finMin - inicioMin;
+  const ultimaDeGrupos = [...franjas].reverse().find((f) => f.etapa === "group");
+  const ocupacion = minutosTotales / minutosDisponibles;
+  const zona = minutosTotales > minutosDisponibles ? "no_cabe" : ocupacion > UMBRAL_LIMITE ? "limite" : ocupacion > ZONA_COMODO ? "ajustado" : "comodo";
+  const canchasNecesarias = Math.max(tamanos.A, tamanos.B) / 2;
+  const avisos = armarAvisos({
+    canchas,
+    canchasNecesarias,
+    minutosTotales,
+    minutosDisponibles,
+    margen,
+    zona,
+    franjas,
+    inicioMin
+  });
+  return {
+    cupo,
+    tamanoGrupos: tamanos,
+    partidosPorPareja: k,
+    canchas,
+    canchasNecesarias,
+    franjas,
+    inicio: formatHora2(inicioMin),
+    fin: formatHora2(inicioMin + minutosTotales),
+    finRealista: formatHora2(inicioMin + Math.round(minutosTotales * FACTOR_RETRASO2)),
+    finDeGrupos: ultimaDeGrupos.hasta,
+    minutosTotales,
+    minutosDisponibles,
+    holguraMinutos: minutosDisponibles - minutosTotales,
+    ocupacion,
+    zona,
+    minutosJugando: k * minutos.group,
+    minutosJugandoFinalista: k * minutos.group + minutos.quarter + minutos.semi + minutos.final,
+    partidosMaximosQueCaben: maximoQueCabe(tamanos, canchas, minutos, inicioMin, finMin, margen),
+    avisos
+  };
+}
+function armarFranjas(tamanos, k, canchas, minutos, inicioMin) {
+  const franjas = [];
+  let reloj = inicioMin;
+  let orden = 0;
+  const meter = (etapa, partidos, minutosEtapa, extra) => {
+    const tandas = Math.ceil(partidos / canchas);
+    const dura = tandas * minutosEtapa;
+    franjas.push({
+      orden: ++orden,
+      etapa,
+      ...extra ?? {},
+      partidos,
+      tandas,
+      desde: formatHora2(reloj),
+      hasta: formatHora2(reloj + dura),
+      minutos: dura
+    });
+    reloj += dura;
+  };
+  for (let r = 1; r <= k; r++) {
+    meter("group", tamanos.A / 2, minutos.group, { grupo: "A", ronda: r });
+    meter("group", tamanos.B / 2, minutos.group, { grupo: "B", ronda: r });
+  }
+  meter("quarter", CLASIFICAN_POR_GRUPO * 2 / 2, minutos.quarter);
+  meter("semi", 2, minutos.semi);
+  meter("final", 1, minutos.final);
+  return franjas;
+}
+function maximoQueCabe(tamanos, canchas, minutos, inicioMin, finMin, margen) {
+  const techo = Math.min(tamanos.A, tamanos.B) - 1;
+  const disponibles = finMin - inicioMin - margen;
+  for (let k = techo; k >= 1; k--) {
+    const total = armarFranjas(tamanos, k, canchas, minutos, inicioMin).reduce(
+      (t, f) => t + f.minutos,
+      0
+    );
+    if (total <= disponibles) return k;
+  }
+  return null;
+}
+function armarAvisos(x) {
+  const avisos = [];
+  if (x.canchas < x.canchasNecesarias) {
+    const tandas = Math.max(...x.franjas.filter((f) => f.etapa === "group").map((f) => f.tandas));
+    avisos.push(
+      `Con ${x.canchas} cancha${x.canchas === 1 ? "" : "s"} una ronda no cabe entera: se parte en ${tandas} tandas y la fase de grupos dura ${tandas} veces m\xE1s. Har\xEDan falta ${x.canchasNecesarias} para que cada ronda ocupe una sola franja.`
+    );
+  }
+  if (x.zona === "no_cabe") {
+    const faltan = x.minutosTotales - x.minutosDisponibles;
+    avisos.push(
+      `No cabe: faltan ${faltan} minutos. Abre antes, quita una ronda o consigue m\xE1s canchas.`
+    );
+  } else {
+    const holgura = x.minutosDisponibles - x.minutosTotales;
+    if (holgura < x.margen) {
+      avisos.push(
+        `Solo sobran ${holgura} minutos sobre la hora de cierre y conviene dejar ${x.margen}. Un partido de suma 6 se planifica a 30 y puede irse a 45: con este margen, dos o tres que se alarguen se comen la final.`
+      );
+    }
+  }
+  const realista = x.inicioMin + Math.round(x.minutosTotales * FACTOR_RETRASO2);
+  if (realista > x.inicioMin + x.minutosDisponibles) {
+    avisos.push(
+      `El plan termina a las ${formatHora2(x.inicioMin + x.minutosTotales)}, pero al ritmo real \u2014los partidos se alargan\u2014 ser\xEDa m\xE1s bien a las ${formatHora2(realista)}.`
+    );
+  }
+  return avisos;
+}
+function parseHora2(hhmm, campo = "hora") {
+  if (typeof hhmm !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
+    throw new Error(
+      `planificarExpres: ${campo} tiene que venir como 'HH:MM' en 24 horas; lleg\xF3 ${JSON.stringify(hhmm)}.`
+    );
+  }
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+function formatHora2(min) {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+function exigirCupo(cupo) {
+  if (typeof cupo !== "number" || !Number.isInteger(cupo)) {
+    throw new Error(`planificarExpres: cupo tiene que ser un entero; lleg\xF3 ${JSON.stringify(cupo)}.`);
+  }
+  if (cupo < 12 || cupo % 2 !== 0) {
+    throw new Error(
+      `planificarExpres: el cupo tiene que ser PAR y de 12 para arriba; lleg\xF3 ${cupo}.`
+    );
+  }
+  return cupo;
+}
+function exigirEntero2(v, campo, minimo) {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < minimo) {
+    throw new Error(
+      `planificarExpres: ${campo} tiene que ser un entero >= ${minimo}; lleg\xF3 ${JSON.stringify(v)}.`
+    );
+  }
+  return v;
+}
+
+// src/lib/engine/expres/index.ts
+function generarFixtureExpres(entrada) {
+  const pairIds = exigirParejas2(entrada?.pairIds);
+  const semilla = exigirSemilla(entrada?.semilla);
+  const cupo = pairIds.length;
+  const tamanos = tamanosDeGrupo(cupo);
+  const k = exigirPartidos(entrada?.partidosPorPareja, Math.min(tamanos.A, tamanos.B));
+  const reparto = repartirGrupos(pairIds, semilla);
+  const grupos = [];
+  for (const id of ["A", "B"]) {
+    const miembros = reparto[id];
+    const rondasIdx = rondasDelCirculo(miembros.length, k);
+    verificarReparto(miembros.length, k, rondasIdx);
+    const rondas = rondasIdx.map(
+      (ronda, r) => ronda.map(([a, b], p) => ({
+        // `orden` se rellena al intercalar: aquí todavía no se sabe la franja.
+        ref: `${id}-R${r + 1}-P${p + 1}`,
+        grupo: id,
+        ronda: r + 1,
+        orden: 0,
+        pairAId: miembros[a],
+        pairBId: miembros[b]
+      }))
+    );
+    grupos.push({ grupo: id, pairIds: miembros, rondas });
+  }
+  const franjas = [];
+  const partidos = [];
+  let orden = 0;
+  for (let r = 0; r < k; r++) {
+    for (const g2 of grupos) {
+      orden++;
+      const deLaRonda = g2.rondas[r];
+      for (const p of deLaRonda) p.orden = orden;
+      franjas.push({ orden, grupo: g2.grupo, ronda: r + 1, partidos: deLaRonda });
+      partidos.push(...deLaRonda);
+    }
+  }
+  return {
+    cupo,
+    partidosPorPareja: k,
+    clasificanPorGrupo: CLASIFICAN_POR_GRUPO,
+    grupos,
+    franjas,
+    partidos,
+    canchasNecesarias: Math.max(tamanos.A, tamanos.B) / 2,
+    totalPartidos: partidos.length
+  };
+}
+function exigirParejas2(pairIds) {
+  if (!Array.isArray(pairIds)) {
+    throw new Error(
+      `generarFixtureExpres: pairIds es obligatorio y debe ser un array; lleg\xF3 ${JSON.stringify(pairIds)}.`
+    );
+  }
+  const malas = pairIds.filter((p) => typeof p !== "string" || p.length === 0);
+  if (malas.length > 0) {
+    throw new Error(
+      `generarFixtureExpres: hay ${malas.length} id(s) de pareja vac\xEDos o que no son texto. Un id inventado reparte a alguien que no existe.`
+    );
+  }
+  const unicos = new Set(pairIds);
+  if (unicos.size !== pairIds.length) {
+    throw new Error(
+      `generarFixtureExpres: hay parejas repetidas en pairIds (${pairIds.length} entradas, ${unicos.size} distintas). Una pareja duplicada jugar\xEDa contra s\xED misma y su balance contar\xEDa dos veces.`
+    );
+  }
+  if (pairIds.length < CUPO_MINIMO) {
+    throw new Error(
+      `generarFixtureExpres: el cupo m\xEDnimo de un expr\xE9s es ${CUPO_MINIMO} (${GRUPO_MINIMO}+${GRUPO_MINIMO}) y llegaron ${pairIds.length}. Clasifican ${CLASIFICAN_POR_GRUPO} por grupo, as\xED que con menos no hay fase de grupos que jugar.`
+    );
+  }
+  if (pairIds.length % 2 !== 0) {
+    throw new Error(
+      `generarFixtureExpres: el cupo debe ser PAR y llegaron ${pairIds.length}. Con ${PARTIDOS_POR_PAREJA} partidos por pareja \u2014un n\xFAmero impar\u2014 cada grupo tiene que tener un n\xFAmero par de parejas, as\xED que el total tambi\xE9n. No hay reparto posible con ${pairIds.length}: el organizador cierra en ${pairIds.length - 1} o abre a ${pairIds.length + 1}.`
+    );
+  }
+  return pairIds;
+}
+function exigirSemilla(semilla) {
+  if (typeof semilla !== "string" || semilla.length === 0) {
+    throw new Error(
+      `generarFixtureExpres: semilla es obligatoria y debe ser un texto no vac\xEDo; lleg\xF3 ${JSON.stringify(semilla)}. Sin semilla guardada el sorteo no se puede reproducir ni auditar.`
+    );
+  }
+  return semilla;
+}
+function exigirPartidos(valor, grupoMasPequeno) {
+  const k = valor === void 0 ? PARTIDOS_POR_PAREJA : valor;
+  if (typeof k !== "number" || !Number.isInteger(k) || k < 1) {
+    throw new Error(
+      `generarFixtureExpres: partidosPorPareja debe ser un entero >= 1; lleg\xF3 ${JSON.stringify(valor)}.`
+    );
+  }
+  if (k > grupoMasPequeno - 1) {
+    throw new Error(
+      `generarFixtureExpres: no caben ${k} partidos por pareja en un grupo de ${grupoMasPequeno}: solo hay ${grupoMasPequeno - 1} rivales distintos. O baja partidosPorPareja a ${grupoMasPequeno - 1} o sube el cupo.`
+    );
+  }
+  if (k % 2 !== 0 && grupoMasPequeno % 2 !== 0) {
+    throw new Error(
+      `generarFixtureExpres: ${k} partidos por pareja es impar y el grupo de ${grupoMasPequeno} tambi\xE9n: no existe reparto donde todas jueguen lo mismo.`
+    );
+  }
+  return k;
+}
+
+export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };

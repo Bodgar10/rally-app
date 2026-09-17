@@ -53,6 +53,27 @@ function exportadosDelBundle(): Set<string> {
   return nombres;
 }
 
+/**
+ * Quita comentarios del cuerpo de un `import { ... }`.
+ *
+ * Un bloque de import largo se agrupa con comentarios, que es TypeScript
+ * perfectamente legal:
+ *
+ *     import {
+ *       validateScore,
+ *       // Exprés
+ *       generarFixtureExpres,
+ *     } from '...';
+ *
+ * Sin esto, el separador por comas devolvía "// Exprés\n generarFixtureExpres"
+ * como un solo nombre, no lo encontraba en el bundle y el test fallaba
+ * acusando de faltar a un símbolo que SÍ estaba. Un guardián que da falsos
+ * positivos se acaba desactivando, y este protege de un 503 que el navegador
+ * reporta como error de CORS.
+ */
+const sinComentarios = (cuerpo: string): string =>
+  cuerpo.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
 /** Cada Edge Function con los nombres que le pide al bundle. */
 function importesPorFuncion(): { funcion: string; nombres: string[] }[] {
   const salida: { funcion: string; nombres: string[] }[] = [];
@@ -62,7 +83,7 @@ function importesPorFuncion(): { funcion: string; nombres: string[] }[] {
     const src = readFileSync(entrada, 'utf8');
     const nombres: string[] = [];
     for (const m of src.matchAll(RE_IMPORT_BUNDLE)) {
-      for (const bruto of m[1].split(',')) {
+      for (const bruto of sinComentarios(m[1]).split(',')) {
         const pieza = bruto.trim();
         if (!pieza || pieza.startsWith('type ')) continue;
         nombres.push(pieza.split(/\s+as\s+/)[0].trim());

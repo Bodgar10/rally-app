@@ -15,8 +15,10 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@expo/metro-runtime@~56.0.20",
+        "npm:@playwright/test@^1.63.0",
         "npm:@react-native-async-storage/async-storage@2.2.0",
-        "npm:@react-native/jest-preset@0.86",
+        "npm:@react-native/jest-preset@~0.85.3",
         "npm:@supabase/supabase-js@^2.108.2",
         "npm:@types/jest@29.5.14",
         "npm:@types/react@~19.2.2",
@@ -31,10 +33,15 @@
         "npm:jest-expo@~56.0.5",
         "npm:jest@29.7",
         "npm:nativewind@^4.2.5",
+        "npm:react-dom@19.2.3",
+        "npm:react-native-reanimated@4.3.1",
         "npm:react-native-safe-area-context@5.7",
-        "npm:react-native-screens@4.25.2",
+        "npm:react-native-screens@4.26",
+        "npm:react-native-svg@15.15.4",
+        "npm:react-native-web@~0.21.2",
         "npm:react-native-worklets@0.8.3",
         "npm:react-native@0.85.3",
+        "npm:react-refresh@0.18",
         "npm:react@19.2.3",
         "npm:tailwindcss@^3.4.19",
         "npm:tsup@^8.3.0",

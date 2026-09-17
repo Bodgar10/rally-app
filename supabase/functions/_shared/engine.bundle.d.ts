@@ -1242,4 +1242,514 @@ interface Validacion {
 }
 declare function validarSiembra(entrada: EntradaValidacion): Validacion;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, type Calendario, type CalendarioGrupos, type CategoriaCuadro, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type Fixture, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaOcupacion, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type KnockoutStart, type MatchResultInput, type MatchStage, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoProgramado, type PlanAvance, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, cupoDeBloque, divisionForRating, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generarBloques, generateRoundRobin, huellaDeGrupo, planAvance, programarEliminatorias, programarGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMovimiento, validarSiembra, validateParcial, validateScore };
+/** Identificador de grupo. Siempre dos, siempre estos. */
+type GrupoId = 'A' | 'B';
+/**
+ * Partidos que juega cada pareja. CINCO, y no es un parámetro cualquiera.
+ *
+ * ► ES LA PROMESA AL JUGADOR, NO UNA CALIBRACIÓN.
+ *   5 partidos × 30 minutos = 2 h 30 de pádel. Eso es lo que el organizador
+ *   anuncia y lo que el jugador viene a jugar. Bajarlo a 4 no "optimiza el
+ *   horario": vende otro producto.
+ *
+ * ► Y ES LO QUE HACE HONESTA LA TABLA.
+ *   Como no hay ganador del partido, el orden sale del balance de games. Ese
+ *   balance solo es comparable si todas las parejas han tenido los mismos
+ *   games en juego. Con una jugando 5 partidos y otra 6, los balances se
+ *   comparan contra escalas distintas y la tabla miente.
+ */
+declare const PARTIDOS_POR_PAREJA = 5;
+/**
+ * Clasifican 4 por grupo → 8 → cuartos exactos.
+ *
+ * Sin repescados y sin comparar entre grupos: cada grupo se resuelve solo.
+ * Por eso el exprés NO necesita el `bestExtraQualifiers` que `computeClinch`
+ * exige en los torneos largos — ahí la carrera de mejores segundos cruza
+ * grupos; aquí no existe.
+ */
+declare const CLASIFICAN_POR_GRUPO = 4;
+/**
+ * Parejas mínimas por grupo.
+ *
+ * Pasan 4, así que con 5 el grupo sería "eliminamos a una". Y con 5 parejas
+ * solo hay 4 rivales posibles: no caben 5 partidos sin repetir a alguien.
+ */
+declare const GRUPO_MINIMO = 6;
+/**
+ * Cupo mínimo del torneo: 12 (6+6).
+ *
+ * Con exactamente 12 el grupo de 6 juega los 5 partidos contra sus 5 rivales,
+ * o sea round robin completo. Funciona y la tabla es correcta, pero ahí el
+ * formato no ahorra nada. El punto dulce es 16: grupos de 8 donde juegas 5 de
+ * tus 7 rivales y clasifica justo la mitad.
+ */
+declare const CUPO_MINIMO: number;
+/** Un partido de la fase de grupos de un exprés. */
+interface PartidoExpres {
+    /**
+     * Referencia estable y legible: 'A-R3-P2' = grupo A, ronda 3, segundo
+     * partido de esa ronda.
+     *
+     * No es el id de base de datos —ese lo pone Postgres— sino la clave
+     * determinista del fixture. Sirve para que insertar el mismo fixture dos
+     * veces sea detectable, y para leer un test sin descifrar UUIDs.
+     */
+    ref: string;
+    grupo: GrupoId;
+    /** 1..partidosPorPareja. */
+    ronda: number;
+    /** Franja de juego dentro del torneo, 1..(2 × partidosPorPareja). */
+    orden: number;
+    /**
+     * Las dos parejas.
+     *
+     * EL ORDEN NO SIGNIFICA NADA. En pádel no hay local ni visitante; aquí es
+     * simplemente el orden del sorteo dentro del grupo, fijado para que el
+     * fixture sea reproducible carácter por carácter.
+     */
+    pairAId: string;
+    pairBId: string;
+}
+/** Un grupo con su sorteo y sus rondas. */
+interface GrupoExpres {
+    grupo: GrupoId;
+    /** Parejas del grupo, en el orden que salió del sorteo. */
+    pairIds: string[];
+    /** `rondas[i]` son los partidos simultáneos de la ronda i+1. */
+    rondas: PartidoExpres[][];
+}
+/**
+ * Una franja de juego: un grupo entero jugando una ronda.
+ *
+ * Mientras un grupo juega, el otro descansa. Como los dos grupos tienen el
+ * mismo número de rondas, la alternancia sale perfecta y sin huecos:
+ * A1, B1, A2, B2, … Sin horas: aquí solo está el ORDEN. Las horas son del
+ * planificador.
+ */
+interface FranjaExpres {
+    orden: number;
+    grupo: GrupoId;
+    ronda: number;
+    partidos: PartidoExpres[];
+}
+interface FixtureExpres {
+    cupo: number;
+    partidosPorPareja: number;
+    clasificanPorGrupo: number;
+    grupos: GrupoExpres[];
+    /** Las 2×K franjas en orden de juego. */
+    franjas: FranjaExpres[];
+    /** Todos los partidos, planos, en orden de juego. */
+    partidos: PartidoExpres[];
+    /**
+     * Canchas para meter una ronda entera en una franja: el grupo más grande
+     * partido por dos.
+     *
+     * Con menos, la ronda se parte en tandas y la tarde se alarga en
+     * proporción. Quien decide si eso cabe es el planificador, no este motor.
+     */
+    canchasNecesarias: number;
+    /** Partidos totales de la fase de grupos. */
+    totalPartidos: number;
+}
+
+/** Games que se juegan en un partido de grupo del exprés. Seis, siempre. */
+declare const GAMES_POR_PARTIDO = 6;
+/** Un marcador de suma 6 ya capturado. */
+interface MarcadorSuma6 {
+    gamesA: number;
+    gamesB: number;
+}
+/**
+ * Los únicos siete marcadores que existen.
+ *
+ * Se expone para la pantalla del juez: en vez de dos campos numéricos donde se
+ * puede teclear un 7-2, son siete botones. Un marcador imposible que no se
+ * puede ni escribir no hay que validarlo después.
+ */
+declare const MARCADORES_SUMA6: readonly MarcadorSuma6[];
+/**
+ * Errores de un marcador de suma 6. Array vacío = válido.
+ *
+ * Devuelve los motivos en vez de un booleano porque quien lo llama es la
+ * captura, y "marcador inválido" no le dice al juez qué corregir.
+ */
+declare function validarMarcadorSuma6(gamesA: unknown, gamesB: unknown): string[];
+/** ¿Es uno de los siete marcadores posibles? */
+declare function esMarcadorSuma6(gamesA: unknown, gamesB: unknown): boolean;
+
+/** Un partido de grupo tal como lo consume la tabla. */
+interface ResultadoSuma6 {
+    matchId: string;
+    pairAId: string;
+    pairBId: string;
+    /** null los dos si todavía no se ha jugado. */
+    gamesA: number | null;
+    gamesB: number | null;
+}
+/** Qué colocó a una pareja en su puesto. */
+type CriterioExpres = 
+/** Su balance de games, sin empate que resolver. */
+'balance'
+/** Empataba, y lo que pasó cuando se enfrentaron las separó. */
+ | 'directo'
+/** Empataba y no había forma de separarlas: lo decidió el organizador. */
+ | 'manual'
+/** Empataba y nadie lo ha resuelto todavía. El puesto NO es deportivo. */
+ | 'sin_resolver';
+interface FilaTablaExpres {
+    pairId: string;
+    posicion: number;
+    jugados: number;
+    gamesFavor: number;
+    gamesContra: number;
+    /** gamesFavor − gamesContra. La columna que ordena. */
+    balance: number;
+    criterio: CriterioExpres;
+    /**
+     * True cuando sigue empatada con otra(s) y el motor no puede separarlas.
+     * El puesto que se publica es estable pero arbitrario: sale del id.
+     */
+    empateSinResolver: boolean;
+    /** Con quién sigue empatada. Vacío si su puesto está decidido. */
+    empatadaCon: string[];
+}
+interface EmpateExpres {
+    balance: number;
+    pairIds: string[];
+    posiciones: number[];
+    /** El empate cruza la línea de clasificación: decide quién juega cuartos. */
+    decideClasificacion: boolean;
+    motivo: 
+    /** No se enfrentaron todas entre sí: la mini-tabla no significaría nada. */
+    'no_se_enfrentaron'
+    /** Se enfrentaron y el resultado entre ellas tampoco las separa. */
+     | 'directo_no_separa';
+}
+interface TablaExpres {
+    grupo: string;
+    clasifican: number;
+    filas: FilaTablaExpres[];
+    /**
+     * Todas han jugado el mismo número de partidos, así que los balances se
+     * pueden comparar. En mitad del torneo es normal que sea false.
+     */
+    comparable: boolean;
+    /** Todos los partidos del grupo están capturados. */
+    grupoTerminado: boolean;
+    empatesSinResolver: EmpateExpres[];
+    /**
+     * El grupo terminó y hay un empate sin resolver que decide quién pasa a
+     * cuartos. ES LA SEÑAL PARA PEDIRLE AL ORGANIZADOR QUE DECIDA: mientras sea
+     * true, el cuadro no se puede sembrar sin inventarse un orden.
+     */
+    bloqueaClasificacion: boolean;
+}
+interface EntradaTablaExpres {
+    /** Etiqueta del grupo, solo para poder identificarlo en la salida. */
+    grupo?: string;
+    pairIds: readonly string[];
+    /** Todos los partidos del grupo, jugados o no. */
+    resultados: readonly ResultadoSuma6[];
+    /** Por defecto CLASIFICAN_POR_GRUPO (4). */
+    clasifican?: number;
+    /**
+     * El orden que el ORGANIZADOR decidió para un empate que el reglamento no
+     * separa. `pairId -> 1, 2, 3…`.
+     *
+     * Solo se aplica a un bloque que sigue siendo un empate irresoluble Y cuyas
+     * parejas son exactamente las que traen valor —la misma regla que
+     * `group_standings.desempate_manual` (migración 064)—. Si se corrige un
+     * resultado y el empate desaparece o cambia de miembros, el dato se ignora
+     * solo: un orden viejo no puede reordenar una tabla que sí está decidida.
+     */
+    ordenManual?: Record<string, number>;
+}
+/**
+ * Calcula la tabla de un grupo de exprés.
+ *
+ * El orden final es: balance → enfrentamiento directo (si existe y separa) →
+ * decisión del organizador → sin resolver. No hay más criterios, y el
+ * comentario de cabecera explica por qué no puede haberlos.
+ */
+declare function computeTablaExpres(entrada: EntradaTablaExpres): TablaExpres;
+
+/**
+ * Los tres estados que existen en un exprés.
+ *
+ * Es un subconjunto del enum `public.clinch_status` a propósito:
+ * 'repechage_pending' no tiene sentido sin repesca, y dejarlo disponible
+ * invitaría a producirlo. El tipo se importa para que sigan siendo gemelos: si
+ * alguien renombra un valor en la base, esto deja de compilar.
+ */
+type EstadoClinchExpres = Extract<ClinchStatus, 'clinched' | 'alive' | 'eliminated'>;
+interface ClinchExpresResult {
+    pairId: string;
+    estado: EstadoClinchExpres;
+    balance: number;
+    pendientes: number;
+    /** Mejor y peor balance final alcanzable: `balance ± 6 × pendientes`. */
+    balanceMaximo: number;
+    balanceMinimo: number;
+    /** Partidos que todavía pueden cambiar su suerte. Vacío si ya está decidida. */
+    dependeDe: string[];
+    /**
+     * La respuesta salió de cotas y no de enumerar todos los escenarios.
+     * Sigue siendo segura: solo puede pecar de prudente.
+     */
+    aproximado: boolean;
+}
+interface EntradaClinchExpres {
+    pairIds: readonly string[];
+    /** Todos los partidos del grupo, jugados o no. */
+    resultados: readonly ResultadoSuma6[];
+    /** Por defecto CLASIFICAN_POR_GRUPO (4). */
+    clasifican?: number;
+}
+/**
+ * Estado de clasificación de cada pareja de UN grupo.
+ *
+ *   clinched   — está dentro en todos los escenarios posibles.
+ *   alive      — todavía puede entrar en alguno.
+ *   eliminated — no puede entrar en ninguno. Y solo entonces.
+ */
+declare function computeClinchExpres(entrada: EntradaClinchExpres): ClinchExpresResult[];
+
+/**
+ * Una fila de `group_standings` tal como queda tras la captura.
+ *
+ * LAS COLUMNAS DEL TORNEO LARGO VAN A CERO, Y VAN EXPLÍCITAS.
+ *   `won`, `lost`, `setsWon`, `setsLost` y `points` existen en la tabla desde
+ *   la migración 001 y en un exprés no significan nada: no hay victorias que
+ *   contar ni sets que ganar. Se escriben en 0 a propósito en vez de dejarlas
+ *   como estaban, porque un valor viejo de una captura anterior se leería como
+ *   un dato y no como un residuo. La pantalla de exprés no las muestra.
+ */
+interface FilaStandingExpres {
+    pairId: string;
+    played: number;
+    gamesWon: number;
+    gamesLost: number;
+    /** gamesWon − gamesLost. En la base es columna generada; aquí va para poder verificarlo. */
+    balance: number;
+    position: number;
+    clinchStatus: EstadoClinchExpres;
+    won: 0;
+    lost: 0;
+    setsWon: 0;
+    setsLost: 0;
+    points: 0;
+}
+interface CapturaExpres {
+    /** Lo que hay que escribir en `matches`. */
+    partido: {
+        matchId: string;
+        /** 'finished' al capturar, 'scheduled' al borrar el marcador. */
+        status: 'finished' | 'scheduled';
+        /**
+         * SIEMPRE null. No es que falte: es que un suma 6 no tiene ganador. Lo que
+         * dice que el partido acabó es `status` — ver la migración 075.
+         */
+        winnerPairId: null;
+        formato: 'suma_6';
+    };
+    /** La fila de `match_sets`. null cuando se está borrando el marcador. */
+    marcador: {
+        matchId: string;
+        setNumber: 1;
+        gamesA: number;
+        gamesB: number;
+        isSuperTiebreak: false;
+    } | null;
+    /** Una fila por pareja del grupo. Se escriben TODAS: un balance mueve la tabla entera. */
+    standings: FilaStandingExpres[];
+    /** La tabla resultante, para pintarla sin recalcular. */
+    tabla: TablaExpres;
+    clinch: ClinchExpresResult[];
+}
+interface EntradaCapturaExpres {
+    grupo?: GrupoId | string;
+    pairIds: readonly string[];
+    /** Todos los partidos del grupo, tal como están ANTES de esta captura. */
+    resultados: readonly ResultadoSuma6[];
+    /** El partido que se captura. Tiene que estar en `resultados`. */
+    matchId: string;
+    /** Games de la pareja A. null en los dos para BORRAR el marcador. */
+    gamesA: number | null;
+    gamesB: number | null;
+    clasifican?: number;
+    ordenManual?: Record<string, number>;
+}
+/**
+ * Aplica un marcador de suma 6 y devuelve todo lo que hay que persistir.
+ *
+ * No escribe nada. Lanza si el marcador o el partido no son válidos: en una
+ * captura, un dato que no cuadra es un error del juez que hay que enseñarle,
+ * no algo que corregir por lo bajo.
+ */
+declare function prepararCapturaExpres(entrada: EntradaCapturaExpres): CapturaExpres;
+/**
+ * Cuántos partidos del grupo faltan por capturar.
+ *
+ * La pantalla del juez lo necesita para saber cuándo enseñar el cierre del
+ * grupo, y la del organizador para saber cuándo puede sembrar el cuadro.
+ */
+declare function partidosPendientes(resultados: readonly ResultadoSuma6[]): number;
+
+type ZonaExpres = 'comodo' | 'ajustado' | 'limite' | 'no_cabe';
+type EtapaExpres = 'group' | 'quarter' | 'semi' | 'final';
+interface VentanaExpres {
+    /** 'HH:MM'. */
+    desde: string;
+    hasta: string;
+}
+/** Minutos a los que se PLANIFICA cada etapa. Gemelo de `expres_etapa.minutos`. */
+interface MinutosPorEtapa {
+    group: number;
+    quarter: number;
+    semi: number;
+    final: number;
+}
+declare const MINUTOS_ESTANDAR: MinutosPorEtapa;
+interface FranjaPlanificada {
+    orden: number;
+    etapa: EtapaExpres;
+    /** Solo en la fase de grupos. */
+    grupo?: GrupoId;
+    ronda?: number;
+    partidos: number;
+    /** Tandas en que se parte la franja por falta de canchas. 1 = cabe entera. */
+    tandas: number;
+    desde: string;
+    hasta: string;
+    minutos: number;
+}
+interface PlanExpres {
+    cupo: number;
+    tamanoGrupos: {
+        A: number;
+        B: number;
+    };
+    partidosPorPareja: number;
+    canchas: number;
+    /** Canchas para meter una ronda entera en una franja: la mitad del grupo mayor. */
+    canchasNecesarias: number;
+    franjas: FranjaPlanificada[];
+    inicio: string;
+    /** Hora de fin según el plan. */
+    fin: string;
+    /** Hora de fin si todo se retrasa lo que se retrasa siempre. */
+    finRealista: string;
+    /** A qué hora acaba la fase de grupos: quien no clasifica se va a esa hora. */
+    finDeGrupos: string;
+    minutosTotales: number;
+    minutosDisponibles: number;
+    holguraMinutos: number;
+    ocupacion: number;
+    zona: ZonaExpres;
+    /** Lo que juega una pareja que no clasifica. La promesa del cartel. */
+    minutosJugando: number;
+    /** Lo que juega una que llega a la final. */
+    minutosJugandoFinalista: number;
+    /** El K más alto que cabe en esta ventana con estas canchas. null si no cabe ni 1. */
+    partidosMaximosQueCaben: number | null;
+    avisos: string[];
+}
+interface EntradaPlanExpres {
+    cupo: number;
+    /** Por defecto PARTIDOS_POR_PAREJA (5). */
+    partidosPorPareja?: number;
+    canchas: number;
+    ventana: VentanaExpres;
+    /** Por defecto MINUTOS_ESTANDAR. */
+    minutos?: Partial<MinutosPorEtapa>;
+    /** Por defecto MARGEN_CIERRE_EXPRES. */
+    margenCierreMin?: number;
+}
+/**
+ * Arma el horario completo de un exprés y dice si cabe.
+ *
+ * Las franjas de grupo se alternan A, B, A, B… porque mientras un grupo juega
+ * el otro descansa. Como los dos tienen el MISMO número de rondas —siempre K,
+ * sin importar cuántas parejas tenga cada uno— la alternancia sale sin huecos.
+ */
+declare function planificarExpres(entrada: EntradaPlanExpres): PlanExpres;
+
+/** Generador determinista a partir de una semilla de texto. */
+declare function generadorDeSemilla(semilla: string): () => number;
+interface RepartoGrupos {
+    A: string[];
+    B: string[];
+}
+/**
+ * Tamaños de los dos grupos para un cupo dado. AMBOS PARES, siempre.
+ *
+ * ► POR QUÉ PARES, Y NO ES UNA MANÍA
+ *   Cada pareja juega 5 partidos, que es impar. La suma de partidos de un
+ *   grupo es entonces `tamaño × 5`, y como cada partido cuenta por dos, ese
+ *   producto tiene que ser par. Con 5 impar, el tamaño tiene que ser par.
+ *   Un grupo de 7 con 5 partidos por pareja no es difícil de calcular: no
+ *   existe.
+ *
+ * ► CONSECUENCIA: EL CUPO TIENE QUE SER PAR
+ *   12 → 6+6 · 14 → 8+6 · 16 → 8+8 · 18 → 10+8 · 20 → 10+10.
+ *   Con 13 inscritas no hay reparto posible, y la salida no es inventarse uno
+ *   sino que el organizador cierre en 12. Cuando los grupos salen desiguales,
+ *   A es el grande: no significa nada, pero hay que fijarlo para que el
+ *   fixture sea reproducible.
+ */
+declare function tamanosDeGrupo(cupo: number): {
+    A: number;
+    B: number;
+};
+/**
+ * Reparte las parejas en los dos grupos usando la semilla.
+ *
+ * Baraja la lista completa y corta: las primeras al A, el resto al B. El orden
+ * dentro de cada grupo también sale del sorteo, y es el que consume el círculo
+ * para armar las rondas — así que dos semillas distintas no solo cambian quién
+ * está con quién, cambian el calendario entero.
+ *
+ * ► SE ORDENA LA LISTA ANTES DE BARAJAR, Y ESO NO ES REDUNDANTE.
+ *   Fisher-Yates depende del orden de entrada tanto como de la semilla. Sin
+ *   este paso, la misma semilla y las mismas parejas dan sorteos DISTINTOS
+ *   según cómo venga la lista —el `order by` de la consulta, una inscripción
+ *   corregida, una pareja dada de baja y vuelta a alta—, y entonces la semilla
+ *   guardada ya no reproduce nada: para auditar el sorteo habría que conservar
+ *   también el orden exacto en que se leyeron las filas aquel día.
+ *
+ *   Ordenando primero, el sorteo pasa a ser función del CONJUNTO de parejas y
+ *   la semilla. Nada más. Eso es lo que se puede prometer y volver a enseñar.
+ */
+declare function repartirGrupos(pairIds: readonly string[], semilla: string): RepartoGrupos;
+
+interface EntradaFixtureExpres {
+    /** Parejas inscritas al cerrar el cupo. El orden da igual: se sortea. */
+    pairIds: readonly string[];
+    /**
+     * Semilla del sorteo. OBLIGATORIA, sin valor por defecto.
+     *
+     * Un default aquí —la fecha, el id del torneo, cualquier cosa— convierte un
+     * dato que falta en un sorteo que nadie decidió y que además parece
+     * legítimo. Que reviente con el nombre del campo.
+     */
+    semilla: string;
+    /** Partidos por pareja. Por defecto PARTIDOS_POR_PAREJA (5). */
+    partidosPorPareja?: number;
+}
+/**
+ * Arma la fase de grupos completa de un exprés.
+ *
+ * QUÉ GARANTIZA, Y LO COMPRUEBA ANTES DE DEVOLVER
+ *   · Todas las parejas juegan exactamente el mismo número de partidos.
+ *   · Nadie repite rival.
+ *   · Dentro de una ronda, nadie juega dos veces.
+ *   · Las rondas de los dos grupos se alternan sin huecos: A1, B1, A2, B2, …
+ *
+ * QUÉ NO HACE
+ *   Horas, canchas concretas y cuadro eliminatorio. Esto devuelve el ORDEN de
+ *   juego; ponerle reloj es del planificador.
+ */
+declare function generarFixtureExpres(entrada: EntradaFixtureExpres): FixtureExpres;
+
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CapturaExpres, type CategoriaCuadro, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoDeSet, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoExpres, type GrupoId, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
