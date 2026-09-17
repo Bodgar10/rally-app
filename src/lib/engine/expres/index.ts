@@ -24,6 +24,7 @@ export * from './reglas';
 export * from './suma6';
 export * from './tabla';
 export * from './clinch';
+export * from './captura';
 export { rondasDelCirculo, verificarReparto } from './circulo';
 export {
   barajar,
