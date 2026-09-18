@@ -141,10 +141,7 @@ const UNLOCKED = [
   '🎯 Probabilidad de victoria antes de cada partido',
   '🔍 La ficha del rival: historial, quién manda, si son pareja fija',
   '📣 Compartir tu progreso y tus partidos por WhatsApp',
-];
-
-const EN_CAMINO = [
-  'Proyección de ranking',
+  '🏅 Qué te falta para subir en el ranking',
 ];
 
 const UNLOCKED_CHAMPION = [
@@ -347,33 +344,6 @@ export function ProActivatedModal({
                   >
                     {b}
                   </Text>
-                </View>
-              ))}
-
-              {/* LO QUE VIENE, dicho como lo que es.
-                  Se enseña después de lo que YA puede abrir y con otro color:
-                  así el jugador sabe que hay más camino sin confundirlo con lo
-                  que acaba de comprar. */}
-              <Text
-                style={{
-                  fontFamily: font.body,
-                  fontSize: 10.5,
-                  color: color.muted,
-                  textTransform: 'uppercase',
-                  letterSpacing: 0.8,
-                  marginTop: 16,
-                  marginBottom: 6,
-                }}
-              >
-                En camino
-              </Text>
-              {EN_CAMINO.map((b) => (
-                <View
-                  key={b}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 }}
-                >
-                  <Text style={{ color: color.muted, fontSize: 12 }}>·</Text>
-                  <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>{b}</Text>
                 </View>
               ))}
 

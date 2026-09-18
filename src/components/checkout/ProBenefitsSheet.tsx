@@ -70,7 +70,6 @@ const BENEFITS: BenefitItem[] = [
     emoji: '📈',
     title: 'Proyección de ranking',
     desc: '"Te faltan ~180 pts para entrar al top 5." Sabe dónde estás parado.',
-    pronto: true,
     pro: true,
     champion: true,
   },

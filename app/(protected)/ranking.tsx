@@ -24,6 +24,7 @@ import { color, radius, space, font } from '@/lib/design-tokens';
 import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/database.types';
+import ProyeccionDeRanking from '@/components/player/ProyeccionDeRanking';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -437,6 +438,17 @@ export default function RankingScreen() {
         {/* Stats rápidos */}
         {summary && summary.position > 0 && (
           <StatsRow summary={summary} />
+        )}
+
+        {/* QUÉ TE FALTA PARA SUBIR.
+            Antes de la tabla, porque la tabla es la foto y esto es la meta.
+            Recibe las MISMAS filas que se están pintando: una segunda consulta
+            podría traer otro orden y hablaría de un ranking que el jugador no
+            está viendo. */}
+        {leaderboard.length > 0 && userId && (
+          <View style={{ marginTop: space[4], paddingHorizontal: space[4] }}>
+            <ProyeccionDeRanking tabla={leaderboard} userId={userId} />
+          </View>
         )}
 
         {/* Leaderboard */}

@@ -125,6 +125,7 @@ const INCLUIDO_HOY = [
   'Con qué pareja ganas más',
   'Cómo te va en los partidos cerrados',
   'Compartir tu progreso y tus partidos',
+  'Qué te falta para subir en el ranking',
 ] as const;
 
 /** Lo que solo trae el anual. Es económico a propósito: ver la nota del tope. */
