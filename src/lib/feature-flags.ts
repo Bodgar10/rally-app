@@ -63,12 +63,36 @@ export function isSubscriptionCTADirect(): boolean {
   return region === 'US' || region === 'EU';
 }
 
+// ─── Flag: prioridad de inscripción ──────────────────────────────────────────
+//
+// APAGADA A PROPÓSITO, Y NO PORQUE ESTÉ A MEDIAS.
+//
+//   "Los suscriptores se inscriben antes" solo vale algo si hay fila de espera.
+//   Hoy, en el pádel amateur, los torneos TARDAN en llenarse: la ventana de
+//   prioridad no le quitaría el sitio a nadie y lo único que haría es molestar
+//   a quien llegó a inscribirse y se encuentra la puerta cerrada por un motivo
+//   que no entiende.
+//
+//   El día que un exprés se llene en horas, esto pasa de molestia a una de las
+//   razones más fuertes para suscribirse. Por eso el código está entero y
+//   probado —la columna, las dos comprobaciones y las dos pantallas— y lo único
+//   que falta para encenderlo es poner esto en true.
+//
+//   Se deja apagado en LECTURA, no en escritura: la migración 080 y las
+//   comprobaciones del servidor siguen activas. Con `prioridad_hasta` en null,
+//   que es como están todos los torneos, no hacen nada.
+export function isPrioridadInscripcionOn(): boolean {
+  return process.env.EXPO_PUBLIC_PRIORIDAD_INSCRIPCION === 'true';
+}
+
 export interface FeatureFlags {
   SUBSCRIPTION_CTA_DIRECT: boolean;
+  PRIORIDAD_INSCRIPCION: boolean;
 }
 
 export function getFeatureFlags(): FeatureFlags {
   return {
     SUBSCRIPTION_CTA_DIRECT: isSubscriptionCTADirect(),
+    PRIORIDAD_INSCRIPCION: isPrioridadInscripcionOn(),
   };
 }

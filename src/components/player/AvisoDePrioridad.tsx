@@ -21,6 +21,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { leerSuscripcion } from '@/lib/suscripcion-datos';
 import { estadoDePrioridad, textoDePrioridad } from '@/lib/prioridad-inscripcion';
+import { isPrioridadInscripcionOn } from '@/lib/feature-flags';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 /**
@@ -54,6 +55,9 @@ export function AvisoDePrioridad({
   const [esPro, setEsPro] = useState(false);
 
   useEffect(() => {
+    // Apagada: ni siquiera se consulta. Ver la nota del flag — hoy la ventana
+    // solo molestaría, porque los torneos tardan en llenarse.
+    if (!isPrioridadInscripcionOn()) return;
     let vivo = true;
     (async () => {
       const [prioridad, sub] = await Promise.all([
