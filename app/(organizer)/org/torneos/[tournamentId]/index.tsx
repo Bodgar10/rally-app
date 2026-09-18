@@ -569,6 +569,16 @@ export default function OrgTournamentScreen() {
             value="Horas y canchas del último día"
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
           />
+          {/* La prioridad es de inscripción, así que va con lo de ANTES del
+              torneo — pero se enseña aquí porque es donde el organizador entra
+              el día que abre los cupos. */}
+          <TarjetaAjuste
+            icon="star"
+            title="Prioridad de inscripción"
+            value="Cuánta ventaja tienen los suscriptores al inscribirse"
+            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/prioridad`)}
+          />
+
           {/* El exprés tiene su propio panel: la tabla se ordena por saldo de
               games y el sorteo arma la tarde entera de una vez. La pantalla de
               Grupos de siempre asume puntos de victoria y no sirve aquí. */}

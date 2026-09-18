@@ -55,6 +55,7 @@ import { rangoLegible } from '@/lib/bloques-formato';
 import { bloquesDisponibles } from '@/lib/engine/schedule/bloques';
 import { formatearConDia } from '@/lib/fechas';
 import { fallo } from '@/lib/errores-red';
+import AvisoDePrioridad from '@/components/player/AvisoDePrioridad';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -491,6 +492,13 @@ export default function InscripcionScreen() {
       </View>
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+
+        {/* LA VENTANA DE PRIORIDAD, SI LA HAY.
+            Va lo primero porque es lo que decide si tiene sentido seguir
+            llenando el formulario. Sin ventana abierta no se pinta nada. */}
+        {tournamentId && miId && (
+          <AvisoDePrioridad tournamentId={tournamentId} userId={miId} />
+        )}
 
         {/* ── Paso 1: Categoría ───────────────────────────────────────── */}
         <SectionLabel title="1 · Elige tu categoría" />

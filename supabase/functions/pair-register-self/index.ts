@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
   // ── Torneo y categoría ────────────────────────────────────────────────────
   const { data: torneo } = await supa
     .from("tournaments")
-    .select("id, name, start_date, end_date, organizer_id, venue_id, status, registration_fee")
+    .select("id, name, start_date, end_date, organizer_id, venue_id, status, registration_fee, prioridad_hasta")
     .eq("id", tournament_id)
     .maybeSingle();
 
@@ -82,6 +82,33 @@ Deno.serve(async (req) => {
   // inscripciones abiertas) se revalida aquí a mano.
   if (torneo.status !== "registration_open") {
     return json({ ok: false, error: "registration_closed" }, 409);
+  }
+
+  // ── VENTANA DE PRIORIDAD (migración 080) ──────────────────────────────────
+  //
+  //   Un exprés tiene 16 cupos y se llena en horas. Durante la ventana, la
+  //   inscripción es solo para suscriptores.
+  //
+  //   Se pregunta a `inscripcion_abierta_para`, que es la MISMA función que usa
+  //   la policy `pairs_insert`. Escribir la condición otra vez aquí sería tener
+  //   dos respuestas a la misma pregunta, y un día dirían cosas distintas: la
+  //   policy dejaría pasar lo que esta función rechaza, o al revés.
+  const { data: puede } = await supa.rpc("inscripcion_abierta_para", {
+    p_tournament: tournament_id,
+    p_user: actor.id,
+  });
+  if (puede === false) {
+    return json(
+      {
+        ok: false,
+        error: "prioridad_suscriptores",
+        prioridad_hasta: torneo.prioridad_hasta,
+        detail:
+          "Las inscripciones están abiertas solo para suscriptores. Abren para todos el " +
+          `${torneo.prioridad_hasta}.`,
+      },
+      403,
+    );
   }
 
   const { data: categoria } = await supa
