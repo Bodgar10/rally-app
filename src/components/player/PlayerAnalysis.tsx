@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { color, radius, space, font } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { isSubscriptionCTADirect } from '@/lib/feature-flags';
+import { leerSuscripcion } from '@/lib/suscripcion-datos';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -486,16 +487,12 @@ function StatCard({
 
 async function loadAnalysis(userId: string): Promise<AnalysisState> {
   try {
-    // 1. Estado de suscripción
-    const { data: sub } = await supabase
-      .from('subscriptions')
-      .select('status, billing_cycle, plan')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    const isPro =
-      sub !== null &&
-      (sub.status === 'active' || sub.status === 'trialing');
+    // 1. Estado de suscripción.
+    //    La regla —qué estados de Stripe dan acceso— vive en `lib/suscripcion`
+    //    y no aquí: estaba copiada en cada componente que la necesitaba, que es
+    //    la misma deriva que ya nos costó los precios. Si mañana un estado
+    //    nuevo cuenta como activo, se cambia en un sitio.
+    const isPro = (await leerSuscripcion(userId)).activa;
 
     // 2. Intentar RPC si existe; si no, calcular directo
     const { data: rpcData, error: rpcErr } = await supabase.rpc(

@@ -16,6 +16,12 @@
  *   manda, si son pareja fija— sigue saliendo, porque eso son hechos y no
  *   estimaciones.
  *
+ * QUÉ SE VE SIN PAGAR
+ *   El nombre del rival y que hay una ficha. Nada más: el pronóstico, el
+ *   historial y quién manda son de pago, porque son exactamente el trabajo que
+ *   la suscripción compra. Y este es el mejor sitio para pedirla — media hora
+ *   antes de un partido, con el rival delante, es cuando más se quiere saber.
+ *
  * NO HAY "PUNTOS FUERTES DEL RIVAL"
  *   Haría falta saber qué pasa DENTRO del punto —saques, errores, dónde se
  *   ganó la bola— y la unidad mínima del sistema es el game. Inventarlo sería
@@ -23,8 +29,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { armarFichaDelRival, type EntradaFicha } from '@/lib/scouting-datos';
+import { leerSuscripcion } from '@/lib/suscripcion-datos';
 import {
   lineasDeLaFicha,
   textoDelPronostico,
@@ -36,10 +44,20 @@ import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 export interface FichaDelRivalProps extends EntradaFicha {
   /** Cómo se llaman ellos, para el título. */
   tituloRival: string;
+  /** El jugador que mira, para saber si tiene suscripción. */
+  userId: string;
 }
 
-export function FichaDelRival({ tituloRival, ...entrada }: FichaDelRivalProps) {
+export function FichaDelRival({ tituloRival, userId, ...entrada }: FichaDelRivalProps) {
+  const router = useRouter();
   const [ficha, setFicha] = useState<Ficha | null | 'cargando'>('cargando');
+  const [esPro, setEsPro] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    leerSuscripcion(userId).then((sub) => { if (vivo) setEsPro(sub.activa); });
+    return () => { vivo = false; };
+  }, [userId]);
 
   useEffect(() => {
     let vivo = true;
@@ -61,6 +79,23 @@ export function FichaDelRival({ tituloRival, ...entrada }: FichaDelRivalProps) {
 
   const porcentaje = textoDeProbabilidad(ficha);
   const lineas = lineasDeLaFicha(ficha);
+
+  if (!esPro) {
+    return (
+      <Pressable
+        onPress={() => router.push('/(protected)/planes')}
+        accessibilityRole="button"
+        style={s.caja}
+      >
+        <Text style={s.eyebrow}>Contra quién juegas</Text>
+        <Text style={s.rival} numberOfLines={2}>{tituloRival}</Text>
+        <Text style={s.cerrado}>
+          Tus opciones de ganar, el historial entre ustedes y quién manda en su pareja están en Pro.
+        </Text>
+        <Text style={s.enlace}>Ver planes</Text>
+      </Pressable>
+    );
+  }
 
   return (
     <View style={s.caja}>
@@ -104,6 +139,21 @@ const s = StyleSheet.create({
   porcentaje: { color: color.goldBright, fontFamily: font.display, fontSize: fontSize.displayL },
   titular: { flex: 1, color: color.champagne, fontFamily: font.display, fontSize: fontSize.h1Inline },
   titularSolo: { color: color.muted, fontSize: fontSize.body, fontFamily: font.body },
+
+  cerrado: {
+    color: color.muted,
+    fontFamily: font.body,
+    fontSize: fontSize.caption,
+    lineHeight: 18,
+    marginTop: space[1],
+  },
+  enlace: {
+    color: color.goldBright,
+    fontFamily: font.body,
+    fontSize: fontSize.caption,
+    fontWeight: '600',
+    marginTop: space[1],
+  },
 
   linea: { flexDirection: 'row', gap: space[2] },
   vinyeta: { color: color.gold, fontFamily: font.body, fontSize: fontSize.caption },

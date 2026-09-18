@@ -34,10 +34,13 @@ interface Resuelto {
 export function ProximoRival({
   pairIds,
   categoryId,
+  userId,
 }: {
   /** Todas las parejas del jugador. Se usa la que juegue en esta categoría. */
   pairIds: readonly string[];
   categoryId: string;
+  /** Quién mira, para saber si la ficha va abierta o cerrada. */
+  userId: string;
 }) {
   const [datos, setDatos] = useState<Resuelto | null>(null);
 
@@ -102,7 +105,7 @@ export function ProximoRival({
   }, [pairIds.join(','), categoryId]);
 
   if (!datos) return null;
-  return <FichaDelRival {...datos} />;
+  return <FichaDelRival {...datos} userId={userId} />;
 }
 
 export default ProximoRival;

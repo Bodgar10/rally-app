@@ -23,6 +23,16 @@
  *   hay —"todavía te estamos midiendo"— y se cuentan sus partidos, que además
  *   le da un motivo para jugar más.
  *
+ * QUÉ SE VE SIN PAGAR Y QUÉ NO
+ *   Gratis va la DIVISIÓN —"Tercera fuerza"—, porque es identidad y es lo que
+ *   engancha: el jugador se reconoce ahí. De pago van el número, la curva y
+ *   los tres datos de abajo, que es lo que de verdad cuesta construir y lo que
+ *   se vuelve más valioso cuanto más juega.
+ *
+ *   La división se regala a propósito y no por generosidad: enseñar el marco
+ *   vacío es lo que hace que quiera ver lo que falta. Un bloque entero
+ *   bloqueado no se mira, se salta.
+ *
  * LA CURVA NO SE SUAVIZA
  *   Se dibuja partido a partido, con sus bajadas. Una línea limpia que solo
  *   sube sería más bonita y sería mentira: el valor de esta gráfica es que el
@@ -30,9 +40,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import { useRouter } from 'expo-router';
 import { leerNivelYCurva, type NivelYCurva } from '@/lib/nivel-jugador-datos';
+import { leerSuscripcion } from '@/lib/suscripcion-datos';
 import {
   CURVA_ALTO,
   CURVA_ANCHO,
@@ -47,11 +59,17 @@ import {
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 export function TuNivel({ userId }: { userId: string }) {
+  const router = useRouter();
   const [datos, setDatos] = useState<NivelYCurva | null>(null);
+  const [esPro, setEsPro] = useState(false);
 
   useEffect(() => {
     let vivo = true;
-    leerNivelYCurva(userId).then((d) => { if (vivo) setDatos(d); });
+    Promise.all([leerNivelYCurva(userId), leerSuscripcion(userId)]).then(([d, sub]) => {
+      if (!vivo) return;
+      setDatos(d);
+      setEsPro(sub.activa);
+    });
     return () => { vivo = false; };
   }, [userId]);
 
@@ -74,12 +92,24 @@ export function TuNivel({ userId }: { userId: string }) {
 
       <View style={s.cabecera}>
         <Text style={[s.titulo, !nivel.fiable && s.tituloProvisional]}>{textoDeNivel(nivel)}</Text>
-        {numero !== null && <Text style={s.numero}>{numero}</Text>}
+        {esPro && numero !== null && <Text style={s.numero}>{numero}</Text>}
       </View>
 
-      <Text style={s.paso}>{textoDeSiguientePaso(nivel)}</Text>
+      {esPro && <Text style={s.paso}>{textoDeSiguientePaso(nivel)}</Text>}
 
-      {linea && area && (
+      {/* Sin suscripción se enseña el marco y lo que falta, no un bloque
+          bloqueado: uno entero cerrado no se mira, se salta. */}
+      {!esPro && (
+        <Pressable onPress={() => router.push('/(protected)/planes')} accessibilityRole="button">
+          <Text style={s.paso}>
+            Tu nivel exacto, cuántos puntos te faltan para subir y la gráfica de tu progreso
+            están en Pro.
+          </Text>
+          <Text style={s.enlace}>Ver planes</Text>
+        </Pressable>
+      )}
+
+      {esPro && linea && area && (
         <>
           <Svg width="100%" height={CURVA_ALTO} viewBox={`0 0 ${CURVA_ANCHO} ${CURVA_ALTO}`} style={s.grafica}>
             <Defs>
@@ -135,6 +165,13 @@ const s = StyleSheet.create({
   tituloProvisional: { color: color.muted, fontSize: fontSize.h1Inline },
   numero: { color: color.goldBright, fontFamily: font.display, fontSize: fontSize.metric },
   paso: { color: color.muted, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18 },
+  enlace: {
+    color: color.goldBright,
+    fontFamily: font.body,
+    fontSize: fontSize.caption,
+    fontWeight: '600',
+    marginTop: space[1],
+  },
 
   grafica: { marginTop: space[2] },
 

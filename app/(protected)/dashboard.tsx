@@ -487,9 +487,9 @@ export default function DashboardScreen() {
             Va justo debajo de "cómo voy" porque son las dos preguntas que trae
             a alguien a abrir la app un domingo, y en ese orden. Si no tiene
             partido pendiente no se pinta nada. */}
-        {pairIds.length > 0 && situacion?.categoryId && (
+        {pairIds.length > 0 && situacion?.categoryId && user && (
           <View style={{ marginBottom: space[4] }}>
-            <ProximoRival pairIds={pairIds} categoryId={situacion.categoryId} />
+            <ProximoRival pairIds={pairIds} categoryId={situacion.categoryId} userId={user.id} />
           </View>
         )}
 
