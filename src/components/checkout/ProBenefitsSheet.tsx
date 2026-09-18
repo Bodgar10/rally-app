@@ -28,6 +28,16 @@ const PLANS_WEB_URL = process.env.EXPO_PUBLIC_WEB_URL
 
 interface BenefitItem {
   emoji: string;
+  /**
+   * TODAVÍA NO EXISTE.
+   *
+   * Cuatro de estos beneficios se anunciaban como si estuvieran —scouting,
+   * proyección de ranking, tarjetas compartibles, probabilidad de ganar— y no
+   * hay una línea de código que los haga. Vender lo que no está es la forma
+   * más cara de conseguir una cancelación: el jugador lo descubre el primer
+   * día y ya pagó. Marcados así se enseñan como lo que son.
+   */
+  pronto?: boolean;
   title: string;
   desc: string;
   pro: boolean;
@@ -46,6 +56,7 @@ const BENEFITS: BenefitItem[] = [
     emoji: '🎯',
     title: 'Probabilidad de ganar',
     desc: 'Antes de cada partido, ve tus chances basadas en tu historial vs el rival.',
+    pronto: true,
     pro: true,
     champion: true,
   },
@@ -53,6 +64,7 @@ const BENEFITS: BenefitItem[] = [
     emoji: '🔍',
     title: 'Scouting del rival',
     desc: 'Ficha completa pre-partido: racha, head-to-head, puntos fuertes.',
+    pronto: true,
     pro: true,
     champion: true,
   },
@@ -60,6 +72,7 @@ const BENEFITS: BenefitItem[] = [
     emoji: '📈',
     title: 'Proyección de ranking',
     desc: '"Te faltan ~180 pts para entrar al top 5." Sabe dónde estás parado.',
+    pronto: true,
     pro: true,
     champion: true,
   },
@@ -67,6 +80,7 @@ const BENEFITS: BenefitItem[] = [
     emoji: '🏅',
     title: 'Tarjetas compartibles',
     desc: 'Tu estampa dorada con tus stats. Para redes, para presumir.',
+    pronto: true,
     pro: true,
     champion: true,
   },
@@ -237,6 +251,9 @@ export function ProBenefitsSheet({
                   backgroundColor: !b.pro
                     ? 'rgba(212,175,55,0.06)'
                     : 'transparent',
+                  // Lo que aún no existe va apagado: se ve, se entiende que
+                  // viene, y no se confunde con lo que ya se compra.
+                  opacity: b.pronto ? 0.55 : 1,
                 }}
               >
                 {/* Emoji */}
@@ -284,7 +301,7 @@ export function ProBenefitsSheet({
                           letterSpacing: 1,
                         }}
                       >
-                        {!b.pro ? 'CAMPEÓN' : 'PRO'}
+                        {b.pronto ? 'PRONTO' : !b.pro ? 'CAMPEÓN' : 'PRO'}
                       </Text>
                     </View>
                   </View>

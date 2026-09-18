@@ -124,15 +124,33 @@ function Confetti() {
 
 // ─── Beneficios desbloqueados ────────────────────────────────────────────────
 
+/**
+ * LO QUE ACABA DE DESBLOQUEAR. SOLO LO QUE PUEDE ABRIR HOY.
+ *
+ * Esta lista salía justo después de cobrarle y prometía cuatro cosas que no
+ * existen: scouting, proyección de ranking, tarjetas compartibles y
+ * probabilidad de victoria. Es el peor momento posible para prometer de más —
+ * el jugador va a ir a buscarlas AHORA MISMO, con el cargo recién hecho.
+ *
+ * Lo que viene se enseña aparte y dicho como lo que es.
+ */
 const UNLOCKED = [
-  '📊 Análisis Pro de tu juego',
-  '🎯 Probabilidad de victoria',
-  '🔍 Scouting del rival',
-  '📈 Proyección de ranking',
-  '🏅 Tarjetas compartibles',
+  '📊 Con qué pareja ganas más',
+  '🔥 Cómo te va en los partidos cerrados',
+  '📈 Si vas subiendo, estable o bajando',
+  '🎯 Tus puntos promedio por torneo',
 ];
 
-const UNLOCKED_CHAMPION = [...UNLOCKED, '💸 5% de descuento en torneos'];
+const EN_CAMINO = [
+  'Tu rating y la gráfica de tu progreso',
+  'Probabilidad de victoria antes de cada partido',
+  'Scouting del rival',
+];
+
+const UNLOCKED_CHAMPION = [
+  ...UNLOCKED,
+  '💸 Sin comisión en tus inscripciones hasta recuperar tu suscripción',
+];
 
 // ─── Modal principal ─────────────────────────────────────────────────────────
 
@@ -329,6 +347,33 @@ export function ProActivatedModal({
                   >
                     {b}
                   </Text>
+                </View>
+              ))}
+
+              {/* LO QUE VIENE, dicho como lo que es.
+                  Se enseña después de lo que YA puede abrir y con otro color:
+                  así el jugador sabe que hay más camino sin confundirlo con lo
+                  que acaba de comprar. */}
+              <Text
+                style={{
+                  fontFamily: font.body,
+                  fontSize: 10.5,
+                  color: color.muted,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.8,
+                  marginTop: 16,
+                  marginBottom: 6,
+                }}
+              >
+                En camino
+              </Text>
+              {EN_CAMINO.map((b) => (
+                <View
+                  key={b}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: color.muted, fontSize: 12 }}>·</Text>
+                  <Text style={{ fontFamily: font.body, fontSize: 12, color: color.muted }}>{b}</Text>
                 </View>
               ))}
 

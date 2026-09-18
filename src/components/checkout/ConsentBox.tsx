@@ -20,10 +20,29 @@
 
 import { View, Text, Pressable } from 'react-native';
 import { color, radius, font } from '@/lib/design-tokens';
+import { PRECIOS } from '@/lib/precios-suscripcion';
 
+/**
+ * EL PRECIO SALE DE `precios-suscripcion`, NO SE ESCRIBE AQUÍ.
+ *
+ * Esta caja es el consentimiento que el jugador acepta ANTES de que Stripe le
+ * cobre. Tenía el precio escrito a mano —$149 y $1,900— y cuando el precio
+ * cambió, aquí se habría quedado el viejo: el texto legal diría un número y el
+ * cargo sería otro. Un consentimiento así no vale.
+ */
 const PLANS = {
-  monthly: { label: 'Pro mensual', price: '$149', period: 'mes', renewal: 'cada mes' },
-  annual:  { label: 'Campeón anual', price: '$1,900', period: 'año', renewal: 'cada año' },
+  monthly: {
+    label: `${PRECIOS.monthly.plan} mensual`,
+    price: PRECIOS.monthly.etiqueta,
+    period: PRECIOS.monthly.periodo,
+    renewal: PRECIOS.monthly.renovacion,
+  },
+  annual: {
+    label: `${PRECIOS.annual.plan} anual`,
+    price: PRECIOS.annual.etiqueta,
+    period: PRECIOS.annual.periodo,
+    renewal: PRECIOS.annual.renovacion,
+  },
 } as const;
 
 export interface ConsentBoxProps {

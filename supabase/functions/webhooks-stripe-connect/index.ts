@@ -115,6 +115,29 @@ async function upsertRegistrationFromPI(
       { onConflict: "stripe_payment_intent_id", ignoreDuplicates: true },
     );
 
+  // EL AHORRO DE CAMPEÓN SE APUNTA AQUÍ, NO AL CREAR EL CHECKOUT.
+  //
+  //   Un checkout abandonado no ahorró nada, y si se contara el jugador vería
+  //   un contador que no corresponde a ningún pago — y peor: gastaría tope que
+  //   no usó. Se escribe cuando Stripe confirma el cobro.
+  //
+  //   Se guarda también con ahorro 0: es el torneo en el que ya había agotado
+  //   su tope, y poder decírselo es mejor que no enseñar nada.
+  if (md.is_campeon === "true" && md.payer_id && md.periodo_fin) {
+    await supa.from("campeon_ahorros").upsert(
+      {
+        user_id: md.payer_id,
+        tournament_id: tournamentId,
+        pair_id: pairId,
+        stripe_payment_intent_id: pi.id,
+        base: Number(md.base_pesos ?? "0"),
+        ahorro: Number(md.discount ?? "0"),
+        periodo_fin: md.periodo_fin,
+      },
+      { onConflict: "stripe_payment_intent_id", ignoreDuplicates: true },
+    );
+  }
+
   // Reflejar el estado en la pareja (alimenta standings/clasificación en vivo).
   await supa.from("pairs").update({ payment_status: "paid_online" }).eq("id", pairId);
 }

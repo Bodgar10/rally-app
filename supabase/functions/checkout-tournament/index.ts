@@ -75,15 +75,31 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "organizer_not_ready", connect_status: org?.connect_status ?? null }, 409);
   }
 
-  // 3) ¿El que paga es Campeón (anual activo)? → 5% de descuento = perdón de nuestra comisión.
+  // 3) ¿El que paga es Campeón (anual activo)? → se le perdona nuestra comisión.
   const { data: sub } = await supa
     .from("subscriptions")
-    .select("status, billing_cycle")
+    .select("status, billing_cycle, current_period_end")
     .eq("user_id", actor.id)
     .in("status", ["active", "trialing"])
     .eq("billing_cycle", "annual")
     .maybeSingle();
   const isCampeon = !!sub;
+
+  // 3.1) EL DESCUENTO TIENE TOPE, Y EL TOPE ES LO QUE PAGÓ POR CAMPEÓN.
+  //
+  //   Con una inscripción de $950 por jugador, el 5% son $47.50. Quien juegue
+  //   un exprés cada domingo se lleva $2,470 al año perdonados contra una
+  //   suscripción de $990: a partir del torneo 21 deja MENOS que si no se
+  //   hubiera suscrito. Y es exactamente el jugador que el exprés semanal
+  //   quiere crear, así que sin tope el producto rema contra el negocio.
+  //
+  //   Con tope, la promesa al jugador es mejor y además es verdad: "juega lo
+  //   suficiente y Campeón sale gratis". Pasado eso vuelve el 5% normal.
+  let topeRestante = 0;
+  if (isCampeon) {
+    const { data: ah } = await supa.rpc("ahorro_campeon", { p_user: actor.id });
+    topeRestante = Math.max(0, Math.round(Number((ah as { restante?: number } | null)?.restante ?? 0)));
+  }
 
   // 4) Montos (pesos).
   const fee = Number(category?.fee_override ?? tournament.registration_fee ?? 0);
@@ -91,10 +107,15 @@ Deno.serve(async (req) => {
   const feePercent = Number(org.application_fee_percent ?? 5);
 
   const A = mode === "half" ? Math.round(fee / 2) : fee;
-  const discount = isCampeon ? Math.round((feePercent / 100) * A) : 0;
+  const comision = Math.round((feePercent / 100) * A);
+  const discount = isCampeon ? Math.min(comision, topeRestante) : 0;
   const charged = A - discount;
-  const applicationFeePesos = isCampeon ? 0 : Math.round((feePercent / 100) * A);
+  // Lo que NO se perdonó sigue siendo nuestra comisión. Con el descuento
+  // completo queda en 0; con el tope agotado, vuelve a ser el 5% entero.
+  const applicationFeePesos = comision - discount;
   const organizerAmount = charged - applicationFeePesos;
+  // El organizador cobra lo mismo en los tres casos —(A − comisión)—: el
+  // descuento sale SIEMPRE de nuestra parte y nunca de la suya.
 
   const amountCents = Math.round(charged * 100);
   const applicationFeeCents = Math.round(applicationFeePesos * 100);
@@ -131,6 +152,9 @@ Deno.serve(async (req) => {
             payer_id: actor.id,
             mode,
             is_campeon: String(isCampeon),
+            discount: String(discount),
+            base_pesos: String(A),
+            periodo_fin: String(sub?.current_period_end ?? ""),
             amount_pesos: String(charged),
             application_fee_amount: String(applicationFeePesos),
             organizer_amount: String(organizerAmount),
@@ -145,6 +169,9 @@ Deno.serve(async (req) => {
             payer_id: actor.id,
             mode,
             is_campeon: String(isCampeon),
+            discount: String(discount),
+            base_pesos: String(A),
+            periodo_fin: String(sub?.current_period_end ?? ""),
             amount_pesos: String(charged),
             application_fee_amount: String(applicationFeePesos),
             organizer_amount: String(organizerAmount),

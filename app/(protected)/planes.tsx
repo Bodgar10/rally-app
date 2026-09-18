@@ -60,29 +60,75 @@ interface UserProfile {
   wins?: number;
 }
 
+/**
+ * LOS PRECIOS, Y POR QUÉ SON ESTOS
+ *
+ * ANTES EL ANUAL COSTABA MÁS QUE EL MENSUAL. $149 × 12 son $1,788 y el anual
+ * estaba en $1,900: pagar por adelantado salía $112 más caro. La constante de
+ * abajo se llamaba ANNUAL_SAVINGS y calculaba −112 con un comentario que decía
+ * "$88 de ahorro". No se pintaba en ningún sitio, así que nadie vio el número
+ * mal — pero el precio sí lo estaba, y ningún beneficio arregla eso.
+ *
+ * AHORA EL ANUAL SON 990 Y EL MENSUAL 129
+ *   · $990 se queda debajo de la frontera de los mil, que en México es una
+ *     decisión distinta y no una superstición de marketing.
+ *   · $990 es UNA inscripción. La cuota real de un torneo son $1,900 por
+ *     pareja, $950 por jugador: la suscripción del año cuesta lo mismo que
+ *     jugar un torneo, y eso se explica en una frase.
+ *   · El mensual a $129 no está para venderse: está para que el anual sea
+ *     obvio. $129 × 12 son $1,548, o sea más de CUATRO meses gratis. A $99 el
+ *     salto se encogería y el anual dejaría de destacar; a $149 el descuento
+ *     sería del 55% y gritaría que el mensual es de mentira.
+ */
 const PLANS = {
   monthly: {
     label: 'Pro',
     sublabel: 'mensual',
-    price: 149,
-    priceLabel: '$149',
+    price: 129,
+    priceLabel: '$129',
     period: '/mes',
-    cta: 'Suscribirme por $149/mes',
+    cta: 'Suscribirme por $129/mes',
     highlight: false,
   },
   annual: {
     label: 'Campeón',
     sublabel: 'anual',
-    price: 1900,
-    priceLabel: '$1,900',
+    price: 990,
+    priceLabel: '$990',
     period: '/año',
-    cta: 'Suscribirme por $1,900/año',
+    cta: 'Suscribirme por $990/año',
     highlight: true, // plan destacado
   },
 } as const;
 
-const ANNUAL_SAVINGS = Math.round(149 * 12 - 1900); // $88 de "ahorro"
-const ANNUAL_MONTHLY_EQUIV = Math.round(1900 / 12); // ~$158/mes → en realidad es $149 pero destacar el compromiso
+/** Lo que de verdad se ahorra pagando el año: $1,548 − $990. */
+export const ANNUAL_SAVINGS = PLANS.monthly.price * 12 - PLANS.annual.price;
+/** A cuánto le sale el mes pagando el año. */
+export const ANNUAL_MONTHLY_EQUIV = Math.round(PLANS.annual.price / 12);
+/** Cuántos meses de los doce le salen gratis. Para el mensaje del anual. */
+export const ANNUAL_FREE_MONTHS = Math.floor(ANNUAL_SAVINGS / PLANS.monthly.price);
+
+/**
+ * LO QUE HAY HOY. NI UNA LÍNEA MÁS.
+ *
+ * Esta lista decía "Scouting del rival", "Proyección de ranking" y "Tarjetas
+ * compartibles", y NINGUNA DE LAS TRES EXISTE: aparecían solo en textos de
+ * venta. Vender lo que no está es la forma más cara de conseguir una
+ * cancelación, porque el jugador lo descubre el primer día y ya pagó.
+ *
+ * Lo que está en camino tiene su propia lista y se enseña como lo que es.
+ */
+const INCLUIDO_HOY = [
+  'Con qué pareja ganas más',
+  'Cómo te va en los partidos cerrados',
+  'Si vas subiendo, estable o bajando',
+  'Tus puntos promedio por torneo',
+] as const;
+
+/** Lo que solo trae el anual. Es económico a propósito: ver la nota del tope. */
+const SOLO_CAMPEON = [
+  'Sin comisión en tus inscripciones hasta recuperar tus $990',
+] as const;
 
 // ─── Toggle de ciclo de pago ────────────────────────────────────────────────
 
@@ -287,23 +333,7 @@ function PlanCard({
           )}
 
           {/* Beneficios del plan */}
-          {(isAnnual
-            ? [
-                'Análisis Pro completo',
-                'Probabilidad de victoria',
-                'Scouting del rival',
-                'Proyección de ranking',
-                'Tarjetas compartibles',
-                '5% de descuento en inscripciones',
-              ]
-            : [
-                'Análisis Pro completo',
-                'Probabilidad de victoria',
-                'Scouting del rival',
-                'Proyección de ranking',
-                'Tarjetas compartibles',
-              ]
-          ).map((b, i) => (
+          {(isAnnual ? [...INCLUIDO_HOY, ...SOLO_CAMPEON] : INCLUIDO_HOY).map((b, i) => (
             <View
               key={i}
               style={{

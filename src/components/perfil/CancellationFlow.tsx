@@ -271,12 +271,20 @@ function ConfirmStep({
           gap: 10,
         }}
       >
+        {/*
+          LO QUE PIERDE DE VERDAD.
+
+          Aquí listar algo que nunca tuvo es peor que en cualquier otra
+          pantalla: el jugador está cancelando, ya está molesto, y leer que
+          pierde un "scouting de rivales" que jamás encontró le confirma que
+          hizo bien. Solo va lo que existe.
+        */}
         {[
-          'Análisis Pro de tu juego',
-          'Probabilidad de victoria pre-partido',
-          'Scouting de rivales',
+          'Con qué pareja ganas más',
+          'Cómo te va en los partidos cerrados',
+          'Tu tendencia y tus puntos por torneo',
           ...(billingCycle === 'annual'
-            ? ['5% de descuento en inscripciones']
+            ? ['Tus inscripciones sin comisión']
             : []),
         ].map((item, i) => (
           <View

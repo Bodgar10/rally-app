@@ -83,6 +83,16 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const userId = subRow?.user_id ?? null;
 
+        // LO QUE PAGA POR PERIODO ES SU TOPE DE DESCUENTO (migración 079).
+        // Se toma de la factura y no de una constante: si mañana cambia el
+        // precio, el que se suscribió al viejo conserva el tope que compró.
+        if (userId && amountTotal > 0) {
+          await supa
+            .from("subscriptions")
+            .update({ precio_mxn: amountTotal })
+            .eq("user_id", userId);
+        }
+
         // ¿Ya facturamos esta invoice? (dedup duro además del event.id)
         const { data: already } = await supa
           .from("subscription_invoices")
