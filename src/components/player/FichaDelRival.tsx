@@ -40,6 +40,7 @@ import {
   type FichaDelRival as Ficha,
 } from '@/lib/scouting';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
+import { avisoDeLaPareja, textoDeJugador, type PerfilDeJuego } from '@/lib/lado-y-mano';
 import BotonCompartir from '@/components/ui/BotonCompartir';
 import { tarjetaDelPartido } from '@/lib/tarjetas-compartibles';
 
@@ -48,9 +49,11 @@ export interface FichaDelRivalProps extends EntradaFicha {
   tituloRival: string;
   /** El jugador que mira, para saber si tiene suscripción. */
   userId: string;
+  /** Cómo juega cada rival: lado y mano. Lo contestaron ellos; es público. */
+  rivales?: [{ nombre: string; perfil: PerfilDeJuego }, { nombre: string; perfil: PerfilDeJuego }];
 }
 
-export function FichaDelRival({ tituloRival, userId, ...entrada }: FichaDelRivalProps) {
+export function FichaDelRival({ tituloRival, userId, rivales, ...entrada }: FichaDelRivalProps) {
   const router = useRouter();
   const [ficha, setFicha] = useState<Ficha | null | 'cargando'>('cargando');
   const [esPro, setEsPro] = useState(false);
@@ -109,6 +112,34 @@ export function FichaDelRival({ tituloRival, userId, ...entrada }: FichaDelRival
         <Text style={[s.titular, !porcentaje && s.titularSolo]}>{textoDelPronostico(ficha)}</Text>
       </View>
 
+      {/* CÓMO JUEGA CADA UNO. Lo contestaron ellos y es público, igual que lo
+          tuyo. En la cancha se ve en el primer juego de todos modos; la
+          diferencia es llegar sabiéndolo. */}
+      {rivales?.map(({ nombre, perfil }) => {
+        const como = textoDeJugador(perfil);
+        return como ? (
+          <View key={nombre} style={s.linea}>
+            <Text style={s.vinyeta}>·</Text>
+            <Text style={s.lineaTexto}>
+              <Text style={s.nombreRival}>{nombre}</Text>: {como.toLowerCase()}
+            </Text>
+          </View>
+        ) : null;
+      })}
+
+      {/* Y lo que hay que saber de los dos juntos: el zurdo de revés, o que
+          los dos jueguen el mismo lado. */}
+      {rivales && (() => {
+        const aviso = avisoDeLaPareja(
+          rivales[0].perfil, rivales[1].perfil, rivales[0].nombre, rivales[1].nombre,
+        );
+        return aviso ? (
+          <View style={s.tactico}>
+            <Text style={s.tacticoTexto}>{aviso}</Text>
+          </View>
+        ) : null;
+      })()}
+
       {lineas.map((l) => (
         <View key={l} style={s.linea}>
           <Text style={s.vinyeta}>·</Text>
@@ -165,6 +196,16 @@ const s = StyleSheet.create({
   },
 
   linea: { flexDirection: 'row', gap: space[2] },
+  nombreRival: { color: color.text, fontWeight: '600' },
+  tactico: {
+    marginTop: space[1],
+    padding: space[2.5],
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(230,180,80,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(230,180,80,0.28)',
+  },
+  tacticoTexto: { color: color.alive, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18 },
   vinyeta: { color: color.gold, fontFamily: font.body, fontSize: fontSize.caption },
   lineaTexto: { flex: 1, color: color.muted, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18 },
 });

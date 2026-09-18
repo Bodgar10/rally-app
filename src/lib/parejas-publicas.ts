@@ -35,6 +35,15 @@ export interface ParejaPublica {
   player1_photo: string | null;
   player2_name:  string;
   player2_photo: string | null;
+  /**
+   * Lado y mano de cada jugador (migración 081). Null mientras no lo hayan
+   * contestado, y null significa "no lo sabemos" — nunca un valor por defecto:
+   * un zurdo dado por diestro en la ficha del rival es peor que no decir nada.
+   */
+  player1_lado:  'drive' | 'reves' | 'ambos' | null;
+  player1_mano:  'diestro' | 'zurdo' | null;
+  player2_lado:  'drive' | 'reves' | 'ambos' | null;
+  player2_mano:  'diestro' | 'zurdo' | null;
 }
 
 /** "Ana Ruiz / Marta Gil". El separador es el mismo en cuadro y en tabla. */
@@ -65,9 +74,32 @@ export async function fetchParejasPublicas(
   const ids = [...new Set(pairIds.filter((id): id is string => !!id))];
   if (ids.length === 0) return new Map();
 
-  const { data, error } = await supabase
-    .from('bracket_pairs_public')
-    .select('pair_id, player1_id, player2_id, player1_name, player1_photo, player2_name, player2_photo')
+  /**
+   * LA CONSULTA VA SUELTA DE TIPOS, Y SOLO ESTA.
+   *
+   * `bracket_pairs_public` gana cuatro columnas —lado y mano de cada jugador—
+   * en la migración 081, y `database.types.ts` se genera del proyecto REMOTO:
+   * hasta que se ejecute, esas columnas no existen para TypeScript. Poner
+   * `as never` en el string del select rompe la inferencia de PostgREST y
+   * entonces NINGÚN campo se tipa. Se suelta la consulta entera y se normaliza
+   * abajo, campo a campo, que es lo que este archivo ya hacía de todos modos.
+   *
+   * Al correr `npm run types:db` esto se puede volver a tipar y quitar el cast.
+   */
+  const consulta = supabase.from('bracket_pairs_public') as unknown as {
+    select: (cols: string) => {
+      in: (col: string, vals: string[]) => Promise<{
+        data: Record<string, unknown>[] | null;
+        error: { code?: string; message?: string; details?: string } | null;
+      }>;
+    };
+  };
+
+  const { data, error } = await consulta
+    .select(
+      'pair_id, player1_id, player2_id, player1_name, player1_photo, player1_lado, player1_mano, ' +
+        'player2_name, player2_photo, player2_lado, player2_mano',
+    )
     .in('pair_id', ids);
 
   if (error) {
@@ -79,23 +111,27 @@ export async function fetchParejasPublicas(
     return new Map();
   }
 
+  const texto = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
   // `bracket_pairs_public` es una VISTA, y Postgres no propaga NOT NULL a
-  // través de una vista: el generador marca todas sus columnas nullable aunque
-  // en el origen no lo sean (pairs.id es PK, users.full_name es NOT NULL).
-  // Mismo caso que ranking_public. Se normaliza aquí, en el borde, para que el
-  // resto del código trabaje con ParejaPublica y no con nulos imposibles.
+  // través de una vista. Se normaliza aquí, en el borde, para que el resto del
+  // código trabaje con ParejaPublica y no con nulos imposibles.
   // Sin pair_id la fila no se puede indexar, así que se descarta.
   return new Map(
     (data ?? [])
-      .filter((p): p is typeof p & { pair_id: string } => p.pair_id !== null)
-      .map((p) => [p.pair_id, {
-        pair_id:       p.pair_id,
-        player1_id:    p.player1_id    ?? '',
-        player2_id:    p.player2_id    ?? '',
-        player1_name:  p.player1_name  ?? '—',
-        player1_photo: p.player1_photo,
-        player2_name:  p.player2_name  ?? '—',
-        player2_photo: p.player2_photo,
+      .filter((p) => typeof p.pair_id === 'string')
+      .map((p) => [p.pair_id as string, {
+        pair_id:       p.pair_id as string,
+        player1_id:    texto(p.player1_id) ?? '',
+        player2_id:    texto(p.player2_id) ?? '',
+        player1_name:  texto(p.player1_name) ?? '—',
+        player1_photo: texto(p.player1_photo),
+        player1_lado:  texto(p.player1_lado) as ParejaPublica['player1_lado'],
+        player1_mano:  texto(p.player1_mano) as ParejaPublica['player1_mano'],
+        player2_name:  texto(p.player2_name) ?? '—',
+        player2_photo: texto(p.player2_photo),
+        player2_lado:  texto(p.player2_lado) as ParejaPublica['player2_lado'],
+        player2_mano:  texto(p.player2_mano) as ParejaPublica['player2_mano'],
       }]),
   );
 }

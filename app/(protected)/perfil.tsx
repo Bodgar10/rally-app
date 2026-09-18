@@ -17,6 +17,7 @@ import { supabase }                             from '@/lib/supabase/client';
 import { PlayerAnalysis }                       from '@/components/player/PlayerAnalysis';
 import { ContadorDeAhorro }                    from '@/components/campeon/ContadorDeAhorro';
 import { TuNivel }                             from '@/components/player/TuNivel';
+import { textoDeJugador, type PerfilDeJuego }  from '@/lib/lado-y-mano';
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
@@ -202,12 +203,16 @@ export default function PerfilScreen() {
             <Text style={styles.dataValue}>{profile?.phone ?? 'No registrado'}</Text>
           </View>
           <View style={styles.divider} />
+          {/* Lo contesta la tarjeta del dashboard, de una en una. Aquí solo
+              se lee: hasta que exista una pantalla de edición, un valor mal
+              puesto se corrige desde el mismo sitio donde se preguntó. */}
           <View style={styles.dataRow}>
-            <Text style={styles.dataLabel}>Lado preferido</Text>
+            <Text style={styles.dataLabel}>Cómo juegas</Text>
             <Text style={styles.dataValue}>
-              {profile?.preferred_side
-                ? profile.preferred_side.charAt(0).toUpperCase() + profile.preferred_side.slice(1)
-                : 'No definido'}
+              {textoDeJugador({
+                lado: (profile?.preferred_side ?? null) as PerfilDeJuego['lado'],
+                mano: null,
+              }) ?? 'Te lo preguntamos pronto'}
             </Text>
           </View>
           <View style={{ marginTop: space[3] }}>

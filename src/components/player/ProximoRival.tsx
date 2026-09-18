@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase/client';
 import { FichaDelRival } from '@/components/player/FichaDelRival';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import type { Division } from '@/lib/engine/types';
+import type { PerfilDeJuego } from '@/lib/lado-y-mano';
 
 interface Resuelto {
   nosotros: [string, string];
@@ -29,6 +30,7 @@ interface Resuelto {
   nombres: Map<string, string>;
   division: Division;
   tituloRival: string;
+  rivales: [{ nombre: string; perfil: PerfilDeJuego }, { nombre: string; perfil: PerfilDeJuego }];
 }
 
 export function ProximoRival({
@@ -88,13 +90,25 @@ export function ProximoRival({
           nombres.set(fila.player2_id, p.player2_name);
         }
 
+        const suyaPublica = publicas.get(rivalPairId);
+
         if (!vivo) return;
         setDatos({
           nosotros: [mia.player1_id, mia.player2_id],
           ellos: [suya.player1_id, suya.player2_id],
           nombres,
           division: categoria.division as Division,
-          tituloRival: nombreDePareja(publicas.get(rivalPairId)),
+          tituloRival: nombreDePareja(suyaPublica),
+          rivales: [
+            {
+              nombre: suyaPublica?.player1_name ?? '—',
+              perfil: { lado: suyaPublica?.player1_lado ?? null, mano: suyaPublica?.player1_mano ?? null },
+            },
+            {
+              nombre: suyaPublica?.player2_name ?? '—',
+              perfil: { lado: suyaPublica?.player2_lado ?? null, mano: suyaPublica?.player2_mano ?? null },
+            },
+          ],
         });
       } catch {
         // Sin ficha, no se enseña nada. Es un extra: que falle no puede

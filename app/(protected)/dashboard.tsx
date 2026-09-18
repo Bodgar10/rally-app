@@ -54,6 +54,7 @@ import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
 import ProximoRival from '@/components/player/ProximoRival';
+import PreguntaDelPerfil from '@/components/player/PreguntaDelPerfil';
 import MisResultados from '@/components/player/MisResultados';
 import YaEstasEnLaSiguiente from '@/components/player/YaEstasEnLaSiguiente';
 import EresCampeon from '@/components/player/EresCampeon';
@@ -477,6 +478,16 @@ export default function DashboardScreen() {
 
              El dato ya existía —`clinch_status`, calculado por el motor— y no
              salía a ninguna pantalla del jugador. */}
+        {/* UNA PREGUNTA, DOS BOTONES, Y SE VA.
+            No es un onboarding: es una tarjeta que aparece cuando falta un dato
+            y desaparece al contestarlo. Va arriba porque es lo más barato de
+            despachar —un toque— y así no se queda estorbando toda la sesión. */}
+        {user && (
+          <View style={{ marginBottom: space[4] }}>
+            <PreguntaDelPerfil userId={user.id} />
+          </View>
+        )}
+
         {pairIds.length > 0 && (
           <View style={{ marginBottom: space[4] }}>
             <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
