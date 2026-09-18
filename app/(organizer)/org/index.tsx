@@ -90,7 +90,7 @@ export default function OrgHomeScreen() {
         <Button
           label="+ Crear nuevo torneo"
           variant="primary"
-          onPress={() => router.push('/(organizer)/org/torneos/nuevo')}
+          onPress={() => router.push('/(organizer)/org/torneos/nuevo-tipo')}
         />
 
         {/* Lista de torneos */}

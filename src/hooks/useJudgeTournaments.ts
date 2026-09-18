@@ -56,6 +56,13 @@ export interface TorneoDeJuez {
   organizador: string;
   /** True si el usuario llega por ser owner y no por `tournament_judges`. */
   porSerOwner: boolean;
+  /**
+   * 'largo' o 'expres'. Decide A QUÉ PANTALLA va el juez al tocar el torneo:
+   * un exprés se captura a suma 6 y su pantalla es otra. Sin este dato habría
+   * que consultarlo al tocar, y el juez vería una espera en el gesto más
+   * repetido de su tarde.
+   */
+  modo: 'largo' | 'expres';
 }
 
 /** Estados en los que un torneo tiene (o tendrá) partidos que capturar. */
@@ -65,6 +72,7 @@ interface FilaTorneo {
   id: string;
   name: string;
   status: string;
+  modo: 'largo' | 'expres' | null;
   start_date: string | null;
   end_date: string | null;
   organizers: { name: string } | null;
@@ -88,7 +96,7 @@ supabase.auth.onAuthStateChange((event) => {
 });
 
 const SELECT_TORNEO =
-  'id, name, status, start_date, end_date, organizers:organizer_id ( name )';
+  'id, name, status, modo, start_date, end_date, organizers:organizer_id ( name )';
 
 async function consultar(userId: string): Promise<TorneoDeJuez[]> {
   // Las dos vías, en paralelo: asignación explícita y ser owner del club.
@@ -131,6 +139,9 @@ async function consultar(userId: string): Promise<TorneoDeJuez[]> {
       fin: t.end_date,
       organizador: t.organizers?.name ?? '—',
       porSerOwner,
+      // null solo si la columna no llegó en el select; 'largo' es lo que era
+      // todo antes de que existiera el modo.
+      modo: t.modo ?? 'largo',
     });
   };
 

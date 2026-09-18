@@ -60,6 +60,8 @@ interface Tournament {
   /** Capacidad (migración 044). Null mientras no se capture. */
   courts:           number | null;
   match_minutes:    number | null;
+  /** 'largo' o 'expres' (migración 074). Decide qué panel de grupos se enseña. */
+  modo:             'largo' | 'expres' | null;
   /** Cómo se juega el tercer set. Aplica a TODOS los partidos del torneo. */
   tercer_set_formato: FormatoTercerSet | null;
   tercer_set_puntos:  number | null;
@@ -141,7 +143,7 @@ export default function OrgTournamentScreen() {
     const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }, { data: ws }] = await Promise.all([
       supabase
         .from('tournaments')
-        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,tercer_lugar,tercer_set_formato,tercer_set_puntos,tier,organizer_id,venues:venue_id(name,city)')
+        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,modo,tercer_lugar,tercer_set_formato,tercer_set_puntos,tier,organizer_id,venues:venue_id(name,city)')
         .eq('id', tournamentId)
         .single(),
       supabase
@@ -567,12 +569,24 @@ export default function OrgTournamentScreen() {
             value="Horas y canchas del último día"
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
           />
-          <TarjetaAjuste
-            icon="users"
-            title="Grupos"
-            value="Tablas y partidos de la fase de grupos"
-            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/grupos`)}
-          />
+          {/* El exprés tiene su propio panel: la tabla se ordena por saldo de
+              games y el sorteo arma la tarde entera de una vez. La pantalla de
+              Grupos de siempre asume puntos de victoria y no sirve aquí. */}
+          {tournament?.modo === 'expres' ? (
+            <TarjetaAjuste
+              icon="clock"
+              title="Torneo exprés"
+              value="Sortear los grupos, ver las tablas y resolver empates"
+              onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/expres`)}
+            />
+          ) : (
+            <TarjetaAjuste
+              icon="users"
+              title="Grupos"
+              value="Tablas y partidos de la fase de grupos"
+              onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/grupos`)}
+            />
+          )}
           <TarjetaAjuste
             icon="whistle"
             title="Jueces"

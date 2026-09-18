@@ -132,7 +132,11 @@ export default function JudgeIndexScreen() {
           contentContainerStyle={{ padding: 18, gap: 12, paddingBottom: bottomInset, ...webContentColumn }}
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => router.push(`/(judge)/juez/${item.id}`)}
+              onPress={() => router.push(
+                item.modo === 'expres'
+                  ? `/(judge)/juez/expres/${item.id}`
+                  : `/(judge)/juez/${item.id}`,
+              )}
               style={({ pressed }) => ({
                 backgroundColor: pressed ? color.surface2 : color.surface,
                 borderRadius: radius.xl,
