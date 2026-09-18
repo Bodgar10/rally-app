@@ -15,6 +15,7 @@ import type { User } from '@supabase/supabase-js';
 
 import { supabase }                             from '@/lib/supabase/client';
 import { PlayerAnalysis }                       from '@/components/player/PlayerAnalysis';
+import { ContadorDeAhorro }                    from '@/components/campeon/ContadorDeAhorro';
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
@@ -156,6 +157,13 @@ export default function PerfilScreen() {
             </>
           )}
         </Card>
+
+        {/* CUÁNTO LLEVA AHORRADO CON CAMPEÓN.
+            Va justo debajo de su suscripción y no en otra pantalla: es el
+            número que decide si renueva en diciembre. Se pinta solo si es
+            Campeón — a quien no lo es, aquí sería publicidad, y el sitio de la
+            publicidad es el checkout, donde está pagando de más. */}
+        {user && <ContadorDeAhorro userId={user.id} />}
 
         {/* Análisis descriptivo del jugador (free) + gating Pro — S5-SON-03 */}
         {user && (

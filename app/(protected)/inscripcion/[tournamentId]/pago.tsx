@@ -26,6 +26,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { color, radius, font } from '@/lib/design-tokens';
+import { descuentoDe, textoDeLoQueSePierde, textoEnElPago } from '@/lib/ahorro-campeon';
+import { pesos } from '@/lib/precios-suscripcion';
+import { leerAhorroCampeon } from '@/lib/ahorro-campeon-datos';
 import Icon from '@/components/ui/Icon';
 import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
@@ -69,17 +72,22 @@ function initials(name: string) {
 
 function ProBanner({
   isChampion,
+  ahorroReal,
   entryFee,
   splitMode,
   isDirectCTA,
   onCtaPress,
 }: {
   isChampion: boolean;
+  /** Descuento realmente aplicable: el 5% topado por lo que le quede. */
+  ahorroReal: number;
   entryFee: number;
   splitMode: SplitMode;
   isDirectCTA: boolean;
   onCtaPress: () => void;
 }) {
+  const base = splitMode === 'half' ? entryFee / 2 : entryFee;
+
   if (isChampion) {
     return (
       <View
@@ -106,20 +114,27 @@ function ProBanner({
           <Text style={{ fontFamily: font.display, fontSize: 13.5, fontWeight: '600', color: '#F7EAC6' }}>
             ¡Felicidades, Campeón!
           </Text>
+          {/* EL TEXTO SALE DEL AHORRO REAL, NO DE UN 5% ESCRITO A MANO.
+              Decía "Ahorras 5% en este torneo" siempre. Con el tope de la
+              migración 079 eso puede ser falso —si ya recuperó su suscripción,
+              esta inscripción va a precio normal— y verlo prometido aquí y
+              cobrado allá es exactamente donde se pierde la confianza, porque
+              está mirando el importe. */}
           <Text style={{ fontFamily: font.body, fontSize: 10.5, color: '#E6CDC2', marginTop: 2, lineHeight: 14 }}>
-            Ahorras 5% en este torneo — descuento ya aplicado en tu total.
+            {textoEnElPago(base, ahorroReal)}
           </Text>
         </View>
       </View>
     );
   }
 
-  const base = splitMode === 'half' ? entryFee / 2 : entryFee;
-  const saving = Math.round(base * 0.05);
-  const ctaLabel = isDirectCTA ? `Suscríbete y ahorra $${saving.toLocaleString('es-MX')}` : 'Conoce los beneficios Pro';
+  const saving = descuentoDe(base);
+  const ctaLabel = isDirectCTA ? `Suscríbete y ahorra ${pesos(saving)}` : 'Conoce los beneficios Pro';
+  // Los dos importes, uno al lado del otro. Es el único sitio de la app donde
+  // el descuento convence, porque es el único momento en que le duele.
   const bodyText = isDirectCTA
-    ? `Con Campeón anual este torneo te sale en $${(base - saving).toLocaleString('es-MX')} (−5%) + análisis Pro.`
-    : 'Descuento en inscripciones, análisis de juego y mucho más.';
+    ? `${textoDeLoQueSePierde(base)} Y te llevas el análisis de tu juego.`
+    : 'Tus inscripciones sin comisión, análisis de tu juego y más.';
 
   return (
     <Pressable onPress={onCtaPress} style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1, marginBottom: 12 })}>
@@ -171,6 +186,7 @@ export default function PagoScreen() {
   const [tournament, setTournament] = useState<TournamentInfo | null>(null);
   const [pair, setPair] = useState<PairInfo | null>(null);
   const [subscription, setSubscription] = useState<UserSubscription>({ billing_cycle: null, status: null });
+  const [restanteTope, setRestanteTope] = useState(0);
   const [splitMode, setSplitMode] = useState<SplitMode>('full');
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -227,6 +243,12 @@ export default function PagoScreen() {
         .maybeSingle();
 
       if (sub) setSubscription(sub as UserSubscription);
+
+      // CUÁNTO LE QUEDA DE TOPE. El descuento de Campeón se perdona hasta
+      // cubrir lo que pagó (migración 079), así que el 5% puede estar agotado.
+      // Se lee aquí para que la pantalla diga el mismo número que va a cobrar
+      // el checkout, y no un 5% teórico.
+      setRestanteTope((await leerAhorroCampeon(user.id)).restante);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al cargar datos');
     } finally {
@@ -405,6 +427,7 @@ export default function PagoScreen() {
       <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderTopWidth: 1, borderTopColor: color.lineSoft, backgroundColor: 'rgba(10,10,12,0.6)' }}>
         <ProBanner
           isChampion={isChampion}
+          ahorroReal={Math.min(descuentoDe(splitMode === 'half' ? entryFee / 2 : entryFee), restanteTope)}
           entryFee={entryFee}
           splitMode={splitMode}
           isDirectCTA={isDirectSubscriptionCTA}
