@@ -53,6 +53,7 @@ import { ordenDelDashboard } from '@/lib/orden-del-dashboard';
 import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
+import ProximoRival from '@/components/player/ProximoRival';
 import MisResultados from '@/components/player/MisResultados';
 import YaEstasEnLaSiguiente from '@/components/player/YaEstasEnLaSiguiente';
 import EresCampeon from '@/components/player/EresCampeon';
@@ -479,6 +480,16 @@ export default function DashboardScreen() {
         {pairIds.length > 0 && (
           <View style={{ marginBottom: space[4] }}>
             <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
+          </View>
+        )}
+
+        {/* CONTRA QUIÉN JUEGA AHORA.
+            Va justo debajo de "cómo voy" porque son las dos preguntas que trae
+            a alguien a abrir la app un domingo, y en ese orden. Si no tiene
+            partido pendiente no se pinta nada. */}
+        {pairIds.length > 0 && situacion?.categoryId && (
+          <View style={{ marginBottom: space[4] }}>
+            <ProximoRival pairIds={pairIds} categoryId={situacion.categoryId} />
           </View>
         )}
 

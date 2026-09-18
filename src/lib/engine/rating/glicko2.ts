@@ -24,6 +24,34 @@ function expectedScore(mu: number, muJ: number, phiJ: number): number {
 }
 
 /**
+ * Probabilidad de que A le gane a B. De 0 a 1.
+ *
+ * ES LA MISMA FÓRMULA QUE YA USA `updateRating` PARA ACTUALIZAR
+ *   `expectedScore` es el corazón de Glicko: el valor esperado del resultado.
+ *   Si el motor espera 0.38 y el jugador gana, sube mucho; si esperaba 0.95 y
+ *   gana, sube poco. O sea que la probabilidad no es un añadido de marketing:
+ *   es el número con el que el sistema lleva tiempo puntuando cada partido.
+ *
+ *   Se expone aquí y no se reimplementa en la pantalla por eso mismo. Dos
+ *   copias de esta fórmula serían dos verdades, y un día dirían cosas
+ *   distintas sobre el mismo partido.
+ *
+ * LA INCERTIDUMBRE DEL RIVAL CUENTA, LA PROPIA NO
+ *   Es Glicko, no un capricho: `g(phi)` aplana la curva cuando no se sabe bien
+ *   cuánto vale el rival. Contra alguien muy poco medido, la probabilidad se
+ *   acerca al 50% aunque los ratings estén lejos — porque de verdad no se sabe.
+ */
+export function probabilidadDeVictoria(
+  a: { rating: number; rd: number },
+  b: { rating: number; rd: number },
+): number {
+  const mu = (a.rating - 1500) / SCALE;
+  const muJ = (b.rating - 1500) / SCALE;
+  const phiJ = b.rd / SCALE;
+  return expectedScore(mu, muJ, phiJ);
+}
+
+/**
  * Actualiza el rating de un jugador tras un periodo con uno o más oponentes.
  * Si no hay oponentes, solo infla RD por inactividad (φ* = sqrt(φ² + σ²)).
  */
@@ -102,10 +130,18 @@ export function updateRating(
 
 // --- DOBLES (ver DECISIÓN en el encabezado del prompt) ---
 
-/** Combina dos rivales en un oponente virtual: rating promedio, RD media cuadrática. */
+/**
+ * Combina dos rivales en un oponente virtual: rating promedio, RD media
+ * cuadrática.
+ *
+ * Pide solo `rating` y `rd` —y no un `GlickoRating` entero— porque son los
+ * únicos que usa. Exigir además la volatilidad obligaba a inventarse un valor
+ * a quien solo quiere saber cuánto vale una pareja, que es justo lo que
+ * necesita el scouting.
+ */
 export function combineOpponentPair(
-  a: GlickoRating,
-  b: GlickoRating,
+  a: { rating: number; rd: number },
+  b: { rating: number; rd: number },
 ): { rating: number; rd: number } {
   return {
     rating: (a.rating + b.rating) / 2,

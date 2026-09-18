@@ -137,14 +137,14 @@ function Confetti() {
 const UNLOCKED = [
   '📊 Con qué pareja ganas más',
   '🔥 Cómo te va en los partidos cerrados',
-  '📈 Si vas subiendo, estable o bajando',
-  '🎯 Tus puntos promedio por torneo',
+  '📈 Tu nivel y la gráfica de tu progreso',
+  '🎯 Probabilidad de victoria antes de cada partido',
+  '🔍 La ficha del rival: historial, quién manda, si son pareja fija',
 ];
 
 const EN_CAMINO = [
-  'Tu rating y la gráfica de tu progreso',
-  'Probabilidad de victoria antes de cada partido',
-  'Scouting del rival',
+  'Proyección de ranking',
+  'Tarjetas compartibles',
 ];
 
 const UNLOCKED_CHAMPION = [

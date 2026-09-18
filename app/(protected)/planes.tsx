@@ -119,10 +119,11 @@ export const ANNUAL_FREE_MONTHS = Math.floor(ANNUAL_SAVINGS / PLANS.monthly.pric
  * Lo que está en camino tiene su propia lista y se enseña como lo que es.
  */
 const INCLUIDO_HOY = [
+  'Tu nivel y la gráfica de cómo has mejorado',
+  'Probabilidad de victoria antes de cada partido',
+  'La ficha del rival: historial, quién manda, si son pareja fija',
   'Con qué pareja ganas más',
   'Cómo te va en los partidos cerrados',
-  'Si vas subiendo, estable o bajando',
-  'Tus puntos promedio por torneo',
 ] as const;
 
 /** Lo que solo trae el anual. Es económico a propósito: ver la nota del tope. */
