@@ -40,6 +40,8 @@ import {
   type FichaDelRival as Ficha,
 } from '@/lib/scouting';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
+import BotonCompartir from '@/components/ui/BotonCompartir';
+import { tarjetaDelPartido } from '@/lib/tarjetas-compartibles';
 
 export interface FichaDelRivalProps extends EntradaFicha {
   /** Cómo se llaman ellos, para el título. */
@@ -113,6 +115,13 @@ export function FichaDelRival({ tituloRival, userId, ...entrada }: FichaDelRival
           <Text style={s.lineaTexto}>{l}</Text>
         </View>
       ))}
+
+      {/* Un pronóstico en contra se comparte MÁS que uno a favor: sirve para
+          picar a la pareja. Por eso se ofrece siempre, no solo si va ganando. */}
+      <BotonCompartir
+        tarjeta={tarjetaDelPartido(tituloRival, ficha.fiable ? ficha.probabilidad : null)}
+        etiqueta="Mandárselo a mi pareja"
+      />
     </View>
   );
 }

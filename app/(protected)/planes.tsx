@@ -124,6 +124,7 @@ const INCLUIDO_HOY = [
   'La ficha del rival: historial, quién manda, si son pareja fija',
   'Con qué pareja ganas más',
   'Cómo te va en los partidos cerrados',
+  'Compartir tu progreso y tus partidos',
 ] as const;
 
 /** Lo que solo trae el anual. Es económico a propósito: ver la nota del tope. */

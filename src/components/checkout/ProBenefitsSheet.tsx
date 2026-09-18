@@ -78,7 +78,6 @@ const BENEFITS: BenefitItem[] = [
     emoji: '🏅',
     title: 'Tarjetas compartibles',
     desc: 'Tu estampa dorada con tus stats. Para redes, para presumir.',
-    pronto: true,
     pro: true,
     champion: true,
   },

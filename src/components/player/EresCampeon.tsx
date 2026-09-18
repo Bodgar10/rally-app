@@ -33,6 +33,8 @@ import { fetchCampeonato, type Campeonato } from '@/lib/campeon';
 import { fraseCampeon } from '@/lib/puntos-de-la-ronda';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { marcarCelebrado, yaSeCelebro } from '@/lib/ya-se-celebro';
+import BotonCompartir from '@/components/ui/BotonCompartir';
+import { tarjetaDeCampeon } from '@/lib/tarjetas-compartibles';
 
 export default function EresCampeon({ pairIds }: { pairIds: string[] }) {
   const router = useRouter();
@@ -137,6 +139,13 @@ export default function EresCampeon({ pairIds }: { pairIds: string[] }) {
       <Text style={{ fontFamily: font.display, fontSize: fontSize.cardName, color: trato.colorTexto }}>
         Ganaste {campeonato.categoria}
       </Text>
+
+      {/* La noticia que el jugador ya está contando de todos modos. Ponerle el
+          botón aquí es ahorrarle escribirla. */}
+      <BotonCompartir
+        tarjeta={tarjetaDeCampeon(campeonato.categoria)}
+        etiqueta="Compartir"
+      />
 
       {/* LOS PUNTOS, SI SE PUDIERON CALCULAR.
           El número definitivo lo escribe `ranking_points` cuando el organizador

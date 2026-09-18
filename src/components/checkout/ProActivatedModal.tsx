@@ -140,11 +140,11 @@ const UNLOCKED = [
   '📈 Tu nivel y la gráfica de tu progreso',
   '🎯 Probabilidad de victoria antes de cada partido',
   '🔍 La ficha del rival: historial, quién manda, si son pareja fija',
+  '📣 Compartir tu progreso y tus partidos por WhatsApp',
 ];
 
 const EN_CAMINO = [
   'Proyección de ranking',
-  'Tarjetas compartibles',
 ];
 
 const UNLOCKED_CHAMPION = [

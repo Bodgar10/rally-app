@@ -57,6 +57,9 @@ import {
   type PuntoDeCurva,
 } from '@/lib/nivel-jugador';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
+import BotonCompartir from '@/components/ui/BotonCompartir';
+import { tarjetaDeNivel } from '@/lib/tarjetas-compartibles';
+import { NOMBRE_DIVISION } from '@/lib/nivel-jugador';
 
 export function TuNivel({ userId }: { userId: string }) {
   const router = useRouter();
@@ -128,6 +131,15 @@ export function TuNivel({ userId }: { userId: string }) {
               <Dato etiqueta="tu techo" valor={String(progreso.techo)} />
               <Dato etiqueta="último torneo" valor={textoDeCambio(progreso.ultimoTorneo)} bueno={progreso.ultimoTorneo > 0} />
             </View>
+          )}
+
+          {/* Solo se ofrece si subió: nadie comparte que bajó, y ofrecérselo
+              es recordarle un mal fin de semana al abrir la app. */}
+          {progreso && (
+            <BotonCompartir
+              tarjeta={tarjetaDeNivel(NOMBRE_DIVISION[nivel.division], progreso.delta, nivel.partidos)}
+              etiqueta="Compartir mi progreso"
+            />
           )}
         </>
       )}
