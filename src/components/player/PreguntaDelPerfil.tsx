@@ -12,11 +12,18 @@
  *   desaparece. La próxima vez sale la siguiente, y cuando no quedan, no sale
  *   nada nunca más.
  *
- * LA ✕ NO ES UN "MÁS TARDE" DE MENTIRA
- *   Cerrarla calla esa pregunta de verdad durante la sesión. Volver a
- *   preguntar lo que alguien acaba de rechazar es la forma más rápida de que
- *   aprenda a ignorar la tarjeta entera, incluida la siguiente pregunta, que
- *   quizá sí habría contestado.
+ * ► VUELVE A PREGUNTAR CADA VEZ QUE SE ABRE LA APP, Y ESO ES DELIBERADO
+ *   RALLY no se usa a diario: se abre los días de torneo. Cada apertura es una
+ *   de las poquísimas oportunidades que hay de recoger estos datos, y los
+ *   primeros torneos de un jugador son casi todas. Insistir aquí no es
+ *   machacar: es aprovechar una ventana que se cierra sola.
+ *
+ *   Por eso `saltadas` se reinicia al volver a la pantalla (useFocusEffect) en
+ *   vez de guardarse. Dentro de la MISMA sesión la ✕ calla de verdad —volver a
+ *   preguntar lo que alguien acaba de rechazar enseña a ignorar la tarjeta
+ *   entera, incluida la siguiente— pero en la próxima apertura se vuelve a
+ *   ofrecer. Y en cuanto contesta, no sale nunca más: la pregunta desaparece
+ *   porque el dato ya está.
  *
  * Y CADA PREGUNTA DICE QUÉ ENCIENDE
  *   "Para buscarte pareja del lado contrario. Tus rivales lo verán, igual que
@@ -25,8 +32,9 @@
  *   alguien no vuelva a contestar nada.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { guardarRespuesta, leerPerfilDeJuego } from '@/lib/lado-y-mano-datos';
 import { siguientePregunta, type Pregunta, type PreguntaId } from '@/lib/lado-y-mano';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
@@ -35,6 +43,18 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
   const [pregunta, setPregunta] = useState<Pregunta | null>(null);
   const [saltadas, setSaltadas] = useState<PreguntaId[]>([]);
   const [guardando, setGuardando] = useState(false);
+
+  // AL VOLVER A LA PANTALLA SE OLVIDA LO SALTADO.
+  //
+  //   RALLY se abre los días de torneo, no a diario: cada apertura es una de
+  //   las poquísimas ocasiones que hay de recoger esto. Dentro de la misma
+  //   sesión la ✕ calla de verdad; en la siguiente apertura se vuelve a
+  //   ofrecer. Lo contestado no vuelve nunca, porque ya está en la base.
+  useFocusEffect(
+    useCallback(() => {
+      setSaltadas([]);
+    }, []),
+  );
 
   useEffect(() => {
     let vivo = true;

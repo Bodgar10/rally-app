@@ -20,7 +20,7 @@ import { TuNivel }                             from '@/components/player/TuNivel
 import { textoDeJugador, type PerfilDeJuego }  from '@/lib/lado-y-mano';
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
-import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
+import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
 interface UserProfile {
@@ -167,6 +167,24 @@ export default function PerfilScreen() {
             publicidad es el checkout, donde está pagando de más. */}
         {user && <ContadorDeAhorro userId={user.id} />}
 
+        {/* BUSCAR PAREJA.
+            Va aquí y no en el tab bar: no es algo que se abra a diario, es algo
+            que se busca cuando hace falta — y cuando hace falta, el jugador ya
+            está mirando su perfil o inscribiéndose, que son los dos sitios
+            desde donde se llega. */}
+        <Pressable
+          onPress={() => router.push('/(protected)/buscar-pareja')}
+          style={styles.buscarPareja}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.buscarParejaTitulo}>Buscar pareja</Text>
+            <Text style={styles.buscarParejaSub}>
+              Jugadores de tu nivel y del lado contrario al tuyo
+            </Text>
+          </View>
+          <Text style={styles.buscarParejaFlecha}>›</Text>
+        </Pressable>
+
         {/* TU NIVEL Y TU CURVA.
             Va antes del análisis porque es lo que el jugador viene a ver: su
             división y si está subiendo. El resto son detalles de eso. */}
@@ -219,7 +237,7 @@ export default function PerfilScreen() {
             <Button
               label="Editar perfil"
               variant="secondary"
-              onPress={() => {}} // TODO Sprint 1: pantalla de edición
+              onPress={() => router.push('/(protected)/perfil-editar')}
             />
           </View>
         </Card>
@@ -264,6 +282,20 @@ export default function PerfilScreen() {
 }
 
 const styles = StyleSheet.create({
+  buscarPareja: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    minHeight: touchTarget + 12,
+    paddingHorizontal: space[3],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+  },
+  buscarParejaTitulo: { color: color.goldBright, fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600' },
+  buscarParejaSub: { color: color.muted, fontFamily: font.body, fontSize: fontSize.minAbsolute },
+  buscarParejaFlecha: { color: color.muted, fontFamily: font.body, fontSize: fontSize.h1Inline },
   safe:             { flex: 1, backgroundColor: color.bg },
   loadingContainer: { flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' },
   content:          { paddingHorizontal: space[4.5], paddingTop: space[5], paddingBottom: bottomInset, ...webContentColumn },

@@ -536,6 +536,20 @@ export default function InscripcionScreen() {
         {/* ── Paso 2: Pareja ──────────────────────────────────────────── */}
         <SectionLabel title="2 · Busca a tu pareja" />
 
+        {/* ¿Y SI TODAVÍA NO TIENE CON QUIÉN?
+            Este es el momento exacto en que se descubre el problema: ya eligió
+            categoría y le toca escribir un nombre que no tiene. Un enlace aquí
+            lo lleva a ver quién le encaja; volver e inscribirse es un paso. */}
+        <Pressable
+          onPress={() => router.push('/(protected)/buscar-pareja')}
+          accessibilityRole="button"
+          style={{ paddingVertical: space[2] }}
+        >
+          <Text style={{ color: color.goldBright, fontFamily: font.body, fontSize: 12.5, fontWeight: '600' }}>
+            ¿Todavía no tienes con quién? Mira quién juega de tu nivel y del lado contrario
+          </Text>
+        </Pressable>
+
         <Card variant="standard">
           {partnerFound ? (
             <View style={s.partnerConfirmed}>
