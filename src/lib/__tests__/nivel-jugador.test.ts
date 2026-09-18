@@ -17,61 +17,101 @@ describe('cuándo el número significa algo', () => {
   it('un jugador nuevo NO tiene nivel: 1500/350 es el valor de fábrica', () => {
     // Enseñar ese 1500 como nivel es inventar una precisión que no existe, y
     // el jugador lo descubre en cuanto pierde contra alguien "de su nivel".
-    const n = nivelDelJugador(1500, RD_INICIAL, 0);
+    const n = nivelDelJugador('tercera', 1500, RD_INICIAL, 0);
     expect(n.fiable).toBe(false);
     expect(numeroVisible(n)).toBeNull();
     expect(textoDeNivel(n)).toBe('Todavía te estamos midiendo');
   });
 
   it('con la incertidumbre baja, el número sale', () => {
-    const n = nivelDelJugador(1612, 68, 30);
+    const n = nivelDelJugador('cuarta', 1612, 68, 30);
     expect(n.fiable).toBe(true);
     expect(numeroVisible(n)).toBe(1612);
   });
 
   it('el umbral es el MISMO que usa el motor para promover', () => {
     expect(RD_FIABLE).toBe(100);
-    expect(nivelDelJugador(1600, 99, 20).fiable).toBe(true);
-    expect(nivelDelJugador(1600, 100, 20).fiable).toBe(false);
+    expect(nivelDelJugador('cuarta', 1600, 99, 20).fiable).toBe(true);
+    expect(nivelDelJugador('cuarta', 1600, 100, 20).fiable).toBe(false);
   });
 });
 
-describe('la división, que es el idioma del jugador', () => {
+describe('la división es DONDE JUEGA, no la que dice su rating', () => {
+  it('NADIE EMPIEZA EN SEXTA: un debutante en tercera es de tercera', () => {
+    // Los torneos tienen varias categorías y el jugador se inscribe en la suya.
+    // Con 1500 de arranque, divisionForRating diría "quinta" — y llamar quinta
+    // a alguien que compite en tercera es falso y además ofende.
+    const n = nivelDelJugador('tercera', 1500, 350, 0);
+    expect(n.division).toBe('tercera');
+    expect(textoDeNivel(n)).not.toMatch(/quinta/i);
+  });
+
+  it('y con el rating ya medido, tampoco lo reetiqueta', () => {
+    const n = nivelDelJugador('tercera', 1520, 60, 40);
+    expect(n.division).toBe('tercera');
+    expect(textoDeNivel(n)).toBe('Tercera fuerza');
+    expect(n.posicion).toBe('abajo');
+  });
+
   it.each([
-    [1350, 'sexta', 'quinta'],
-    [1450, 'quinta', 'cuarta'],
-    [1612, 'cuarta', 'tercera'],
-    [1750, 'tercera', 'segunda'],
-    [1900, 'segunda', 'primera'],
-  ])('rating %i → %s, y arriba %s', (rating, division, siguiente) => {
-    const n = nivelDelJugador(rating, 60, 40);
-    expect(n.division).toBe(division);
-    expect(n.siguiente).toBe(siguiente);
+    ['sexta', 'quinta'],
+    ['quinta', 'cuarta'],
+    ['cuarta', 'tercera'],
+    ['tercera', 'segunda'],
+    ['segunda', 'primera'],
+  ] as const)('desde %s se sube a %s', (division, siguiente) => {
+    expect(nivelDelJugador(division, 1600, 60, 40).siguiente).toBe(siguiente);
   });
 
   it('en primera ya no hay a dónde subir', () => {
-    const n = nivelDelJugador(2100, 60, 40);
-    expect(n.division).toBe('primera');
+    const n = nivelDelJugador('primera', 2100, 60, 40);
     expect(n.siguiente).toBeNull();
     expect(n.paraSubir).toBeNull();
     expect(textoDeSiguientePaso(n)).toMatch(/lo más alto/);
   });
+});
 
-  it('dice cuántos puntos le faltan, que es lo que motiva', () => {
-    const n = nivelDelJugador(1612, 60, 40);
-    expect(n.paraSubir).toBe(88); // 1700 es el piso de tercera
-    expect(textoDeSiguientePaso(n)).toBe('Te faltan 88 puntos para tercera.');
+describe('dónde está dentro de SU división', () => {
+  it('dentro: dice cuántos puntos le faltan contra el techo de su banda', () => {
+    // Tercera va de 1700 a 1849, así que a segunda le faltan 100 desde 1750.
+    const n = nivelDelJugador('tercera', 1750, 60, 40);
+    expect(n.posicion).toBe('dentro');
+    expect(n.paraSubir).toBe(100);
+    expect(textoDeSiguientePaso(n)).toBe('Te faltan 100 puntos para segunda.');
+  });
+
+  it('arriba: es buena noticia y se dice como tal', () => {
+    const n = nivelDelJugador('tercera', 1900, 60, 40);
+    expect(n.posicion).toBe('arriba');
+    expect(n.paraSubir).toBeNull();
+    expect(textoDeSiguientePaso(n)).toBe(
+      'Tu nivel ya está por encima de tercera: vas camino de segunda.',
+    );
+  });
+
+  it('abajo: lo sitúa SIN ACUSARLO de estar donde no debe', () => {
+    // Se inscribió en tercera y el organizador lo validó. Discutírselo aquí
+    // sería pelearle una decisión que no tomó solo.
+    const n = nivelDelJugador('tercera', 1450, 60, 40);
+    expect(n.posicion).toBe('abajo');
+    expect(textoDeSiguientePaso(n)).toBe('Estás en la parte baja de tercera.');
+    expect(textoDeSiguientePaso(n)).not.toMatch(/quinta|deberías|bajar/i);
+  });
+
+  it('sexta y primera no tienen borde por fuera: nunca salen de su banda', () => {
+    expect(nivelDelJugador('sexta', 900, 60, 40).posicion).toBe('dentro');
+    expect(nivelDelJugador('primera', 2500, 60, 40).posicion).toBe('dentro');
   });
 });
 
 describe('qué se le dice a quien todavía no tiene nivel', () => {
   it('sin partidos, lo invita a jugar', () => {
-    expect(textoDeSiguientePaso(nivelDelJugador(1500, 350, 0))).toMatch(/tu primer torneo/);
+    expect(textoDeSiguientePaso(nivelDelJugador('cuarta', 1500, 350, 0))).toMatch(/tu primer torneo/);
   });
 
   it('con partidos, cuenta cuántos lleva en vez de dar un número falso', () => {
-    expect(textoDeSiguientePaso(nivelDelJugador(1520, 180, 1))).toMatch(/Llevas un partido/);
-    expect(textoDeSiguientePaso(nivelDelJugador(1520, 180, 7))).toMatch(/Llevas 7 partidos/);
+    expect(textoDeSiguientePaso(nivelDelJugador('cuarta', 1520, 180, 1))).toMatch(/Llevas un partido/);
+    expect(textoDeSiguientePaso(nivelDelJugador('cuarta', 1520, 180, 7))).toMatch(/Llevas 7 partidos/);
   });
 });
 

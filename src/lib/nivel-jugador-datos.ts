@@ -33,7 +33,8 @@ export interface NivelYCurva {
 }
 
 const VACIO: NivelYCurva = {
-  nivel: nivelDelJugador(1500, RD_INICIAL, 0),
+  // 'sexta' es solo el relleno de "sin datos": esta tarjeta no se pinta.
+  nivel: nivelDelJugador('sexta', 1500, RD_INICIAL, 0),
   curva: [],
   progreso: null,
   sinDatos: true,
@@ -71,7 +72,13 @@ export async function leerNivelYCurva(userId: string): Promise<NivelYCurva> {
     );
 
     return {
-      nivel: nivelDelJugador(Number(actual.rating), Number(actual.rd), curva.length),
+      // LA DIVISIÓN SALE DE LA FILA, no del rating: es donde compite de verdad.
+      nivel: nivelDelJugador(
+        actual.division,
+        Number(actual.rating),
+        Number(actual.rd),
+        curva.length,
+      ),
       curva,
       progreso: resumenDeProgreso(curva),
       sinDatos: curva.length === 0,

@@ -8,10 +8,25 @@
  *   calculada, ya guardada, y hoy solo se usa por dentro para sembrar cuadros.
  *
  * UN NÚMERO SUELTO NO SIGNIFICA NADA PARA UN JUGADOR
- *   "1612" no le dice nada a nadie. "Cuarta fuerza, te faltan 88 puntos para
- *   tercera" sí, porque las divisiones son el idioma en el que ya piensa: es
- *   como se inscribe a los torneos. Por eso el número va acompañado SIEMPRE de
- *   su división y de lo que le falta para la siguiente.
+ *   "1612" no le dice nada a nadie. "Tercera fuerza, te faltan 100 puntos para
+ *   segunda" sí, porque las divisiones son el idioma en el que ya piensa: es
+ *   como se inscribe a los torneos.
+ *
+ * ► LA DIVISIÓN QUE SE ENSEÑA ES EN LA QUE JUEGA, NO LA QUE DICE SU RATING
+ *   Esto lo tuve mal y hay que dejarlo escrito. NADIE EMPIEZA EN SEXTA: los
+ *   torneos tienen varias categorías y el jugador se inscribe en la suya, así
+ *   que un debutante puede entrar directo a tercera. El motor lo sabe —
+ *   `isEligibleToRegister` permite el cold-start con RD alta porque "lo declara
+ *   el jugador y lo valida el organizador"— y `player_ratings` está justamente
+ *   partido POR DIVISIÓN.
+ *
+ *   `divisionForRating()` NO dice dónde juega: dice qué mide su rating, y sirve
+ *   para otra cosa —promoverlo si se le queda chica, o impedir que baje de
+ *   categoría—. Usarla como etiqueta le diría "quinta fuerza" a alguien que
+ *   lleva un año jugando tercera, que es falso y además ofende.
+ *
+ *   Así que la etiqueta sale de `player_ratings.division` y el rating solo
+ *   dice si va camino de subir DENTRO de esa división.
  *
  * ► Y SI EL NÚMERO NO ES FIABLE, NO SE ENSEÑA COMO SI LO FUERA
  *   Glicko arranca en 1500 con una incertidumbre (RD) de 350, y el propio
@@ -26,7 +41,7 @@
  *   que es exactamente lo que el producto quiere.
  */
 
-import { DEFAULT_BAND_CONFIG, divisionForRating } from '@/lib/engine/rating/category-bands';
+import { DEFAULT_BAND_CONFIG } from '@/lib/engine/rating/category-bands';
 import type { Division } from '@/lib/engine/types';
 
 /** RD por debajo de la cual el rating significa algo. Gemelo del motor. */
@@ -47,34 +62,50 @@ export const NOMBRE_DIVISION: Record<Division, string> = {
 /** De menor a mayor. Gemelo del orden de DEFAULT_BANDS. */
 const ESCALERA: Division[] = ['sexta', 'quinta', 'cuarta', 'tercera', 'segunda', 'primera'];
 
+/** Dónde cae su rating medido respecto a la banda de su división. */
+export type PosicionEnLaBanda = 'abajo' | 'dentro' | 'arriba';
+
 export interface NivelDelJugador {
   rating: number;
   rd: number;
   /** RD < 100: el número ya es una medición y no un valor de fábrica. */
   fiable: boolean;
   partidos: number;
+  /** DONDE JUEGA. Sale de player_ratings.division, no del rating. */
   division: Division;
-  /** La de arriba. null si ya está en primera. */
+  /** La de arriba de la SUYA. null si ya está en primera. */
   siguiente: Division | null;
-  /** Puntos hasta el techo de su banda. null si ya está en primera. */
+  /** Puntos hasta el techo de SU banda. null si ya está en primera o la pasó. */
   paraSubir: number | null;
+  posicion: PosicionEnLaBanda;
 }
 
 export function nivelDelJugador(
+  /** La división en la que compite. De `player_ratings.division`. */
+  division: Division,
   rating: number,
   rd: number,
   partidos: number,
 ): NivelDelJugador {
-  const division = divisionForRating(rating);
   const i = ESCALERA.indexOf(division);
   const siguiente = i >= 0 && i < ESCALERA.length - 1 ? ESCALERA[i + 1] : null;
   const banda = DEFAULT_BAND_CONFIG.bands.find((b) => b.division === division);
+
+  const posicion: PosicionEnLaBanda =
+    !banda || !Number.isFinite(banda.min) || !Number.isFinite(banda.max)
+      ? 'dentro'
+      : rating > banda.max
+        ? 'arriba'
+        : rating < banda.min
+          ? 'abajo'
+          : 'dentro';
+
   const paraSubir =
-    siguiente && banda && Number.isFinite(banda.max)
+    siguiente && banda && Number.isFinite(banda.max) && posicion !== 'arriba'
       ? Math.max(Math.ceil(banda.max + 1 - rating), 0)
       : null;
 
-  return { rating, rd, fiable: rd < RD_FIABLE, partidos, division, siguiente, paraSubir };
+  return { rating, rd, fiable: rd < RD_FIABLE, partidos, division, siguiente, paraSubir, posicion };
 }
 
 /** El titular de la tarjeta. */
@@ -83,15 +114,36 @@ export function textoDeNivel(n: NivelDelJugador): string {
   return `${NOMBRE_DIVISION[n.division]} fuerza`;
 }
 
-/** La línea de debajo. Da el siguiente paso, no un dato. */
+/**
+ * La línea de debajo. Da el siguiente paso, no un dato.
+ *
+ * EL CASO 'abajo' NO ACUSA A NADIE.
+ *   Un jugador puede competir en tercera con un rating medido de quinta: se
+ *   inscribió ahí y el organizador lo validó. Decirle "eres de quinta" sería
+ *   discutirle una decisión que no tomó solo. Se le dice dónde está DENTRO de
+ *   su división —"en la parte baja de tercera"—, que es cierto, es útil y no
+ *   es un juicio.
+ */
 export function textoDeSiguientePaso(n: NivelDelJugador): string {
   if (!n.fiable) {
     if (n.partidos === 0) return 'Juega tu primer torneo y empezamos a medir tu nivel.';
     const p = n.partidos === 1 ? 'un partido' : `${n.partidos} partidos`;
     return `Llevas ${p}. Con unos cuantos más tu nivel deja de ser provisional.`;
   }
-  if (!n.siguiente || n.paraSubir === null) return 'Estás en lo más alto. No hay división por encima.';
-  if (n.paraSubir <= 0) return `Ya estás en rango de ${NOMBRE_DIVISION[n.siguiente].toLowerCase()}.`;
+
+  const suya = NOMBRE_DIVISION[n.division].toLowerCase();
+
+  if (n.posicion === 'arriba') {
+    return n.siguiente
+      ? `Tu nivel ya está por encima de ${suya}: vas camino de ${NOMBRE_DIVISION[n.siguiente].toLowerCase()}.`
+      : 'Estás en lo más alto. No hay división por encima.';
+  }
+  if (n.posicion === 'abajo') {
+    return `Estás en la parte baja de ${suya}.`;
+  }
+  if (!n.siguiente || n.paraSubir === null) {
+    return 'Estás en lo más alto. No hay división por encima.';
+  }
   return `Te faltan ${n.paraSubir} puntos para ${NOMBRE_DIVISION[n.siguiente].toLowerCase()}.`;
 }
 
