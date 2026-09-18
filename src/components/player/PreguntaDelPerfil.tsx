@@ -41,30 +41,46 @@ import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-
 
 export function PreguntaDelPerfil({ userId }: { userId: string }) {
   const [pregunta, setPregunta] = useState<Pregunta | null>(null);
-  const [saltadas, setSaltadas] = useState<PreguntaId[]>([]);
+  /**
+   * Las que ya contestó EN ESTA SESIÓN.
+   *
+   * Solo sirve para pasar a la siguiente sin esperar a releer la base. Lo
+   * contestado ya está guardado: aunque esto se pierda, no vuelve a salir.
+   */
+  const [contestadas, setContestadas] = useState<PreguntaId[]>([]);
+  /**
+   * ► CERRÓ LA TARJETA. NO ES LO MISMO QUE CONTESTAR.
+   *
+   *   Contestar es cooperar: se le ofrece la siguiente en el momento, porque
+   *   está de humor y porque las aperturas de esta app son pocas —solo días de
+   *   torneo— y desaprovechar una es caro.
+   *
+   *   Cerrar es decir que no. Encadenarle otra pregunta ahí es exactamente
+   *   cómo se enseña a ignorar la tarjeta para siempre, incluidas las que sí
+   *   habría contestado. Se calla entera hasta la próxima apertura.
+   */
+  const [cerrada, setCerrada] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
-  // AL VOLVER A LA PANTALLA SE OLVIDA LO SALTADO.
-  //
-  //   RALLY se abre los días de torneo, no a diario: cada apertura es una de
-  //   las poquísimas ocasiones que hay de recoger esto. Dentro de la misma
-  //   sesión la ✕ calla de verdad; en la siguiente apertura se vuelve a
-  //   ofrecer. Lo contestado no vuelve nunca, porque ya está en la base.
+  // Al volver a la pantalla se empieza de cero: la tarjeta cerrada reaparece y
+  // vuelve a ofrecerse lo que quede. RALLY se abre los días de torneo, así que
+  // cada apertura es una de las pocas ocasiones que hay de preguntar.
   useFocusEffect(
     useCallback(() => {
-      setSaltadas([]);
+      setCerrada(false);
+      setContestadas([]);
     }, []),
   );
 
   useEffect(() => {
     let vivo = true;
     leerPerfilDeJuego(userId).then((p) => {
-      if (vivo) setPregunta(siguientePregunta(p, saltadas));
+      if (vivo) setPregunta(siguientePregunta(p, contestadas));
     });
     return () => { vivo = false; };
-  }, [userId, saltadas]);
+  }, [userId, contestadas]);
 
-  if (!pregunta) return null;
+  if (!pregunta || cerrada) return null;
 
   async function responder(valor: string) {
     setGuardando(true);
@@ -72,7 +88,7 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
     setGuardando(false);
     // Si no se pudo guardar, la pregunta se queda: volverá a salir sola. No se
     // avisa — no estaba haciendo una tarea, estaba contestando de paso.
-    if (ok) setSaltadas((prev) => [...prev, pregunta!.id]);
+    if (ok) setContestadas((prev) => [...prev, pregunta!.id]);
   }
 
   return (
@@ -80,7 +96,7 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
       <View style={s.cabecera}>
         <Text style={s.titulo}>{pregunta.titulo}</Text>
         <Pressable
-          onPress={() => setSaltadas((prev) => [...prev, pregunta.id])}
+          onPress={() => setCerrada(true)}
           accessibilityRole="button"
           accessibilityLabel="Ahora no"
           hitSlop={12}

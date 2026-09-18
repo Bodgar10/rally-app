@@ -107,3 +107,26 @@ describe('el aviso de la pareja rival', () => {
     expect(avisoDeLaPareja(vacio, vacio, 'A', 'B')).toBeNull();
   });
 });
+
+describe('el ritmo: contestar avanza, cerrar no', () => {
+  // La lógica de la tarjeta vive en el componente, pero la regla que decide
+  // QUÉ se pregunta es esta, y es la que hay que poder fijar.
+
+  it('contestar el lado deja la mano pendiente para el momento', () => {
+    // Contestar es cooperar: se le ofrece la siguiente ahí mismo, porque las
+    // aperturas de esta app son pocas —solo días de torneo— y desaprovechar
+    // una es caro.
+    expect(siguientePregunta(vacio, ['lado'])!.id).toBe('mano');
+  });
+
+  it('con las dos contestadas ya no queda nada que preguntar', () => {
+    expect(siguientePregunta({ lado: 'drive', mano: 'zurdo' }, [])).toBeNull();
+    expect(siguientePregunta(vacio, ['lado', 'mano'])).toBeNull();
+  });
+
+  it('y una contestada de verdad no vuelve aunque se reinicie la sesión', () => {
+    // Lo contestado está en la base: la lista de "ya preguntadas en esta
+    // sesión" se puede perder sin que nadie vuelva a ver la pregunta.
+    expect(siguientePregunta({ lado: 'drive', mano: null }, [])!.id).toBe('mano');
+  });
+});
