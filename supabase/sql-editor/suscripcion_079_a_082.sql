@@ -460,6 +460,22 @@ comment on column public.users.preferred_side is
 --    categoría todavía abierta).
 -- ────────────────────────────────────────────────────────────
 
+-- ► LAS CUATRO COLUMNAS NUEVAS VAN AL FINAL, Y NO ES UN DESCUIDO.
+--
+--   Agrupadas por jugador —lado y mano de cada uno junto a su nombre— se leen
+--   mucho mejor, y así estaban escritas. Postgres lo rechaza:
+--
+--     ERROR 42P16: cannot change name of view column "player2_name"
+--                  to "player1_lado"
+--
+--   `create or replace view` solo permite AÑADIR columnas al final; cambiar el
+--   orden o insertarlas en medio le obliga a renombrar las que vienen después.
+--   La alternativa sería `drop view` + `create`, y eso tira por delante el
+--   `grant select ... to anon` de la migración 040 y cualquier cosa que
+--   dependa de la vista.
+--
+--   Así que el orden feo se queda. Si alguien las reagrupa "para que se lea
+--   mejor", esta migración vuelve a fallar exactamente igual.
 create or replace view public.bracket_pairs_public as
 select
   p.id             as pair_id,
@@ -469,12 +485,13 @@ select
   p.player2_id,
   u1.full_name     as player1_name,
   u1.photo_url     as player1_photo,
-  u1.preferred_side as player1_lado,
-  u1.mano          as player1_mano,
   u2.full_name     as player2_name,
   u2.photo_url     as player2_photo,
+  -- A partir de aquí, lo nuevo. Al final, obligatoriamente.
+  u1.preferred_side as player1_lado,
+  u1.mano           as player1_mano,
   u2.preferred_side as player2_lado,
-  u2.mano          as player2_mano
+  u2.mano           as player2_mano
 from public.pairs p
 join public.users       u1 on u1.id = p.player1_id
 join public.users       u2 on u2.id = p.player2_id
