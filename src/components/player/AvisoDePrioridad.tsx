@@ -24,20 +24,15 @@ import { estadoDePrioridad, textoDePrioridad } from '@/lib/prioridad-inscripcion
 import { isPrioridadInscripcionOn } from '@/lib/feature-flags';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
-/**
- * Lee `tournaments.prioridad_hasta`.
- *
- * ► EL CAST ES TEMPORAL Y VIVE SOLO AQUÍ. `database.types.ts` se genera del
- *   proyecto remoto, así que la columna no existe para TypeScript hasta que se
- *   corra la migración 080. Una puerta con cast, no un cast por pantalla.
- */
+/** Lee `tournaments.prioridad_hasta`. Nunca lanza: sin dato, no hay aviso. */
 async function leerPrioridad(tournamentId: string): Promise<string | null> {
   try {
-    const consulta = supabase.from('tournaments').select('prioridad_hasta' as never) as unknown as {
-      eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: unknown }> };
-    };
-    const { data } = await consulta.eq('id', tournamentId).maybeSingle();
-    return (data as { prioridad_hasta?: string | null } | null)?.prioridad_hasta ?? null;
+    const { data } = await supabase
+      .from('tournaments')
+      .select('prioridad_hasta')
+      .eq('id', tournamentId)
+      .maybeSingle();
+    return data?.prioridad_hasta ?? null;
   } catch {
     return null;
   }

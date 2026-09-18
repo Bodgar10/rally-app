@@ -111,6 +111,85 @@ export type Database = {
           },
         ]
       }
+      campeon_ahorros: {
+        Row: {
+          ahorro: number
+          base: number
+          created_at: string
+          id: string
+          pair_id: string
+          periodo_fin: string
+          stripe_payment_intent_id: string | null
+          tournament_id: string
+          user_id: string
+        }
+        Insert: {
+          ahorro: number
+          base: number
+          created_at?: string
+          id?: string
+          pair_id: string
+          periodo_fin: string
+          stripe_payment_intent_id?: string | null
+          tournament_id: string
+          user_id: string
+        }
+        Update: {
+          ahorro?: number
+          base?: number
+          created_at?: string
+          id?: string
+          pair_id?: string
+          periodo_fin?: string
+          stripe_payment_intent_id?: string | null
+          tournament_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campeon_ahorros_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "bracket_pairs_public"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "campeon_ahorros_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "my_pairs"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "campeon_ahorros_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "organizer_pairs_admin"
+            referencedColumns: ["pair_id"]
+          },
+          {
+            foreignKeyName: "campeon_ahorros_pair_id_fkey"
+            columns: ["pair_id"]
+            isOneToOne: false
+            referencedRelation: "pairs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campeon_ahorros_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campeon_ahorros_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cancellation_reasons: {
         Row: {
           created_at: string
@@ -1563,6 +1642,7 @@ export type Database = {
           current_period_end: string | null
           id: string
           plan: Database["public"]["Enums"]["subscription_plan"]
+          precio_mxn: number | null
           status: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id: string
           stripe_subscription_id: string | null
@@ -1583,6 +1663,7 @@ export type Database = {
           current_period_end?: string | null
           id?: string
           plan: Database["public"]["Enums"]["subscription_plan"]
+          precio_mxn?: number | null
           status?: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id: string
           stripe_subscription_id?: string | null
@@ -1603,6 +1684,7 @@ export type Database = {
           current_period_end?: string | null
           id?: string
           plan?: Database["public"]["Enums"]["subscription_plan"]
+          precio_mxn?: number | null
           status?: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id?: string
           stripe_subscription_id?: string | null
@@ -1813,6 +1895,7 @@ export type Database = {
           modo: Database["public"]["Enums"]["tournament_modo"]
           name: string
           organizer_id: string
+          prioridad_hasta: string | null
           registration_fee: number
           start_date: string
           status: Database["public"]["Enums"]["tournament_status"]
@@ -1831,6 +1914,7 @@ export type Database = {
           modo?: Database["public"]["Enums"]["tournament_modo"]
           name: string
           organizer_id: string
+          prioridad_hasta?: string | null
           registration_fee?: number
           start_date: string
           status?: Database["public"]["Enums"]["tournament_status"]
@@ -1849,6 +1933,7 @@ export type Database = {
           modo?: Database["public"]["Enums"]["tournament_modo"]
           name?: string
           organizer_id?: string
+          prioridad_hasta?: string | null
           registration_fee?: number
           start_date?: string
           status?: Database["public"]["Enums"]["tournament_status"]
@@ -1892,6 +1977,7 @@ export type Database = {
           full_name: string
           gender: Database["public"]["Enums"]["player_gender"] | null
           id: string
+          mano: Database["public"]["Enums"]["mano_de_juego"] | null
           parent_email: string | null
           parent_name: string | null
           parental_consent_at: string | null
@@ -1912,6 +1998,7 @@ export type Database = {
           full_name: string
           gender?: Database["public"]["Enums"]["player_gender"] | null
           id: string
+          mano?: Database["public"]["Enums"]["mano_de_juego"] | null
           parent_email?: string | null
           parent_name?: string | null
           parental_consent_at?: string | null
@@ -1932,6 +2019,7 @@ export type Database = {
           full_name?: string
           gender?: Database["public"]["Enums"]["player_gender"] | null
           id?: string
+          mano?: Database["public"]["Enums"]["mano_de_juego"] | null
           parent_email?: string | null
           parent_name?: string | null
           parental_consent_at?: string | null
@@ -1994,9 +2082,13 @@ export type Database = {
           category_id: string | null
           pair_id: string | null
           player1_id: string | null
+          player1_lado: Database["public"]["Enums"]["preferred_side"] | null
+          player1_mano: Database["public"]["Enums"]["mano_de_juego"] | null
           player1_name: string | null
           player1_photo: string | null
           player2_id: string | null
+          player2_lado: Database["public"]["Enums"]["preferred_side"] | null
+          player2_mano: Database["public"]["Enums"]["mano_de_juego"] | null
           player2_name: string | null
           player2_photo: string | null
           tournament_id: string | null
@@ -2250,6 +2342,7 @@ export type Database = {
         Args: { p_actor: string; p_category_id: string; p_next: Json }
         Returns: Json
       }
+      ahorro_campeon: { Args: { p_user: string }; Returns: Json }
       ajustar_clasificados: {
         Args: {
           p_advance: number
@@ -2270,6 +2363,22 @@ export type Database = {
           bloque_id: string
           category_id: string
           parejas: number
+        }[]
+      }
+      buscar_pareja: {
+        Args: {
+          p_division: Database["public"]["Enums"]["division"]
+          p_limite?: number
+        }
+        Returns: {
+          diferencia: number
+          full_name: string
+          lado: Database["public"]["Enums"]["preferred_side"]
+          mano: Database["public"]["Enums"]["mano_de_juego"]
+          photo_url: string
+          player_id: string
+          rating: number
+          rd: number
         }[]
       }
       can_capture_tournament: {
@@ -2309,6 +2418,10 @@ export type Database = {
       get_player_match_stats: {
         Args: { p_division?: string; p_player_id: string }
         Returns: Json
+      }
+      inscripcion_abierta_para: {
+        Args: { p_tournament: string; p_user: string }
+        Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
       is_my_pair: { Args: { p_pair_id: string }; Returns: boolean }
@@ -2404,6 +2517,7 @@ export type Database = {
         }
         Returns: Json
       }
+      tiene_suscripcion_activa: { Args: { p_user: string }; Returns: boolean }
       tournament_category_counts: {
         Args: { p_tournament_id: string }
         Returns: {
@@ -2439,6 +2553,7 @@ export type Database = {
       format_type: "groups_then_knockout" | "round_robin" | "knockout_only"
       formato_partido: "suma_6" | "set_oro" | "dos_sets_oro" | "set_star_point"
       lead_status: "new" | "sent" | "contacted"
+      mano_de_juego: "diestro" | "zurdo"
       match_stage:
         | "group"
         | "round_of_32"
@@ -2619,6 +2734,7 @@ export const Constants = {
       format_type: ["groups_then_knockout", "round_robin", "knockout_only"],
       formato_partido: ["suma_6", "set_oro", "dos_sets_oro", "set_star_point"],
       lead_status: ["new", "sent", "contacted"],
+      mano_de_juego: ["diestro", "zurdo"],
       match_stage: [
         "group",
         "round_of_32",

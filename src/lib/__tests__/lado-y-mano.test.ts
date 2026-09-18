@@ -1,6 +1,5 @@
 // src/lib/__tests__/lado-y-mano.test.ts
 import {
-  COLUMNA_DE,
   avisoDeLaPareja,
   siguientePregunta,
   textoDeJugador,
@@ -39,11 +38,6 @@ describe('qué se pregunta y cuándo', () => {
     for (const saltadas of [[], ['lado']] as const) {
       expect(siguientePregunta(vacio, saltadas)!.opciones.length).toBeGreaterThanOrEqual(2);
     }
-  });
-
-  it('cada pregunta sabe en qué columna se guarda', () => {
-    expect(COLUMNA_DE.lado).toBe('preferred_side');
-    expect(COLUMNA_DE.mano).toBe('mano');
   });
 });
 

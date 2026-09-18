@@ -88,12 +88,8 @@ export default function EditarPerfilScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No se pudo identificar tu sesión.');
 
-      // `mano` llega con la migración 081 y los tipos se generan del proyecto
-      // remoto: hasta entonces no existe para TypeScript. Un cast, aquí.
-      const tabla = supabase.from('users') as unknown as {
-        update: (v: Record<string, unknown>) => { eq: (c: string, v: string) => Promise<{ error: unknown }> };
-      };
-      const { error: e } = await tabla
+      const { error: e } = await supabase
+        .from('users')
         .update({
           full_name: nombre.trim(),
           phone: telefono.trim() || null,
@@ -101,7 +97,7 @@ export default function EditarPerfilScreen() {
           mano,
         })
         .eq('id', user.id);
-      if (e) throw new Error((e as { message?: string }).message ?? 'No se pudo guardar.');
+      if (e) throw new Error(e.message ?? 'No se pudo guardar.');
       router.back();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo guardar.');

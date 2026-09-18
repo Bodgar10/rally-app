@@ -82,14 +82,12 @@ export default function BuscarParejaScreen() {
 
       setDivision(mio.division as Division);
 
-      // `buscar_pareja` llega con la migración 082; los tipos se generan del
-      // proyecto remoto, así que todavía no existe para TypeScript.
-      const rpc = supabase.rpc as unknown as (
-        fn: string, args: Record<string, unknown>,
-      ) => Promise<{ data: unknown; error: unknown }>;
-      const { data } = await rpc('buscar_pareja', { p_division: mio.division, p_limite: 12 });
+      const { data } = await supabase.rpc('buscar_pareja', {
+        p_division: mio.division,
+        p_limite: 12,
+      });
 
-      const lista = (data as Candidato[] | null) ?? [];
+      const lista = (data ?? []) as Candidato[];
       setCandidatos(lista);
       setMotivo(lista.length === 0 ? 'sin_candidatos' : null);
     } catch {

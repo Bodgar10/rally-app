@@ -86,12 +86,6 @@ export function siguientePregunta(
   return PREGUNTAS.find((p) => !contestada[p.id] && !saltadas.includes(p.id)) ?? null;
 }
 
-/** La columna de `users` que escribe cada pregunta. */
-export const COLUMNA_DE: Record<PreguntaId, 'preferred_side' | 'mano'> = {
-  lado: 'preferred_side',
-  mano: 'mano',
-};
-
 // ── Cómo se cuenta en la ficha del rival ────────────────────────────────────
 
 const LADO: Record<Lado, string> = { drive: 'drive', reves: 'revés', ambos: 'los dos lados' };

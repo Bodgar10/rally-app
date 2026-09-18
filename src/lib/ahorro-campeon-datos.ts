@@ -18,24 +18,18 @@ import { SIN_CAMPEON, type AhorroCampeon } from '@/lib/ahorro-campeon';
 /**
  * Lee el ahorro del periodo desde la RPC `ahorro_campeon` (migración 079).
  *
- * ► EL CAST ES TEMPORAL Y VIVE SOLO AQUÍ.
- *   `database.types.ts` se genera del proyecto REMOTO, así que hasta que la
- *   079 se ejecute en Supabase la función no existe para TypeScript. En vez de
- *   repartir un cast por cada pantalla, hay uno solo en esta puerta: al correr
- *   `npm run types:db` se borra de un sitio y ya.
- *
  * Nunca lanza. Un contador que revienta el perfil no compensa: si algo falla
  * se devuelve "no eres Campeón" y la pantalla no enseña el bloque.
  */
 export async function leerAhorroCampeon(userId: string): Promise<AhorroCampeon> {
   try {
-    const rpc = supabase.rpc as unknown as (
-      fn: string,
-      args: Record<string, unknown>,
-    ) => Promise<{ data: unknown; error: unknown }>;
-    const { data, error } = await rpc('ahorro_campeon', { p_user: userId });
+    const { data, error } = await supabase.rpc('ahorro_campeon', { p_user: userId });
     if (error || !data) return SIN_CAMPEON;
-    return data as AhorroCampeon;
+    // El cast se queda: la función devuelve `jsonb` y el generador lo tipa como
+    // `Json`, que es correcto — Postgres no sabe qué forma tiene ese objeto. La
+    // forma la define AhorroCampeon y la garantiza la propia función (079), que
+    // construye siempre las mismas cinco claves.
+    return data as unknown as AhorroCampeon;
   } catch {
     return SIN_CAMPEON;
   }

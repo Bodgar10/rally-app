@@ -40,17 +40,8 @@ const OPCIONES = [
   { horas: 72, titulo: '72 horas', sub: 'Tres días, para torneos muy demandados' },
 ] as const;
 
-/** La columna es de la migración 080 y aún no está en los tipos generados. */
-type ClienteSuelto = {
-  from: (t: string) => {
-    select: (c: string) => { eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: unknown }> } };
-    update: (v: Record<string, unknown>) => { eq: (c: string, v: string) => Promise<{ error: unknown }> };
-  };
-};
-
 export default function PrioridadScreen() {
   const { tournamentId } = useLocalSearchParams<{ tournamentId: string }>();
-  const suelto = supabase as unknown as ClienteSuelto;
 
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -60,12 +51,12 @@ export default function PrioridadScreen() {
   const cargar = useCallback(async () => {
     if (!tournamentId) return;
     setCargando(true);
-    const { data } = await suelto
+    const { data } = await supabase
       .from('tournaments')
       .select('prioridad_hasta')
       .eq('id', tournamentId)
       .maybeSingle();
-    setHasta((data as { prioridad_hasta?: string | null } | null)?.prioridad_hasta ?? null);
+    setHasta(data?.prioridad_hasta ?? null);
     setCargando(false);
   }, [tournamentId]);
 
@@ -75,11 +66,11 @@ export default function PrioridadScreen() {
     setGuardando(true);
     setError(null);
     const valor = horas === 0 ? null : new Date(Date.now() + horas * 3600000).toISOString();
-    const { error: e } = await suelto
+    const { error: e } = await supabase
       .from('tournaments')
       .update({ prioridad_hasta: valor })
       .eq('id', tournamentId!);
-    if (e) setError((e as { message?: string }).message ?? 'No se pudo guardar.');
+    if (e) setError(e.message ?? 'No se pudo guardar.');
     else await cargar();
     setGuardando(false);
   }
