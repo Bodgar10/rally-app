@@ -16,6 +16,7 @@ import type { User } from '@supabase/supabase-js';
 import { supabase }                             from '@/lib/supabase/client';
 import { PlayerAnalysis }                       from '@/components/player/PlayerAnalysis';
 import { ContadorDeAhorro }                    from '@/components/campeon/ContadorDeAhorro';
+import { TuNivel }                             from '@/components/player/TuNivel';
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
 import { color, font, fontSize, space, radius } from '@/lib/design-tokens';
@@ -164,6 +165,11 @@ export default function PerfilScreen() {
             Campeón — a quien no lo es, aquí sería publicidad, y el sitio de la
             publicidad es el checkout, donde está pagando de más. */}
         {user && <ContadorDeAhorro userId={user.id} />}
+
+        {/* TU NIVEL Y TU CURVA.
+            Va antes del análisis porque es lo que el jugador viene a ver: su
+            división y si está subiendo. El resto son detalles de eso. */}
+        {user && <TuNivel userId={user.id} />}
 
         {/* Análisis descriptivo del jugador (free) + gating Pro — S5-SON-03 */}
         {user && (
