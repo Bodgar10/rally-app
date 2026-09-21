@@ -17,6 +17,8 @@
  * pantalla ni base.
  */
 
+import { DEFAULT_RANKING_RULES } from '@/lib/engine/ranking-points';
+
 /** `tournaments.tier` (enum `tournament_tier`). */
 export type TierTorneo = 'major' | 'p1' | 'p2';
 
@@ -38,7 +40,11 @@ export interface OpcionTier {
    * tiene jerarquía: la pantalla solo la obedece.
    */
   destaque: 'maximo' | 'medio' | 'base';
-  /** Lo que multiplica los puntos de ranking. Se pinta grande, a la derecha. */
+  /**
+   * Lo que multiplica los puntos de ranking. Es el contrato real con el motor
+   * (`tierMultipliers`), pero NO es lo que se le enseña al jugador: ver
+   * `puntosDelCampeon`.
+   */
   multiplicador: string;
   /** Cuántos días dura, en una palabra. Para la línea de arriba de la tarjeta. */
   dias: string;
@@ -89,6 +95,40 @@ export const TIER_EXPRES: TierTorneo = 'p2';
 export function opcionDeTier(tier: TierTorneo): OpcionTier {
   // El `!` es seguro: `TierTorneo` es un enum cerrado y hay una opción por valor.
   return TIER_OPCIONES.find((o) => o.valor === tier)!;
+}
+
+/**
+ * Lo que se lleva el campeón, en puntos de ranking.
+ *
+ * ► "×0.6 PUNTOS" NO LO ENTIENDE NADIE, Y ESO ES LO QUE SE PINTABA
+ *   El multiplicador es el contrato interno con el motor. Para quien juega no
+ *   significa nada: multiplicado ¿por qué? Un jugador no tiene en la cabeza la
+ *   tabla de hitos de ronda, así que "×0.6" no le dice ni si son muchos ni si
+ *   son pocos. Un número absoluto —2000, 1000, 600— se compara solo.
+ *
+ * ► ES EL HITO DE CAMPEÓN, NO EL TOTAL EXACTO
+ *   El total real de un campeón lleva además el bono por pasar de grupos y 50
+ *   por cada victoria de la fase, que dependen de cómo le fue. O sea que esto
+ *   es el SUELO de lo que se lleva, y por eso se dice "desde" allí donde se
+ *   pinta.
+ *
+ *   Se elige el hito de campeón y no el total porque es el único número que se
+ *   puede decir sin inventar un torneo: es el mismo para todos, sale redondo y
+ *   coincide con `roundrobinChampionBonus`, que es lo que cobra el campeón de
+ *   un round-robin sin cuadro.
+ *
+ * ► SE CALCULA, NO SE ESCRIBE
+ *   Sale de `DEFAULT_RANKING_RULES`. Si alguien cambia la tabla de puntos o un
+ *   multiplicador, la portada cambia con ella en vez de quedarse mintiendo.
+ */
+export function puntosDelCampeon(tier: TierTorneo): number {
+  const { roundPoints, tierMultipliers } = DEFAULT_RANKING_RULES;
+  return Math.round(roundPoints.champion * tierMultipliers[tier]);
+}
+
+/** "2000 pts" — ya formateado, que es como se pinta siempre. */
+export function textoPuntosDelCampeon(tier: TierTorneo): string {
+  return `${puntosDelCampeon(tier).toLocaleString('es-MX')} pts`;
 }
 
 /** El valor de la tarjeta "Tier" del panel del organizador. */

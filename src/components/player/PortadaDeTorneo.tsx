@@ -50,7 +50,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { porQueSale, type TorneoRecomendado } from '@/lib/torneos-para-ti';
-import { opcionDeTier } from '@/lib/tier-torneo';
+import { opcionDeTier, textoPuntosDelCampeon } from '@/lib/tier-torneo';
 import { resumenDeDivisiones } from '@/lib/divisiones';
 import { formatearRango } from '@/lib/fechas';
 import { color, font, fontSize, gradient, radius, space } from '@/lib/design-tokens';
@@ -126,9 +126,14 @@ export default function PortadaDeTorneo({
           {torneo.modo === 'expres' && (
             <Text style={[s.bandaModo, { color: banda.texto }]}>EXPRÉS</Text>
           )}
-          {tier && (
+          {/* ► LO QUE SE LLEVA EL CAMPEÓN, NO EL MULTIPLICADOR.
+              Aquí decía "×0.6 puntos", que no significa nada para quien
+              juega: multiplicado ¿por qué? Un número absoluto se compara
+              solo — 2,000 contra 600 se entiende sin saber nada más.
+              "desde" porque el campeón suma además lo de la fase de grupos. */}
+          {torneo.tier && (
             <Text style={[s.bandaPuntos, { color: banda.texto }]}>
-              {tier.multiplicador} puntos
+              Campeón: desde {textoPuntosDelCampeon(torneo.tier)}
             </Text>
           )}
         </View>

@@ -38,7 +38,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import VenuePicker, { type Venue } from '@/components/organizer/VenuePicker';
 import CalendarioRango from '@/components/ui/CalendarioRango';
 import { type RangoSeleccion } from '@/lib/rango-fechas';
-import { TIER_EXPRES, opcionDeTier } from '@/lib/tier-torneo';
+import { TIER_EXPRES, opcionDeTier, puntosDelCampeon } from '@/lib/tier-torneo';
 import { DIVISIONES_DESC, ETIQUETA_DIVISION, NOMBRE_DIVISION } from '@/lib/divisiones';
 import type { Division } from '@/lib/engine/types';
 import CrearExpres, { type ConfigExpres } from '@/components/expres/CrearExpres';
@@ -291,8 +291,10 @@ export default function NuevoExpresScreen() {
               <Text style={s.tierSub}>{tierExpres.dias} · {tierExpres.sub}</Text>
             </View>
             <View style={s.tierMulti}>
-              <Text style={s.tierMultiValor}>{tierExpres.multiplicador}</Text>
-              <Text style={s.tierMultiPie}>puntos</Text>
+              <Text style={s.tierMultiValor}>
+                {puntosDelCampeon(TIER_EXPRES).toLocaleString('es-MX')}
+              </Text>
+              <Text style={s.tierMultiPie}>pts al campeón</Text>
             </View>
           </View>
           <Text style={s.pista}>

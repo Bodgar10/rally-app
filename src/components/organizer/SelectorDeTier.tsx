@@ -32,7 +32,9 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { TIER_OPCIONES, type OpcionTier, type TierTorneo } from '@/lib/tier-torneo';
+import {
+  TIER_OPCIONES, puntosDelCampeon, type OpcionTier, type TierTorneo,
+} from '@/lib/tier-torneo';
 import { color, font, fontSize, gradient, radius, space } from '@/lib/design-tokens';
 
 interface Props {
@@ -73,12 +75,17 @@ function Opcion({
           <Text style={[s.titulo, esMajor && s.tituloMajor]}>{opcion.titulo}</Text>
         </View>
 
-        {/* EL MULTIPLICADOR, GRANDE. Es lo único que de verdad distingue a los
-            tres tiers para quien juega, y estaba escondido al final de una
-            línea gris. */}
+        {/* LO QUE SE LLEVA EL CAMPEÓN, GRANDE. Es lo que de verdad distingue
+            a los tres tiers, y estaba escondido al final de una línea gris.
+            Aquí ponía el multiplicador (×2, ×1, ×0.6) y no se entendía:
+            multiplicado ¿por qué? El multiplicador sigue abajo, en pequeño,
+            para quien sí quiera el dato exacto. */}
         <View style={s.multiCaja}>
-          <Text style={[s.multi, esMajor && s.multiMajor]}>{opcion.multiplicador}</Text>
-          <Text style={s.multiPie}>puntos</Text>
+          <Text style={[s.multi, esMajor && s.multiMajor]}>
+            {puntosDelCampeon(opcion.valor).toLocaleString('es-MX')}
+          </Text>
+          <Text style={s.multiPie}>pts al campeón</Text>
+          <Text style={s.multiPie}>{opcion.multiplicador}</Text>
         </View>
       </View>
 
@@ -92,7 +99,10 @@ function Opcion({
       disabled={inerte}
       accessibilityRole="radio"
       accessibilityState={{ selected: elegida, disabled: inerte }}
-      accessibilityLabel={`${opcion.titulo}, ${opcion.dias}, puntos de ranking ${opcion.multiplicador}`}
+      accessibilityLabel={
+        `${opcion.titulo}, ${opcion.dias}, `
+        + `${puntosDelCampeon(opcion.valor)} puntos al campeón`
+      }
       style={({ pressed }) => [
         s.tarjeta,
         opcion.destaque === 'medio' && s.tarjetaMedio,
