@@ -26,6 +26,15 @@
  *   plana ordenada por hora obligaría a leer la cabecera de cada fila para
  *   saber dónde empieza y acaba la tanda.
  *
+ * ► Y LO CAPTURADO BAJA
+ *   En orden de reloj de punta a punta, a media tarde había que pasar por
+ *   encima de veinte marcadores ya anotados para llegar al siguiente que
+ *   falta — con gente delante esperando. Arriba va lo que queda POR HACER.
+ *
+ *   Baja, pero no se esconde: un marcador mal tecleado se corrige tocándolo,
+ *   y meterlo detrás de un filtro cambiaría un problema de scroll por uno
+ *   peor. El orden lo decide `@/lib/agenda-expres`, con tests.
+ *
  * ► SE RECARGA ENTERO AL GUARDAR
  *   Un marcador cambia la tabla del grupo, el clinch de las ocho parejas y a
  *   veces quién va a cuartos. Recalcular eso a mano en el cliente es
@@ -40,7 +49,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { supabase } from '@/lib/supabase/client';
 import ScoreCaptureExpres from '@/components/expres/ScoreCaptureExpres';
 import { fetchParejasPublicas, nombreDePareja, type ParejaPublica } from '@/lib/parejas-publicas';
-import { partidosPendientes, type ResultadoSuma6 } from '@/lib/engine/expres';
+import { type ResultadoSuma6 } from '@/lib/engine/expres';
+import { agendaExpres } from '@/lib/agenda-expres';
 import { textoDeBalance } from '@/lib/expres-texto';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 
@@ -190,63 +200,73 @@ export default function PartidosYCaptura({
   if (cargando) return <ActivityIndicator color={color.gold} />;
   if (partidos.length === 0) return null;
 
-  const pendientes = partidosPendientes(
-    partidos.map((p) => ({
-      matchId: p.id, pairAId: p.pairAId, pairBId: p.pairBId, gamesA: p.gamesA, gamesB: p.gamesB,
-    })),
-  );
+  const agenda = agendaExpres(partidos);
 
-  let rondaActual = '';
+  const seccion = (
+    titulo: string | null,
+    secciones: ReturnType<typeof agendaExpres<PartidoExpresFila>>['porJugar'],
+  ) => (
+    <>
+      {titulo && <Text style={s.apartado}>{titulo}</Text>}
+      {secciones.map((sec) => (
+        <View key={`${titulo ?? ''}${sec.cabecera}`}>
+          <Text style={s.ronda}>{sec.cabecera}</Text>
+          {sec.partidos.map((p) => {
+            const capturado = p.gamesA != null;
+            return (
+              <Pressable
+                key={p.id}
+                onPress={() => setAbierto(p)}
+                style={({ pressed }) => [s.fila, capturado && s.filaHecha, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  `${p.hora} cancha ${p.cancha}, ${nombre(p.pairAId)} contra ${nombre(p.pairBId)}`
+                  + (capturado ? `, ${p.gamesA} a ${p.gamesB}` : ', sin capturar')
+                }
+              >
+                <View style={s.cuando}>
+                  <Text style={s.hora}>{p.hora}</Text>
+                  <Text style={s.cancha}>{p.cancha}</Text>
+                </View>
+                <View style={s.quienes}>
+                  <Text style={s.pareja} numberOfLines={1}>{nombre(p.pairAId)}</Text>
+                  <Text style={s.pareja} numberOfLines={1}>{nombre(p.pairBId)}</Text>
+                </View>
+                {capturado ? (
+                  <View style={s.marcador}>
+                    <Text style={s.games}>{p.gamesA}</Text>
+                    <Text style={s.games}>{p.gamesB}</Text>
+                    <Text style={s.saldo}>{textoDeBalance(p.gamesA! - p.gamesB!)}</Text>
+                  </View>
+                ) : (
+                  <Text style={s.porJugar}>anotar</Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      ))}
+    </>
+  );
 
   return (
     <View style={s.raiz}>
       <Text style={s.titulo}>PARTIDOS</Text>
       <Text style={s.resumen}>
-        {pendientes === 0
-          ? `Los ${partidos.length} partidos están capturados.`
-          : `Faltan ${pendientes} de ${partidos.length}. Toca uno para anotar el marcador.`}
+        {agenda.faltan === 0
+          ? `Los ${agenda.total} partidos están capturados.`
+          : `Faltan ${agenda.faltan} de ${agenda.total}. Toca uno para anotar el marcador.`}
       </Text>
 
       {error && <View style={s.error}><Text style={s.errorTexto}>{error}</Text></View>}
 
-      {partidos.map((p) => {
-        const cabecera = `${p.grupo} · ${p.ronda}`;
-        const nueva = cabecera !== rondaActual;
-        rondaActual = cabecera;
-        const capturado = p.gamesA != null;
-        return (
-          <View key={p.id}>
-            {nueva && <Text style={s.ronda}>{cabecera}</Text>}
-            <Pressable
-              onPress={() => setAbierto(p)}
-              style={({ pressed }) => [s.fila, capturado && s.filaHecha, pressed && { opacity: 0.85 }]}
-              accessibilityRole="button"
-              accessibilityLabel={
-                `${p.hora} cancha ${p.cancha}, ${nombre(p.pairAId)} contra ${nombre(p.pairBId)}`
-                + (capturado ? `, ${p.gamesA} a ${p.gamesB}` : ', sin capturar')
-              }
-            >
-              <View style={s.cuando}>
-                <Text style={s.hora}>{p.hora}</Text>
-                <Text style={s.cancha}>{p.cancha}</Text>
-              </View>
-              <View style={s.quienes}>
-                <Text style={s.pareja} numberOfLines={1}>{nombre(p.pairAId)}</Text>
-                <Text style={s.pareja} numberOfLines={1}>{nombre(p.pairBId)}</Text>
-              </View>
-              {capturado ? (
-                <View style={s.marcador}>
-                  <Text style={s.games}>{p.gamesA}</Text>
-                  <Text style={s.games}>{p.gamesB}</Text>
-                  <Text style={s.saldo}>{textoDeBalance(p.gamesA! - p.gamesB!)}</Text>
-                </View>
-              ) : (
-                <Text style={s.porJugar}>anotar</Text>
-              )}
-            </Pressable>
-          </View>
-        );
-      })}
+      {seccion(null, agenda.porJugar)}
+
+      {/* Los hechos, abajo. Siguen tocándose para corregir un dedazo. */}
+      {agenda.capturados.length > 0 && seccion(
+        agenda.faltan === 0 ? 'TODOS ANOTADOS' : 'YA ANOTADOS',
+        agenda.capturados,
+      )}
     </View>
   );
 }
@@ -258,6 +278,15 @@ const s = StyleSheet.create({
     letterSpacing: 2, marginTop: space[3],
   },
   resumen: { color: color.muted, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18 },
+
+  // Separa las dos mitades de la agenda. Más aire que una cabecera de ronda:
+  // el salto de "lo que falta" a "lo hecho" es mayor que el de una ronda a
+  // la siguiente.
+  apartado: {
+    color: color.muted, fontFamily: font.display, fontSize: fontSize.eyebrow,
+    letterSpacing: 2, marginTop: space[5], marginBottom: space[1],
+    borderTopWidth: 1, borderTopColor: color.lineSoft, paddingTop: space[4],
+  },
 
   ronda: {
     color: color.champagne, fontFamily: font.display, fontSize: fontSize.section,
