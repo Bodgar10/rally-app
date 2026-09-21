@@ -32,6 +32,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import SelectorPestanas from '@/components/ui/SelectorPestanas';
 import { pestanasDeFase, faseInicial, type FaseTorneo } from '@/lib/fase-torneo';
 import LiveStandings from '@/components/realtime/LiveStandings';
+import TablasExpresDeCategoria from '@/components/expres/TablasExpresDeCategoria';
 import LiveBracket from '@/components/realtime/LiveBracket';
 import MyNextMatch from '@/components/realtime/MyNextMatch';
 import { color, font, fontSize, space } from '@/lib/design-tokens';
@@ -43,6 +44,15 @@ interface Cabecera {
   estado:      'open' | 'closed' | 'seeded' | 'in_progress' | 'finished';
   formato:     'groups_then_knockout' | 'round_robin' | 'knockout_only' | null;
   avanzan:     number;
+  /**
+   * 'expres' pinta OTRA tabla. Ver el bloque de grupos.
+   *
+   * `LiveStandings` ordena por PUNTOS, y en un exprés `group_standings.points`
+   * se queda en 0 para todos a propósito (migración 077): en un suma 6 no hay
+   * victoria que contar. El jugador veía a las dieciséis parejas empatadas a
+   * cero después de jugar su partido, con los datos correctos debajo.
+   */
+  esExpres:    boolean;
 }
 
 /** `name` en inglés porque es la columna tal cual: 'Grupo A', 'Grupo B'. */
@@ -78,7 +88,7 @@ export default function CuadroCategoriaScreen() {
     const [{ data: cat }, { data: gs }, { data: parejas }] = await Promise.all([
       supabase
         .from('categories')
-        .select('display_name, status, format_type, advance_per_group, tournaments:tournament_id ( name )')
+        .select('display_name, status, format_type, advance_per_group, tournaments:tournament_id ( name, modo )')
         .eq('id', categoryId)
         .maybeSingle(),
       supabase
@@ -99,12 +109,13 @@ export default function CuadroCategoriaScreen() {
     ]);
 
     if (cat) {
-      const t = cat.tournaments as unknown as { name: string } | null;
+      const t = cat.tournaments as unknown as { name: string; modo: string | null } | null;
       setCabecera({
         categoria: cat.display_name,
         torneo:    t?.name ?? '',
         estado:    cat.status,
         formato:   cat.format_type,
+        esExpres:  t?.modo === 'expres',
         // Sin plan de formato, 2 es el default del motor. Solo pinta la línea
         // de corte de la tabla, así que equivocarse no rompe nada.
         avanzan:   cat.advance_per_group ?? 2,
@@ -205,16 +216,29 @@ export default function CuadroCategoriaScreen() {
             {/* Sin `SectionLabel` cuando hay pestañas: la pestaña activa ya dice
                 dónde estás, y repetirlo debajo es la misma palabra dos veces. */}
             {pestanas.length === 0 && <SectionLabel title="Fase de grupos" />}
-            {grupos.map((g) => (
-              <View key={g.id} style={s.grupo}>
-                <Text style={s.grupoNombre}>{g.name}</Text>
-                <LiveStandings
-                  groupId={g.id}
-                  currentUserId={userId}
-                  advanceCount={cabecera.avanzan}
-                />
-              </View>
-            ))}
+
+            {/* ► DOS TABLAS DISTINTAS, NO UNA CON UNA COLUMNA CAMBIADA.
+                La larga ordena por puntos y desempata por sets y games; la del
+                exprés ordena por saldo de games y su cadena de desempate es
+                otra. Meter las dos en `LiveStandings` dejaría con dos modos el
+                componente que usa el torneo de 165 parejas. */}
+            {cabecera.esExpres ? (
+              <TablasExpresDeCategoria
+                categoryId={categoryId}
+                destacarPairId={misParejas[0]}
+              />
+            ) : (
+              grupos.map((g) => (
+                <View key={g.id} style={s.grupo}>
+                  <Text style={s.grupoNombre}>{g.name}</Text>
+                  <LiveStandings
+                    groupId={g.id}
+                    currentUserId={userId}
+                    advanceCount={cabecera.avanzan}
+                  />
+                </View>
+              ))
+            )}
           </View>
         )}
 

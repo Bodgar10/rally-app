@@ -21,6 +21,7 @@ import { ActivityIndicator, View, Text } from 'react-native';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
+import { textoDeBalance } from '@/lib/expres-texto';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 interface Jugado {
@@ -29,6 +30,20 @@ interface Jugado {
   marcador: string | null;
   ganado: boolean;
   etapa: string;
+  /**
+   * ► UN SUMA 6 NO SE GANA NI SE PIERDE, Y AQUÍ SE DECÍA QUE SE PERDÍA.
+   *
+   *   `ganado` sale de `winner_pair_id`, que en un partido de grupo de exprés
+   *   es SIEMPRE null: el formato no tiene ganador. El resultado es que un
+   *   6-0 a favor salía marcado como "Perdido", en rojo, al jugador que
+   *   acababa de barrer.
+   *
+   *   Con `suma6` la fila deja de hablar de ganar: enseña el marcador y lo
+   *   que le hizo a la tabla, que es lo único que significa algo.
+   */
+  suma6: boolean;
+  /** El saldo de games: +2, 0, −6. Solo en suma 6. */
+  saldo: number | null;
 }
 
 const ETAPA: Record<string, string> = {
@@ -70,7 +85,7 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
   const { data, error } = await supabase
     .from('matches')
     .select(
-      `id, stage, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at,
+      `id, stage, status, formato, pair_a_id, pair_b_id, winner_pair_id, scheduled_at,
        match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`,
     )
     .eq('status', 'finished')
@@ -83,7 +98,8 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
   }
 
   const filas = (data ?? []) as unknown as Array<{
-    id: string; stage: string; pair_a_id: string | null; pair_b_id: string | null;
+    id: string; stage: string; formato: string | null;
+    pair_a_id: string | null; pair_b_id: string | null;
     winner_pair_id: string | null;
     match_sets: Parameters<typeof marcadorDe>[0];
   }>;
@@ -98,12 +114,23 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
     const soyA = !!r.pair_a_id && mios.has(r.pair_a_id);
     const rivalId = soyA ? r.pair_b_id : r.pair_a_id;
     const miPar = soyA ? r.pair_a_id : r.pair_b_id;
+    const suma6 = r.formato === 'suma_6';
+    // El set 1 es el único que hay en un suma 6, y sus games SON el marcador.
+    const set1 = (r.match_sets ?? []).find((x) => x.set_number === 1);
+    const saldo = suma6 && set1
+      ? (soyA ? set1.games_a - set1.games_b : set1.games_b - set1.games_a)
+      : null;
+
     return {
       id: r.id,
       rival: rivalId ? nombreDePareja(rivales.get(rivalId)) : '—',
       marcador: marcadorDe(r.match_sets ?? [], soyA),
-      ganado: !!r.winner_pair_id && r.winner_pair_id === miPar,
+      // En un suma 6 nunca hay ganador, así que `ganado` se queda en false y
+      // NO se pinta: la fila usa `suma6` para decidir qué enseña.
+      ganado: !suma6 && !!r.winner_pair_id && r.winner_pair_id === miPar,
       etapa: ETAPA[r.stage] ?? r.stage,
+      suma6,
+      saldo,
     };
   });
 }
@@ -167,7 +194,9 @@ export default function MisResultados({ pairIds }: { pairIds: string[] }) {
           <View
             style={{
               width: 3, alignSelf: 'stretch', borderRadius: 2,
-              backgroundColor: j.ganado ? color.live : color.lineSoft,
+              backgroundColor: j.suma6
+                ? ((j.saldo ?? 0) > 0 ? color.live : (j.saldo ?? 0) < 0 ? color.danger : color.lineSoft)
+                : j.ganado ? color.live : color.lineSoft,
             }}
           />
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -182,13 +211,23 @@ export default function MisResultados({ pairIds }: { pairIds: string[] }) {
             <Text
               style={{
                 fontFamily: font.display, fontSize: fontSize.body,
-                color: j.ganado ? color.goldBright : color.muted,
+                color: j.suma6
+                  ? ((j.saldo ?? 0) > 0 ? color.goldBright : color.text)
+                  : j.ganado ? color.goldBright : color.muted,
               }}
             >
               {j.marcador ?? '—'}
             </Text>
-            <Text style={{ fontFamily: font.body, fontSize: 10, color: j.ganado ? color.live : color.muted }}>
-              {j.ganado ? 'Ganado' : 'Perdido'}
+            <Text style={{
+              fontFamily: font.body,
+              fontSize: 10,
+              color: j.suma6
+                ? ((j.saldo ?? 0) > 0 ? color.live : (j.saldo ?? 0) < 0 ? color.danger : color.muted)
+                : j.ganado ? color.live : color.muted,
+            }}>
+              {j.suma6
+                ? (j.saldo === 0 ? 'No suma ni resta' : textoDeBalance(j.saldo ?? 0))
+                : j.ganado ? 'Ganado' : 'Perdido'}
             </Text>
           </View>
         </View>
