@@ -3,7 +3,8 @@ import { torneosParaTi, porQueSale, type TorneoListable } from '@/lib/torneos-pa
 function t(p: Partial<TorneoListable> & { id: string }): TorneoListable {
   return {
     nombre: p.id, inicio: '2026-10-01', fin: '2026-10-01',
-    ciudad: 'CDMX', tier: 'p2', modo: 'largo', divisiones: ['quinta'], cuota: 0,
+    ciudad: 'CDMX', sede: 'Padel District', tier: 'p2', modo: 'largo',
+    divisiones: ['quinta'], cuota: 0,
     ...p,
   };
 }

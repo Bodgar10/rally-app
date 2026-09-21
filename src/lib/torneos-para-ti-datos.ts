@@ -36,7 +36,7 @@ export async function cargarTorneosParaTi(
         .from('tournaments')
         .select(
           'id, name, start_date, end_date, status, registration_fee, tier, modo, '
-          + 'venues(city), categories(division, status)',
+          + 'venues(name, city), categories(division, status)',
         )
         .in('status', ABIERTOS)
         .order('start_date', { ascending: true }),
@@ -48,7 +48,7 @@ export async function cargarTorneosParaTi(
       id: string; name: string; start_date: string; end_date: string;
       registration_fee: number | string | null;
       tier: string | null; modo: string | null;
-      venues: { city: string } | null;
+      venues: { name: string; city: string } | null;
       categories: { division: string; status: string }[] | null;
     }>;
 
@@ -58,6 +58,7 @@ export async function cargarTorneosParaTi(
       inicio: f.start_date,
       fin: f.end_date,
       ciudad: f.venues?.city ?? null,
+      sede: f.venues?.name ?? null,
       tier: (f.tier as TierTorneo | null) ?? null,
       modo: f.modo,
       // Solo las categorías todavía ABIERTAS: una cerrada no es una a la que

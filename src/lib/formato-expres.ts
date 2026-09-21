@@ -112,3 +112,20 @@ export const RESUMEN_EXPRES =
 export const POR_QUE_NO_SE_ELIGE =
   'Un exprés no tiene tercer set en ninguna etapa ni partido por el 3.er lugar: '
   + 'son cuartos, semis y final. El formato queda fijado al crear el torneo.';
+
+/**
+ * La línea de la tarjeta "Formato" en el panel del organizador.
+ *
+ * ► LO QUE DECÍA ANTES ERA FALSO
+ *   La tarjeta usaba `resumenDeFormato`, que lee `tercer_set_formato`, y en un
+ *   exprés eso salía como "Tercer set: súper muerte a 10". En un exprés no hay
+ *   tercer set en ninguna etapa: los grupos van a 6 games sin ganador y el
+ *   cuadro a set de oro. El valor existe en la columna porque es NOT NULL y se
+ *   escribe al crear el torneo, no porque signifique algo.
+ *
+ *   Un panel que afirma una regla que no se va a jugar es peor que uno que no
+ *   dice nada: el organizador lo repite por el micrófono.
+ */
+export function resumenDeFormatoExpres(): string {
+  return `Grupos a ${GAMES_POR_PARTIDO} games · cuadro a set de oro`;
+}

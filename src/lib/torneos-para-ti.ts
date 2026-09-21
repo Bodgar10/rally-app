@@ -44,6 +44,9 @@ export interface TorneoListable {
   fin: string;
   /** La ciudad de la sede. Null si el torneo todavía no tiene sede. */
   ciudad: string | null;
+  /** El nombre del club. Va más grande que la ciudad en la portada: es lo
+   *  que alguien busca en el mapa. */
+  sede: string | null;
   tier: TierTorneo | null;
   /** 'expres' | 'largo' | null. Solo para la etiqueta. */
   modo: string | null;

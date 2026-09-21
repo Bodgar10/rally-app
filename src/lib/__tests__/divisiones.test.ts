@@ -1,5 +1,6 @@
 import {
   DIVISIONES, DIVISIONES_DESC, NOMBRE_DIVISION, ETIQUETA_DIVISION, escalonDe,
+  resumenDeDivisiones,
 } from '@/lib/divisiones';
 
 describe('el orden', () => {
@@ -63,5 +64,49 @@ describe('escalonDe', () => {
   it('algo que no es una división da -1, no 0', () => {
     expect(escalonDe('octava')).toBe(-1);
     expect(escalonDe('')).toBe(-1);
+  });
+});
+
+describe('resumenDeDivisiones', () => {
+  it('una sola', () => {
+    expect(resumenDeDivisiones(['quinta'])).toBe('5ª');
+  });
+
+  it('dos, con "y"', () => {
+    expect(resumenDeDivisiones(['tercera', 'quinta'])).toBe('3ª y 5ª');
+  });
+
+  // El caso real: un torneo de 3ª a 7ª.
+  it('tres o más consecutivas se dicen como rango, de la alta a la baja', () => {
+    expect(resumenDeDivisiones(['tercera', 'cuarta', 'quinta', 'sexta', 'septima']))
+      .toBe('3ª a 7ª');
+  });
+
+  it('el orden de entrada da igual', () => {
+    expect(resumenDeDivisiones(['septima', 'quinta', 'tercera', 'sexta', 'cuarta']))
+      .toBe('3ª a 7ª');
+  });
+
+  // Decir "3ª a 7ª" con un hueco mandaría al club a alguien de 4ª que no
+  // tiene dónde jugar.
+  it('con un hueco se enumeran, NO se dice rango', () => {
+    expect(resumenDeDivisiones(['tercera', 'quinta', 'septima'])).toBe('3ª, 5ª y 7ª');
+  });
+
+  it('las siete completas', () => {
+    expect(resumenDeDivisiones([...DIVISIONES])).toBe('1ª a 7ª');
+  });
+
+  it('repetidas no duplican', () => {
+    expect(resumenDeDivisiones(['quinta', 'quinta', 'cuarta'])).toBe('4ª y 5ª');
+  });
+
+  it('sin divisiones devuelve null, no una cadena vacía', () => {
+    expect(resumenDeDivisiones([])).toBeNull();
+  });
+
+  it('un valor que no es división se ignora en vez de romper', () => {
+    expect(resumenDeDivisiones(['quinta', 'octava'])).toBe('5ª');
+    expect(resumenDeDivisiones(['octava'])).toBeNull();
   });
 });

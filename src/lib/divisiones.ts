@@ -88,3 +88,40 @@ void COMPLETA;
 export function escalonDe(division: Division | string): number {
   return DIVISIONES.indexOf(division as Division);
 }
+
+/**
+ * Las divisiones de un torneo, dichas como se anuncian en un cartel.
+ *
+ *   ['tercera','cuarta','quinta','sexta','septima'] → "3ª a 7ª"
+ *   ['quinta']                                     → "5ª"
+ *   ['tercera','quinta']                           → "3ª y 5ª"
+ *   ['tercera','quinta','septima']                 → "3ª, 5ª y 7ª"
+ *
+ * ► DE LA MÁS ALTA A LA MÁS BAJA, que es como lo dice la gente ("de 3ª hasta
+ *   7ª") aunque el enum vaya al revés. La escalera interna sube; un cartel
+ *   baja.
+ *
+ * ► EL RANGO SOLO SI SON CONSECUTIVAS. "3ª a 7ª" promete que se juegan las
+ *   cinco. Con un hueco —3ª, 5ª y 7ª— decir "3ª a 7ª" mandaría al club a
+ *   alguien de 4ª que no tiene dónde jugar, así que se enumeran.
+ *
+ * Devuelve null sin divisiones: la pantalla se calla en vez de pintar un
+ * renglón vacío bajo el nombre del torneo.
+ */
+export function resumenDeDivisiones(divisiones: readonly string[]): string | null {
+  const escalones = [...new Set(divisiones)]
+    .map(escalonDe)
+    .filter((n) => n >= 0)
+    .sort((a, b) => b - a); // de la más alta a la más baja
+
+  if (escalones.length === 0) return null;
+
+  const etiquetas = escalones.map((n) => ETIQUETA_DIVISION[DIVISIONES[n]]);
+  if (etiquetas.length === 1) return etiquetas[0];
+  if (etiquetas.length === 2) return `${etiquetas[0]} y ${etiquetas[1]}`;
+
+  const consecutivas = escalones.every((n, i) => i === 0 || n === escalones[i - 1] - 1);
+  if (consecutivas) return `${etiquetas[0]} a ${etiquetas[etiquetas.length - 1]}`;
+
+  return `${etiquetas.slice(0, -1).join(', ')} y ${etiquetas[etiquetas.length - 1]}`;
+}

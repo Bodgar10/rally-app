@@ -183,7 +183,23 @@ export default function InscripcionScreen() {
       setMiId(user?.id);
 
       if (t) setTournament(t as Tournament);
-      if (cats) setCategories(cats as Category[]);
+      const lista = (cats ?? []) as Category[];
+      if (cats) setCategories(lista);
+
+      /**
+       * ► CON UNA SOLA CATEGORÍA SE ELIGE SOLA.
+       *
+       *   EL BUG QUE ARREGLA: un exprés tiene UNA categoría por definición.
+       *   La pantalla la pintaba igual, esperando un toque que nadie da —
+       *   cuando no hay nada que elegir, la tarjeta no se lee como una opción
+       *   sino como un dato. Quien llegaba abajo con su pareja ya puesta se
+       *   encontraba "Confirmar inscripción" apagado y sin nada que dijera
+       *   por qué: el paso 1 parecía resuelto porque solo había una respuesta.
+       *
+       *   Elegir por él no es adivinar: es que no hay otra opción.
+       */
+      if (lista.length === 1) setSelectedCategory(lista[0]);
+
       setLoadingData(false);
 
       // Después de pintar: la retícula y su ocupación no bloquean los dos
@@ -273,6 +289,19 @@ export default function InscripcionScreen() {
   /** El horario elegido, para el resumen. */
   const bloqueElegido = bloques?.bloques.find((b) => b.id === bloqueId) ?? null;
 
+
+  /**
+   * Qué le falta para poder confirmar, o null si no le falta nada.
+   *
+   * Gemelo de la condición del `disabled` del botón. Se dice en el orden de
+   * los pasos de la pantalla, y solo lo primero que falte: una lista de tres
+   * cosas pendientes agobia más de lo que ayuda cuando basta con la siguiente.
+   */
+  const loQueFalta: string | null =
+    !selectedCategory ? 'Elige tu categoría para continuar.'
+    : !parejaLista ? 'Falta tu pareja: búscala por su nombre o créale una cuenta.'
+    : debeElegirHorario && !bloqueId ? 'Falta elegir el horario en el que vas a jugar.'
+    : null;
 
   // ─── Inscribir ───────────────────────────────────────────────────────
 
@@ -837,6 +866,14 @@ export default function InscripcionScreen() {
             disabled={!selectedCategory || !parejaLista || submitting || (debeElegirHorario && !bloqueId)}
             onPress={handleInscribir}
           />
+
+          {/* ► UN BOTÓN APAGADO QUE NO DICE POR QUÉ ES UNA PUERTA CERRADA SIN
+              CARTEL. Quien llega aquí ya hizo el trabajo; si algo falta, lo
+              mínimo es decirle qué, en vez de dejarlo mirando un botón gris
+              y adivinando cuál de los tres pasos no cuenta. */}
+          {loQueFalta && !submitting && (
+            <Text style={s.loQueFalta}>{loQueFalta}</Text>
+          )}
         </View>
 
       </ScrollView>
@@ -856,6 +893,11 @@ const s = StyleSheet.create({
   title:    { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[2] },
 
   content: { paddingHorizontal: space[4.5], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
+
+  loQueFalta: {
+    fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne,
+    textAlign: 'center', marginTop: space[2], lineHeight: 18,
+  },
 
   emptyText: { fontFamily: font.body, fontSize: fontSize.body, color: color.muted, textAlign: 'center' },
 

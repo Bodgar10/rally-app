@@ -39,6 +39,7 @@ import TarjetaAjuste              from '@/components/organizer/TarjetaAjuste';
 import ChecklistApertura, { type ItemChecklist } from '@/components/organizer/ChecklistApertura';
 import { formatearRango }     from '@/lib/fechas';
 import { resumenDeFormato, type FormatoTercerSet } from '@/lib/formato-torneo';
+import { resumenDeFormatoExpres } from '@/lib/formato-expres';
 import { resumenDeTier }      from '@/lib/tier-torneo';
 import { generarBloques }     from '@/lib/engine/schedule/bloques';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
@@ -353,6 +354,8 @@ export default function OrgTournamentScreen() {
   // Default true: es lo que hacían todos los torneos antes de la migración 052.
   // `=== true`: lo desconocido se lee apagado, que es la regla del formato.
   const tercerLugar     = (tournament as { tercer_lugar?: boolean | null }).tercer_lugar === true;
+  /** Un exprés no tiene siembra, ni repesca, ni bloques horarios. */
+  const esExpres        = tournament.modo === 'expres';
 
   /** "Vie, Sáb y Dom · 34 h" o "Sin definir". */
   const resumenHorarios = (() => {
@@ -521,38 +524,55 @@ export default function OrgTournamentScreen() {
           <TarjetaAjuste
             icon="flag"
             title="Formato"
-            value={resumenDeFormato(
-              tournament.tercer_set_formato, tournament.tercer_set_puntos, tercerLugar,
-            )}
+            value={
+              esExpres
+                ? resumenDeFormatoExpres()
+                : resumenDeFormato(
+                    tournament.tercer_set_formato, tournament.tercer_set_puntos, tercerLugar,
+                  )
+            }
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}
           />
-          {/* El vistazo que no existía: cómo va cada categoría y cuáles se
-              pueden definir ya. El detalle vive en su pantalla; aquí solo el
-              número, que es la parte de vistazo. */}
-          <TarjetaAjuste
-            icon="check"
-            title="Definir enfrentamientos"
-            value={resumenSiembra}
-            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sembrar`)}
-          />
-          {/* La otra palanca del tamaño del último día, y la que faltaba: los
-              clasificados solo se podían tocar ANTES de cerrar inscripciones,
-              justo antes de que se vea el problema que resuelven. */}
-          <TarjetaAjuste
-            icon="users"
-            title="Cuántos clasifican"
-            value="Por grupo y de repesca"
-            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/clasificados`)}
-          />
-          {/* Va pegada a Canchas y Horarios porque es su consecuencia: aquí se
-              ve si lo capturado alcanza para la gente que se está inscribiendo. */}
-          <TarjetaAjuste
-            icon="grid"
-            title="Horarios de la fase de grupos"
-            value={resumenBloques}
-            iconColor={bloquesApretados || !capacidadBloques ? color.alive : undefined}
-            onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/bloques`)}
-          />
+          {/* ► LAS TRES DE ABAJO NO EXISTEN EN UN EXPRÉS, Y SALÍAN IGUAL.
+              · Definir enfrentamientos — un exprés no siembra al cerrar
+                inscripciones: sortea, y eso vive en su propia tarjeta.
+              · Cuántos clasifican — son 4 por grupo, fijo. No hay repesca.
+              · Horarios de la fase de grupos — nadie elige franja: el
+                calendario entero sale del sorteo.
+              Una tarjeta que lleva a una pantalla que no aplica no es solo
+              ruido: el organizador entra, no entiende qué le piden, y se queda
+              con la duda de si le falta un paso. */}
+          {!esExpres && (
+            <>
+              {/* El vistazo que no existía: cómo va cada categoría y cuáles se
+                  pueden definir ya. El detalle vive en su pantalla; aquí solo el
+                  número, que es la parte de vistazo. */}
+              <TarjetaAjuste
+                icon="check"
+                title="Definir enfrentamientos"
+                value={resumenSiembra}
+                onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/sembrar`)}
+              />
+              {/* La otra palanca del tamaño del último día, y la que faltaba: los
+                  clasificados solo se podían tocar ANTES de cerrar inscripciones,
+                  justo antes de que se vea el problema que resuelven. */}
+              <TarjetaAjuste
+                icon="users"
+                title="Cuántos clasifican"
+                value="Por grupo y de repesca"
+                onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/clasificados`)}
+              />
+              {/* Va pegada a Canchas y Horarios porque es su consecuencia: aquí se
+                  ve si lo capturado alcanza para la gente que se está inscribiendo. */}
+              <TarjetaAjuste
+                icon="grid"
+                title="Horarios de la fase de grupos"
+                value={resumenBloques}
+                iconColor={bloquesApretados || !capacidadBloques ? color.alive : undefined}
+                onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/bloques`)}
+              />
+            </>
+          )}
         </View>
 
         {/* ── Durante el torneo ────────────────────────────────────────
