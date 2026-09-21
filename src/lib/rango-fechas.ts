@@ -108,3 +108,25 @@ export function posicionEnRango(iso: string, r: RangoSeleccion): PosicionEnRango
   if (vsInicio > 0 && vsFin < 0) return 'intermedio';
   return 'fuera';
 }
+
+// ── UN SOLO DÍA ─────────────────────────────────────────────────────────────
+
+/**
+ * El toque en un calendario que solo admite UN día.
+ *
+ * ► POR QUÉ NO SE REUSA `tocarDia`
+ *   `tocarDia` es una máquina de rango: el primer toque fija el inicio y el
+ *   segundo el fin. En un exprés eso obligaba a tocar DOS VECES el mismo día
+ *   para que la pantalla se diera por satisfecha, y nadie entiende por qué el
+ *   calendario le pide dos toques para elegir un domingo.
+ *
+ *   Un toque, el día entero. El rango se devuelve cerrado —inicio y fin
+ *   iguales— porque `start_date` y `end_date` son NOT NULL y porque
+ *   `posicionEnRango` ya sabe pintar eso como 'unico': un círculo suelto, sin
+ *   barra.
+ */
+export function tocarDiaUnico(_estado: RangoSeleccion, isoTocado: string): RangoSeleccion {
+  const tocado = parseFechaISO(isoTocado);
+  if (!tocado) return _estado;
+  return { inicio: isoTocado, fin: isoTocado };
+}

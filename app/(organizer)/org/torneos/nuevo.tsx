@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, ScrollView, Pressable,
+  View, Text, TextInput, ScrollView,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -18,7 +18,8 @@ import { Button, Card, SectionLabel }           from '@/components/ui';
 import VenuePicker, { type Venue }              from '@/components/organizer/VenuePicker';
 import CalendarioRango                          from '@/components/ui/CalendarioRango';
 import { rangoCompleto, type RangoSeleccion }   from '@/lib/rango-fechas';
-import { TIER_OPCIONES, type TierTorneo }       from '@/lib/tier-torneo';
+import { type TierTorneo }                      from '@/lib/tier-torneo';
+import SelectorDeTier                           from '@/components/organizer/SelectorDeTier';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -166,21 +167,7 @@ export default function NuevoTorneoScreen() {
           alcanza, esa categoría reparte puntos del tier de abajo — el resto
           del torneo no se ve afectado.
         </Text>
-        <View style={s.tierOpciones}>
-          {TIER_OPCIONES.map((o) => (
-            <Pressable
-              key={o.valor}
-              onPress={() => setTier(o.valor)}
-              style={[s.tierOpcion, tier === o.valor && s.tierOpcionElegida]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: tier === o.valor }}
-              accessibilityLabel={o.titulo}
-            >
-              <Text style={[s.tierTitulo, tier === o.valor && s.tierTituloElegido]}>{o.titulo}</Text>
-              <Text style={s.tierSub}>{o.sub}</Text>
-            </Pressable>
-          ))}
-        </View>
+        <SelectorDeTier valor={tier} onChange={setTier} />
 
         {/* Cuota base */}
         <SectionLabel title="Cuota de inscripción (MXN por pareja)" />
@@ -233,12 +220,6 @@ const s = StyleSheet.create({
 
 
   tierAyuda: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
-  tierOpciones:  { gap: space[2] },
-  tierOpcion:    { borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[1] },
-  tierOpcionElegida: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
-  tierTitulo:        { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  tierTituloElegido: { color: color.gold },
-  tierSub:           { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
 
   errorText: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
   btns:      { gap: space[2] },

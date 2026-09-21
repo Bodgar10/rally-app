@@ -18,12 +18,24 @@
  *   primeros torneos de un jugador son casi todas. Insistir aquí no es
  *   machacar: es aprovechar una ventana que se cierra sola.
  *
- *   Por eso `saltadas` se reinicia al volver a la pantalla (useFocusEffect) en
- *   vez de guardarse. Dentro de la MISMA sesión la ✕ calla de verdad —volver a
- *   preguntar lo que alguien acaba de rechazar enseña a ignorar la tarjeta
- *   entera, incluida la siguiente— pero en la próxima apertura se vuelve a
- *   ofrecer. Y en cuanto contesta, no sale nunca más: la pregunta desaparece
- *   porque el dato ya está.
+ *   Por eso lo cerrado no se guarda en la base: se reinicia solo. Dentro de la
+ *   MISMA sesión la ✕ calla de verdad —volver a preguntar lo que alguien acaba
+ *   de rechazar enseña a ignorar la tarjeta entera, incluida la siguiente— pero
+ *   en la próxima apertura se vuelve a ofrecer. Y en cuanto contesta, no sale
+ *   nunca más: la pregunta desaparece porque el dato ya está.
+ *
+ * ► "APERTURA" NO ES "VOLVER AL DASHBOARD", Y ASÍ ESTABA
+ *   Esto colgaba de `useFocusEffect`, que dispara CADA VEZ que la pantalla
+ *   recupera el foco: entrar a Torneos y volver ya contaba como apertura
+ *   nueva. Quien cerraba la tarjeta se la encontraba otra vez tres toques
+ *   después, y la app parecía no estar guardando nada.
+ *
+ *   La sesión ahora vive en un módulo —`cerradaEnEstaSesion`, fuera del
+ *   componente— que solo se limpia cuando la app arranca de verdad (el módulo
+ *   se vuelve a evaluar) o cuando vuelve de segundo plano tras un buen rato.
+ *   Ese "buen rato" es `MINUTOS_PARA_VOLVER_A_PREGUNTAR`: mirar una
+ *   notificación y volver no es una apertura nueva; dejar el teléfono en el
+ *   bolsillo entre partido y partido, sí.
  *
  * Y CADA PREGUNTA DICE QUÉ ENCIENDE
  *   "Para buscarte pareja del lado contrario. Tus rivales lo verán, igual que
@@ -32,12 +44,28 @@
  *   alguien no vuelva a contestar nada.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { guardarRespuesta, leerPerfilDeJuego } from '@/lib/lado-y-mano-datos';
 import { siguientePregunta, type Pregunta, type PreguntaId } from '@/lib/lado-y-mano';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
+
+/**
+ * Cuánto tiene que estar la app en segundo plano para que volver cuente como
+ * una apertura nueva. Ver la cabecera.
+ */
+const MINUTOS_PARA_VOLVER_A_PREGUNTAR = 30;
+
+/**
+ * VIVE FUERA DEL COMPONENTE A PROPÓSITO.
+ *
+ * Dentro, se reiniciaba cada vez que el dashboard se montaba —o sea, cada vez
+ * que se volvía a él— y la tarjeta cerrada reaparecía al momento. Aquí dura lo
+ * que dura la app.
+ */
+let cerradaEnEstaSesion = false;
+/** Cuándo se fue la app a segundo plano, para medir la ausencia. */
+let seFueAlFondoEn: number | null = null;
 
 export function PreguntaDelPerfil({ userId }: { userId: string }) {
   const [pregunta, setPregunta] = useState<Pregunta | null>(null);
@@ -59,18 +87,44 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
    *   cómo se enseña a ignorar la tarjeta para siempre, incluidas las que sí
    *   habría contestado. Se calla entera hasta la próxima apertura.
    */
-  const [cerrada, setCerrada] = useState(false);
+  const [cerrada, setCerrada] = useState(cerradaEnEstaSesion);
   const [guardando, setGuardando] = useState(false);
+  /**
+   * ► SE DICE QUE SE GUARDÓ, Y ANTES NO SE DECÍA.
+   *
+   *   Al contestar, la tarjeta cambiaba de pregunta sin más. Desde fuera eso
+   *   es indistinguible de "no se guardó y me está volviendo a preguntar": la
+   *   primera reacción de quien lo probó fue justo esa duda. Un acuse de medio
+   *   segundo con la respuesta escrita basta para que no haya duda.
+   */
+  const [guardado, setGuardado] = useState<string | null>(null);
 
-  // Al volver a la pantalla se empieza de cero: la tarjeta cerrada reaparece y
-  // vuelve a ofrecerse lo que quede. RALLY se abre los días de torneo, así que
-  // cada apertura es una de las pocas ocasiones que hay de preguntar.
-  useFocusEffect(
-    useCallback(() => {
-      setCerrada(false);
-      setContestadas([]);
-    }, []),
-  );
+  /**
+   * La app vuelve de segundo plano. Si estuvo fuera lo suficiente, cuenta como
+   * una apertura nueva y la tarjeta se vuelve a ofrecer: RALLY se abre los días
+   * de torneo y cada apertura es una de las pocas ocasiones que hay de
+   * preguntar. Si fue un vistazo a una notificación, no.
+   */
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (estado) => {
+      if (estado === 'active') {
+        const fuera = seFueAlFondoEn === null ? 0 : Date.now() - seFueAlFondoEn;
+        seFueAlFondoEn = null;
+        if (fuera >= MINUTOS_PARA_VOLVER_A_PREGUNTAR * 60_000) {
+          cerradaEnEstaSesion = false;
+          setCerrada(false);
+        }
+      } else if (seFueAlFondoEn === null) {
+        seFueAlFondoEn = Date.now();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  function cerrar() {
+    cerradaEnEstaSesion = true;
+    setCerrada(true);
+  }
 
   useEffect(() => {
     let vivo = true;
@@ -80,23 +134,45 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
     return () => { vivo = false; };
   }, [userId, contestadas]);
 
-  if (!pregunta || cerrada) return null;
+  // El acuse se apaga solo. Si mientras tanto la tarjeta se desmonta, el
+  // timeout se limpia y no hay set sobre un componente muerto.
+  useEffect(() => {
+    if (guardado === null) return;
+    const id = setTimeout(() => setGuardado(null), 1400);
+    return () => clearTimeout(id);
+  }, [guardado]);
 
-  async function responder(valor: string) {
+  if (cerrada) return null;
+  // El acuse sobrevive a que ya no queden preguntas: si no, la última
+  // respuesta se guardaría y la tarjeta desaparecería sin decir nada.
+  if (!pregunta && guardado === null) return null;
+
+  async function responder(valor: string, etiqueta: string) {
     setGuardando(true);
     const ok = await guardarRespuesta(userId, pregunta!.id, valor);
     setGuardando(false);
     // Si no se pudo guardar, la pregunta se queda: volverá a salir sola. No se
     // avisa — no estaba haciendo una tarea, estaba contestando de paso.
-    if (ok) setContestadas((prev) => [...prev, pregunta!.id]);
+    if (ok) {
+      setGuardado(etiqueta);
+      setContestadas((prev) => [...prev, pregunta!.id]);
+    }
+  }
+
+  if (guardado !== null) {
+    return (
+      <View style={s.caja}>
+        <Text style={s.acuse}>Guardado: {guardado} ✓</Text>
+      </View>
+    );
   }
 
   return (
     <View style={s.caja}>
       <View style={s.cabecera}>
-        <Text style={s.titulo}>{pregunta.titulo}</Text>
+        <Text style={s.titulo}>{pregunta!.titulo}</Text>
         <Pressable
-          onPress={() => setCerrada(true)}
+          onPress={cerrar}
           accessibilityRole="button"
           accessibilityLabel="Ahora no"
           hitSlop={12}
@@ -106,10 +182,10 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
       </View>
 
       <View style={s.opciones}>
-        {pregunta.opciones.map((o) => (
+        {pregunta!.opciones.map((o) => (
           <Pressable
             key={o.valor}
-            onPress={() => void responder(o.valor)}
+            onPress={() => void responder(o.valor, o.etiqueta)}
             disabled={guardando}
             accessibilityRole="button"
             style={[s.boton, guardando && s.botonApagado]}
@@ -119,7 +195,7 @@ export function PreguntaDelPerfil({ userId }: { userId: string }) {
         ))}
       </View>
 
-      <Text style={s.porque}>{pregunta.porque}</Text>
+      <Text style={s.porque}>{pregunta!.porque}</Text>
     </View>
   );
 }
@@ -154,6 +230,8 @@ const s = StyleSheet.create({
   botonTexto: { color: color.goldBright, fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600' },
 
   porque: { color: color.muted, fontFamily: font.body, fontSize: fontSize.minAbsolute, lineHeight: 17 },
+
+  acuse: { color: color.goldBright, fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600' },
 });
 
 export default PreguntaDelPerfil;

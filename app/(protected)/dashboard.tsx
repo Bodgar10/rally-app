@@ -55,6 +55,7 @@ import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
 import ProximoRival from '@/components/player/ProximoRival';
 import PreguntaDelPerfil from '@/components/player/PreguntaDelPerfil';
+import TorneosParaTi from '@/components/player/TorneosParaTi';
 import MisResultados from '@/components/player/MisResultados';
 import YaEstasEnLaSiguiente from '@/components/player/YaEstasEnLaSiguiente';
 import EresCampeon from '@/components/player/EresCampeon';
@@ -570,25 +571,20 @@ export default function DashboardScreen() {
         {!juezArriba && seccionJuez}
         {!organizadorArriba && seccionOrganizador}
 
-        {/* ── Acceso rápido a torneos ──────────────────────────── */}
-        <View style={styles.sectionLabel}>
-          <Text style={styles.sectionLabelText}>TORNEOS</Text>
-        </View>
+        {/* ── LOS TORNEOS, DE VERDAD ────────────────────────────
+             Aquí había una tarjeta que decía "Torneos disponibles ·
+             Inscríbete y compite" y llevaba a otra pantalla. Un enlace a una
+             lista no es una lista: para saber si hay algo para él, el jugador
+             tenía que entrar, leerlos todos, mirar la ciudad de cada uno y
+             comprobar si alguna categoría era la suya.
+
+             Ahora salen aquí, ordenados por lo que decide si puede ir: su
+             zona, su división y el tier, en ese orden. Ver
+             `@/lib/torneos-para-ti`, que lo explica y tiene tests. */}
+        {user && <TorneosParaTi userId={user.id} />}
 
         <Pressable
-          style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85 }]}
-          onPress={() => router.push('/(protected)/torneos')}
-          accessibilityRole="button"
-        >
-          <View style={styles.quickCardRow}>
-            <Text style={styles.quickCardTitle}>Torneos disponibles</Text>
-            <Text style={styles.quickCardChevron}>›</Text>
-          </View>
-          <Text style={styles.quickCardSub}>Inscríbete y compite</Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85 }]}
+          style={({ pressed }) => [styles.quickCard, { marginTop: space[4] }, pressed && { opacity: 0.85 }]}
           onPress={() => router.push('/(protected)/ranking')}
           accessibilityRole="button"
         >

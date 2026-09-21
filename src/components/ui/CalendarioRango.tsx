@@ -28,7 +28,7 @@ import {
   INICIALES_SEMANA,
 } from '@/lib/fechas';
 import {
-  tocarDia, posicionEnRango, type RangoSeleccion,
+  tocarDia, tocarDiaUnico, posicionEnRango, type RangoSeleccion,
 } from '@/lib/rango-fechas';
 import { color, font, fontSize, gradient, radius, space, touchTarget } from '@/lib/design-tokens';
 
@@ -42,9 +42,27 @@ interface Props {
    * jugado.
    */
   bloquearPasado?: boolean;
+  /**
+   * UN SOLO DÍA: un toque lo elige entero, sin segundo toque.
+   *
+   * ► EL BUG QUE ARREGLA
+   *   Un torneo exprés es una tarde, pero usaba el calendario de rango tal
+   *   cual: el primer toque fijaba el inicio y hasta el SEGUNDO toque —en el
+   *   mismo día— la pantalla no se daba por satisfecha. Nadie entiende por qué
+   *   un calendario le pide dos toques para elegir un domingo; quien lo tocaba
+   *   una vez veía el círculo dorado, daba el día por elegido y se encontraba
+   *   con que faltaba "el día".
+   *
+   *   Con esto el toque cierra el rango en sí mismo (inicio = fin), que es
+   *   exactamente lo que se va a guardar, y el resumen de abajo enseña una
+   *   sola tarjeta en vez de un Inicio y un Fin que dicen lo mismo.
+   */
+  unDia?: boolean;
 }
 
-export default function CalendarioRango({ valor, onChange, bloquearPasado = false }: Props) {
+export default function CalendarioRango({
+  valor, onChange, bloquearPasado = false, unDia = false,
+}: Props) {
   // El mes visible arranca en el inicio ya elegido, para que al reabrir el
   // calendario se vea el rango en vez de tener que navegar hasta él.
   const [visible, setVisible] = useState(() => {
@@ -114,7 +132,7 @@ export default function CalendarioRango({ valor, onChange, bloquearPasado = fals
                 key={iso}
                 style={s.celda}
                 disabled={inerte}
-                onPress={() => onChange(tocarDia(valor, iso))}
+                onPress={() => onChange((unDia ? tocarDiaUnico : tocarDia)(valor, iso))}
                 accessibilityRole="button"
                 accessibilityLabel={formatearConDia(iso)}
                 accessibilityState={{ disabled: inerte, selected: esExtremo }}
@@ -151,22 +169,35 @@ export default function CalendarioRango({ valor, onChange, bloquearPasado = fals
         </View>
       </View>
 
-      {/* ── Resumen Inicio / Fin ─────────────────────────────── */}
-      <View style={s.resumen}>
-        <View style={[s.resumenTarjeta, valor.inicio && s.resumenTarjetaLlena]}>
-          <Text style={s.resumenLabel}>Inicio</Text>
-          <Text style={[s.resumenValor, !valor.inicio && s.resumenVacio]}>
-            {valor.inicio ? formatearConDia(valor.inicio) : 'Elige un día'}
-          </Text>
+      {/* ── Resumen ──────────────────────────────────────────
+          Con `unDia` es UNA tarjeta: un Inicio y un Fin con la misma fecha no
+          informan de nada y hacen dudar de si falta algo por elegir. */}
+      {unDia ? (
+        <View style={s.resumen}>
+          <View style={[s.resumenTarjeta, valor.inicio && s.resumenTarjetaLlena]}>
+            <Text style={s.resumenLabel}>Día</Text>
+            <Text style={[s.resumenValor, !valor.inicio && s.resumenVacio]}>
+              {valor.inicio ? formatearConDia(valor.inicio) : 'Elige un día'}
+            </Text>
+          </View>
         </View>
+      ) : (
+        <View style={s.resumen}>
+          <View style={[s.resumenTarjeta, valor.inicio && s.resumenTarjetaLlena]}>
+            <Text style={s.resumenLabel}>Inicio</Text>
+            <Text style={[s.resumenValor, !valor.inicio && s.resumenVacio]}>
+              {valor.inicio ? formatearConDia(valor.inicio) : 'Elige un día'}
+            </Text>
+          </View>
 
-        <View style={[s.resumenTarjeta, valor.fin && s.resumenTarjetaLlena]}>
-          <Text style={s.resumenLabel}>Fin</Text>
-          <Text style={[s.resumenValor, !valor.fin && s.resumenVacio]}>
-            {valor.fin ? formatearConDia(valor.fin) : 'Elige un día'}
-          </Text>
+          <View style={[s.resumenTarjeta, valor.fin && s.resumenTarjetaLlena]}>
+            <Text style={s.resumenLabel}>Fin</Text>
+            <Text style={[s.resumenValor, !valor.fin && s.resumenVacio]}>
+              {valor.fin ? formatearConDia(valor.fin) : 'Elige un día'}
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
     </View>
   );
 }

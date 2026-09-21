@@ -38,7 +38,7 @@ import BotonVolver from '@/components/ui/BotonVolver';
 import VenuePicker, { type Venue } from '@/components/organizer/VenuePicker';
 import CalendarioRango from '@/components/ui/CalendarioRango';
 import { type RangoSeleccion } from '@/lib/rango-fechas';
-import { TIER_OPCIONES, type TierTorneo } from '@/lib/tier-torneo';
+import { TIER_EXPRES, opcionDeTier } from '@/lib/tier-torneo';
 import CrearExpres, { type ConfigExpres } from '@/components/expres/CrearExpres';
 import type { PlanExpres } from '@/lib/engine/expres';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
@@ -76,7 +76,6 @@ export default function NuevoExpresScreen() {
   const [rango, setRango] = useState<RangoSeleccion>({ inicio: null, fin: null });
   const [division, setDivision] = useState<Division | null>(null);
   const [genero, setGenero] = useState<Genero | null>(null);
-  const [tier, setTier] = useState<TierTorneo | null>(null);
   const [cuota, setCuota] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -93,8 +92,15 @@ export default function NuevoExpresScreen() {
     })();
   }, []);
 
-  /** Un exprés es UN día: se toma el inicio del calendario y se ignora el fin. */
+  /**
+   * Un exprés es UN día. El calendario va en modo `unDia`, así que el toque ya
+   * devuelve inicio y fin iguales; se lee el inicio porque es el que existe
+   * siempre.
+   */
   const dia = rango.inicio;
+
+  /** El tier no se pregunta: ver TIER_EXPRES. Se pinta para que se sepa. */
+  const tierExpres = opcionDeTier(TIER_EXPRES);
 
   const faltan = useMemo(() => {
     const f: string[] = [];
@@ -102,10 +108,9 @@ export default function NuevoExpresScreen() {
     if (!dia) f.push('el día');
     if (!division) f.push('la división');
     if (!genero) f.push('la rama');
-    if (!tier) f.push('el tier');
     if (!organizerId) f.push('tu organizador');
     return f;
-  }, [nombre, dia, division, genero, tier, organizerId]);
+  }, [nombre, dia, division, genero, organizerId]);
 
   async function crear(cfg: ConfigExpres, _plan: PlanExpres) {
     if (faltan.length > 0) {
@@ -124,7 +129,7 @@ export default function NuevoExpresScreen() {
         end_date: dia!,
         registration_fee: parseFloat(cuota) || 0,
         status: 'draft',
-        tier: tier!,
+        tier: TIER_EXPRES,
         modo: 'expres',
         courts: cfg.canchas,
         // El de los partidos de GRUPO. El resto de etapas vive en expres_etapa;
@@ -212,8 +217,8 @@ export default function NuevoExpresScreen() {
           />
 
           <Text style={s.etiqueta}>Día</Text>
-          <Text style={s.pista}>Un exprés es una tarde: se toma el primer día que marques.</Text>
-          <CalendarioRango valor={rango} onChange={setRango} bloquearPasado />
+          <Text style={s.pista}>Un exprés es una tarde. Toca el día y ya está.</Text>
+          <CalendarioRango valor={rango} onChange={setRango} bloquearPasado unDia />
 
           <Text style={s.etiqueta}>Sede</Text>
           <VenuePicker
@@ -266,18 +271,29 @@ export default function NuevoExpresScreen() {
           </View>
         </Card>
 
+        {/* ── PUNTOS DE RANKING ────────────────────────────────────
+            NO SE ELIGE, Y ESO ES LO CORRECTO. Un Major pide 3+ días y 24
+            parejas por categoría; un P1, dos días y 12. Ninguno cabe en una
+            tarde, así que ofrecerlos aquí era ofrecer dos respuestas
+            equivocadas — y elegir mal no lo paga el organizador: reparte el
+            doble de puntos de los que tocan y contamina la temporada de todos
+            los que jugaron. Ver TIER_EXPRES. */}
         <SectionLabel title="Puntos de ranking" />
         <Card>
-          {TIER_OPCIONES.map((o) => (
-            <Pressable
-              key={o.valor}
-              onPress={() => setTier(o.valor)}
-              style={[s.tier, tier === o.valor && s.tierOn]}
-            >
-              <Text style={[s.tierTitulo, tier === o.valor && s.tierTituloOn]}>{o.titulo}</Text>
-              <Text style={s.tierSub}>{o.sub}</Text>
-            </Pressable>
-          ))}
+          <View style={s.tierFila}>
+            <View style={s.tierTextos}>
+              <Text style={s.tierTitulo}>{tierExpres.titulo}</Text>
+              <Text style={s.tierSub}>{tierExpres.dias} · {tierExpres.sub}</Text>
+            </View>
+            <View style={s.tierMulti}>
+              <Text style={s.tierMultiValor}>{tierExpres.multiplicador}</Text>
+              <Text style={s.tierMultiPie}>puntos</Text>
+            </View>
+          </View>
+          <Text style={s.pista}>
+            Un exprés es siempre P2: dura una tarde. Major y P1 piden varios
+            días y un mínimo de parejas que no caben aquí.
+          </Text>
         </Card>
 
         {faltan.length > 0 && (
@@ -330,14 +346,16 @@ const s = StyleSheet.create({
   chipTexto: { color: color.text, fontFamily: font.body, fontSize: fontSize.body },
   chipTextoOn: { color: color.goldBright, fontWeight: '600' },
 
-  tier: {
-    gap: 2, padding: space[3], borderRadius: radius.sm, borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)', marginTop: space[2],
+  tierFila: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    paddingVertical: space[2], marginBottom: space[1],
   },
-  tierOn: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
-  tierTitulo: { color: color.text, fontFamily: font.display, fontSize: fontSize.cardName },
-  tierTituloOn: { color: color.goldBright },
-  tierSub: { color: color.muted, fontFamily: font.body, fontSize: fontSize.minAbsolute },
+  tierTextos: { flex: 1, gap: 2 },
+  tierTitulo: { color: color.goldBright, fontFamily: font.display, fontSize: fontSize.h1Inline },
+  tierSub: { color: color.muted, fontFamily: font.body, fontSize: fontSize.minAbsolute, lineHeight: 16 },
+  tierMulti: { alignItems: 'flex-end' },
+  tierMultiValor: { color: color.champagne, fontFamily: font.display, fontSize: fontSize.metric },
+  tierMultiPie: { color: color.muted, fontFamily: font.body, fontSize: fontSize.minAbsolute },
 
   aviso: {
     padding: space[3], borderRadius: radius.sm, backgroundColor: 'rgba(230,180,80,0.10)',

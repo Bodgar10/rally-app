@@ -9,8 +9,20 @@
  *   de qué lado juega nadie ni si son del mismo nivel.
  *
  * QUÉ CUENTA COMO COMPATIBLE
- *   Del lado contrario —dos de drive no son pareja— y de nivel parecido. Las
- *   dos condiciones las aplica `buscar_pareja` en la base; aquí solo se pinta.
+ *   Del lado contrario —dos de drive no son pareja—, de nivel parecido y, en
+ *   lo posible, de tu zona. Las tres las aplica `buscar_pareja` en la base;
+ *   aquí solo se pinta.
+ *
+ * ► LA ZONA ORDENA, NO EXCLUYE
+ *   Una pareja perfecta en nivel y en lado que juega a hora y media de coche
+ *   no es una pareja: es una sugerencia que nadie va a usar. Por eso los de la
+ *   misma ciudad van primero, en su propio apartado.
+ *
+ *   Pero filtrar duro por ciudad dejaría sin nadie a quien juega en una plaza
+ *   pequeña, que es justo el que más necesita que le encuentren pareja. Los de
+ *   fuera siguen saliendo, debajo y con su ciudad a la vista para que se sepa
+ *   lo que implica. La zona sale de dónde se ha inscrito cada uno —ver
+ *   `zona_del_jugador`, migración 083— y no de una pregunta más.
  *
  * ► CUANDO NO HAY NADIE, SE DICE POR QUÉ
  *   Una lista vacía sin explicación se lee como "no hay nadie en la app". Casi
@@ -47,6 +59,9 @@ interface Candidato {
   lado: Lado | null;
   mano: Mano | null;
   diferencia: number;
+  /** La ciudad donde más juega. Null si aún no se ha inscrito a nada. */
+  zona: string | null;
+  misma_zona: boolean;
 }
 
 /** Por qué la lista está vacía. Cada motivo tiene su salida. */
@@ -99,6 +114,15 @@ export default function BuscarParejaScreen() {
 
   useEffect(() => { void cargar(); }, [cargar]);
 
+  const cerca = candidatos.filter((c) => c.misma_zona);
+  const lejos = candidatos.filter((c) => !c.misma_zona);
+  /**
+   * La zona propia se deduce de los candidatos que la base marcó como cercanos
+   * —es la misma para todos ellos— en vez de pedirla en otra consulta. Sin
+   * nadie cerca no hay encabezado que nombrar, y así también es correcto.
+   */
+  const miZona = cerca[0]?.zona ?? null;
+
   return (
     <SafeAreaView style={s.safe}>
       <ScrollView contentContainerStyle={s.cont}>
@@ -107,6 +131,7 @@ export default function BuscarParejaScreen() {
         <Text style={s.bajada}>
           Jugadores del lado contrario al tuyo y de tu nivel
           {division ? `, en ${NOMBRE_DIVISION[division].toLowerCase()}` : ''}.
+          Los de tu zona, primero.
         </Text>
 
         {cargando && <ActivityIndicator color={color.gold} />}
@@ -145,22 +170,29 @@ export default function BuscarParejaScreen() {
 
         {candidatos.length > 0 && (
           <>
-            <SectionLabel title={`${candidatos.length} compatibles`} />
-            {candidatos.map((c) => {
-              const como = textoDeJugador({ lado: c.lado, mano: c.mano });
-              return (
-                <View key={c.player_id} style={s.fila}>
-                  <Avatar name={c.full_name} size={40} />
-                  <View style={s.datos}>
-                    <Text style={s.nombre} numberOfLines={1}>{c.full_name}</Text>
-                    {como && <Text style={s.como}>{como}</Text>}
-                  </View>
-                  <Text style={s.cerca}>
-                    {c.diferencia < 40 ? 'mismo nivel' : `${Math.round(c.diferencia)} de dif.`}
+            {/* DOS APARTADOS, no una lista larga con etiquetas sueltas: "por
+                tu zona" y "más lejos" son dos decisiones distintas, y quien
+                solo quiere jugar cerca no debería tener que filtrar con la
+                vista. El orden ya lo trae la base. */}
+            {cerca.length > 0 && (
+              <>
+                <SectionLabel title={miZona ? `Por tu zona · ${miZona}` : 'Por tu zona'} />
+                {cerca.map((c) => <Fila key={c.player_id} c={c} />)}
+              </>
+            )}
+
+            {lejos.length > 0 && (
+              <>
+                <SectionLabel title={cerca.length > 0 ? 'Más lejos' : 'Compatibles'} />
+                {cerca.length > 0 && (
+                  <Text style={s.nota}>
+                    No juegan por tu zona, pero encajan en nivel y en lado.
                   </Text>
-                </View>
-              );
-            })}
+                )}
+                {lejos.map((c) => <Fila key={c.player_id} c={c} />)}
+              </>
+            )}
+
             <Text style={s.nota}>
               Para jugar con alguno, búscalo por su nombre al inscribirte al torneo. Aquí no
               enseñamos correos: esta lista no la pediste tú por nombre.
@@ -169,6 +201,29 @@ export default function BuscarParejaScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * Una fila de la lista. Se saca del cuerpo porque ahora se pinta desde dos
+ * sitios —los de la zona y los de fuera— y copiarla sería el principio de que
+ * las dos se vean distinto.
+ */
+function Fila({ c }: { c: Candidato }) {
+  const como = textoDeJugador({ lado: c.lado, mano: c.mano });
+  return (
+    <View style={s.fila}>
+      <Avatar name={c.full_name} size={40} />
+      <View style={s.datos}>
+        <Text style={s.nombre} numberOfLines={1}>{c.full_name}</Text>
+        <Text style={s.como} numberOfLines={1}>
+          {[como, !c.misma_zona ? c.zona : null].filter(Boolean).join(' · ') || ' '}
+        </Text>
+      </View>
+      <Text style={s.cerca}>
+        {c.diferencia < 40 ? 'mismo nivel' : `${Math.round(c.diferencia)} de dif.`}
+      </Text>
+    </View>
   );
 }
 

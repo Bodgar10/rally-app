@@ -5,6 +5,7 @@
 
 import {
   tocarDia,
+  tocarDiaUnico,
   rangoCompleto,
   posicionEnRango,
   RANGO_VACIO,
@@ -135,5 +136,36 @@ describe('posicionEnRango — decide cómo se pinta cada día', () => {
     expect(posicionEnRango('2026-06-30', cruzado)).toBe('inicio');
     expect(posicionEnRango('2026-07-01', cruzado)).toBe('intermedio');
     expect(posicionEnRango('2026-07-02', cruzado)).toBe('fin');
+  });
+});
+
+// ── UN SOLO DÍA ─────────────────────────────────────────────────────────────
+// El exprés. Un toque tiene que dejar el rango CERRADO: con `tocarDia` hacían
+// falta dos toques en el mismo día y la pantalla seguía diciendo que faltaba
+// el día después del primero.
+describe('tocarDiaUnico', () => {
+  it('un solo toque deja inicio y fin en el mismo día', () => {
+    expect(tocarDiaUnico(RANGO_VACIO, '2026-09-27')).toEqual(r('2026-09-27', '2026-09-27'));
+  });
+
+  it('tocar otro día lo cambia entero, sin abrir un rango', () => {
+    expect(tocarDiaUnico(r('2026-09-27', '2026-09-27'), '2026-10-04'))
+      .toEqual(r('2026-10-04', '2026-10-04'));
+  });
+
+  it('tocar un día anterior también lo cambia entero', () => {
+    expect(tocarDiaUnico(r('2026-09-27', '2026-09-27'), '2026-09-20'))
+      .toEqual(r('2026-09-20', '2026-09-20'));
+  });
+
+  it('una fecha inválida no toca nada', () => {
+    const antes = r('2026-09-27', '2026-09-27');
+    expect(tocarDiaUnico(antes, 'no-es-fecha')).toEqual(antes);
+  });
+
+  it('el día elegido se pinta como único, no como arranque de una barra', () => {
+    const elegido = tocarDiaUnico(RANGO_VACIO, '2026-09-27');
+    expect(posicionEnRango('2026-09-27', elegido)).toBe('unico');
+    expect(posicionEnRango('2026-09-28', elegido)).toBe('fuera');
   });
 });

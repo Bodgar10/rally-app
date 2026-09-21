@@ -16,6 +16,20 @@
  * DEFAULT ACTIVADO
  *   Es lo que se venía haciendo siempre. Apagarlo por defecto habría dejado sin
  *   3.er lugar a torneos que ya contaban con él.
+ *
+ * ► EN UN EXPRÉS ESTA PANTALLA NO PREGUNTA NADA, Y ANTES SÍ
+ *   Preguntaba las dos cosas que un exprés no tiene: el partido por el 3.er
+ *   lugar —son cuartos, semis y final, no hay más— y cómo se juega el TERCER
+ *   SET, que no existe en ninguna de sus etapas (los grupos van a 6 games sin
+ *   ganador y el cuadro a set de oro).
+ *
+ *   O sea que ofrecía tres decisiones que no cambiaban nada, y una de ellas
+ *   —guardar `tercer_lugar: true`— habría metido en el plan del día un partido
+ *   que el motor del exprés no sabe crear.
+ *
+ *   Ahora, en un exprés, CUENTA el formato en vez de preguntarlo: sale de
+ *   `expres_etapa` y se lee como se lo va a explicar a las parejas esa tarde.
+ *   Ver `@/lib/formato-expres`.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -32,6 +46,9 @@ import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import { frasePrecioTercerLugar } from '@/lib/tercer-lugar';
+import {
+  etapasDelExpres, RESUMEN_EXPRES, POR_QUE_NO_SE_ELIGE, type LineaDeEtapa,
+} from '@/lib/formato-expres';
 import { fallo } from '@/lib/errores-red';
 
 export default function FormatoScreen() {
@@ -40,6 +57,8 @@ export default function FormatoScreen() {
   const volver = useVolver();
 
   const [nombre, setNombre]       = useState('');
+  /** Un exprés no elige formato: lo tiene. Ver la cabecera. */
+  const [etapasExpres, setEtapasExpres] = useState<LineaDeEtapa[] | null>(null);
   // Arranca apagado: si la carga falla, la pantalla no promete un partido
   // que el torneo no va a jugar.
   const [tercero, setTercero]     = useState(false);
@@ -70,7 +89,7 @@ export default function FormatoScreen() {
     try {
       const { data: t, error: te } = await supabase
         .from('tournaments')
-        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos')
+        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos, modo')
         .eq('id', tournamentId)
         .maybeSingle();
       if (te) throw te;
@@ -81,8 +100,23 @@ export default function FormatoScreen() {
         match_minutes: number | null; tercer_lugar: boolean | null;
         tercer_set_formato: 'super_muerte' | 'set_completo' | null;
         tercer_set_puntos: number | null;
+        modo: string | null;
       };
       setNombre(fila.name);
+
+      // ── EXPRÉS: se cuenta, no se pregunta ──────────────────────────────
+      // Se corta aquí mismo: lo que viene debajo —terceros sets capturados,
+      // el precio del 3.er lugar— es aritmética de un torneo que este no es.
+      if (fila.modo === 'expres') {
+        const { data: etapas } = await supabase
+          .from('expres_etapa')
+          .select('stage, formato, minutos')
+          .eq('tournament_id', tournamentId);
+        setEtapasExpres(etapasDelExpres(
+          (etapas ?? []) as { stage: string; formato: string; minutos: number | null }[],
+        ));
+        return;
+      }
       // `=== true` y no `!== false`: lo desconocido se lee APAGADO. La regla
       // es que solo esté encendido si alguien lo encendió a propósito.
       setTercero(fila.tercer_lugar === true);
@@ -192,6 +226,45 @@ export default function FormatoScreen() {
 
   if (cargando) {
     return <View style={s.centro}><ActivityIndicator color={color.gold} /></View>;
+  }
+
+  // ── EXPRÉS ────────────────────────────────────────────────────────────
+  // Sin interruptores ni botón de guardar: no hay nada que decidir. Lo que
+  // hay es lo que el organizador va a explicar por el micrófono.
+  if (etapasExpres) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <BotonVolver texto={nombre || 'Torneo'} />
+
+        <ScrollView contentContainerStyle={s.contenido}>
+          <Text style={s.eyebrow}>CÓMO SE JUEGA</Text>
+          <Text style={s.titulo}>Formato exprés</Text>
+          <Text style={s.resumenExpres}>{RESUMEN_EXPRES}</Text>
+
+          {etapasExpres.map((e) => (
+            <View key={e.etapa} style={s.etapa}>
+              <View style={s.etapaFila}>
+                <Text style={s.etapaTitulo}>{e.titulo}</Text>
+                {e.minutos !== null && (
+                  <Text style={s.etapaMinutos}>{e.minutos} min</Text>
+                )}
+              </View>
+              <Text style={s.etapaComo}>{e.comoSeJuega}</Text>
+              {e.minutos === null && (
+                <Text style={s.etapaFalta}>
+                  Sin minutos reservados: esta etapa no se puede planificar
+                  hasta que los tenga.
+                </Text>
+              )}
+            </View>
+          ))}
+
+          <View style={s.nota}>
+            <Text style={s.notaTexto}>{POR_QUE_NO_SE_ELIGE}</Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -350,6 +423,18 @@ const s = StyleSheet.create({
   notaApagado: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 17 },
 
   error:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
+
+  // ── Exprés ────────────────────────────────────────────────────────────
+  resumenExpres: { fontFamily: font.body, fontSize: fontSize.body, color: color.champagne, lineHeight: 21 },
+  etapa: {
+    backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft,
+    borderRadius: radius.md, padding: space[3.5], gap: space[1],
+  },
+  etapaFila:    { flexDirection: 'row', alignItems: 'baseline', gap: space[3] },
+  etapaTitulo:  { flex: 1, fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
+  etapaMinutos: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.champagne },
+  etapaComo:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 18 },
+  etapaFalta:   { fontFamily: font.body, fontSize: fontSize.caption, color: color.alive, lineHeight: 18 },
 
   btn:       { backgroundColor: color.gold, borderWidth: 1, borderColor: color.goldBright, borderRadius: radius.sm, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center', marginTop: space[2] },
   btnInerte: { opacity: 0.7 },

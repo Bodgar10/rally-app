@@ -2375,11 +2375,17 @@ export type Database = {
           full_name: string
           lado: Database["public"]["Enums"]["preferred_side"]
           mano: Database["public"]["Enums"]["mano_de_juego"]
+          misma_zona: boolean
           photo_url: string
           player_id: string
           rating: number
           rd: number
+          zona: string
         }[]
+      }
+      zona_del_jugador: {
+        Args: { p_player: string }
+        Returns: string
       }
       can_capture_tournament: {
         Args: { p_tournament_id: string }

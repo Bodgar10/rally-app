@@ -72,6 +72,8 @@ interface Tournament {
   id:               string;
   name:             string;
   registration_fee: number;
+  /** 'expres' | 'largo'. Decide si el paso 3 existe — ver `hayHorarios`. */
+  modo:             string | null;
 }
 
 interface PartnerResult {
@@ -167,7 +169,7 @@ export default function InscripcionScreen() {
       const [{ data: t }, { data: cats }] = await Promise.all([
         supabase
           .from('tournaments')
-          .select('id, name, registration_fee')
+          .select('id, name, registration_fee, modo')
           .eq('id', tournamentId)
           .single(),
         supabase
@@ -222,8 +224,24 @@ export default function InscripcionScreen() {
   /** Hay pareja resuelta, venga de donde venga. */
   const parejaLista = !!partnerFound || parejaNuevaValida;
 
+  /**
+   * ► EN UN EXPRÉS NADIE ELIGE HORA, Y ESO NO ES UNA CARENCIA
+   *
+   *   En un torneo largo la pareja elige su franja: hay varios días, decenas
+   *   de bloques y el organizador no puede adivinar quién puede el sábado a
+   *   las 8. En un exprés hay UNA tarde y el calendario entero lo arma el
+   *   sorteo: las cinco rondas salen del fixture, no de una preferencia.
+   *
+   *   EL BUG QUE ARREGLA: el paso 3 se pintaba igual, se quedaba sin opciones
+   *   que ofrecer —no hay bloques que elegir en un exprés— y dejaba en
+   *   pantalla un "Elige tu categoría y aquí aparecen los horarios con sitio"
+   *   que no iba a llenarse nunca. Quien se inscribía leía que le faltaba un
+   *   paso imposible.
+   */
+  const esExpres = tournament?.modo === 'expres';
+
   /** El torneo tiene horarios capturados. Con `false` el paso 3 no existe. */
-  const hayHorarios = (bloques?.bloques.length ?? 0) > 0;
+  const hayHorarios = !esExpres && (bloques?.bloques.length ?? 0) > 0;
 
   /**
    * Los horarios que esta categoría puede elegir. Puede ser vacío aunque el
@@ -540,14 +558,24 @@ export default function InscripcionScreen() {
             Este es el momento exacto en que se descubre el problema: ya eligió
             categoría y le toca escribir un nombre que no tiene. Un enlace aquí
             lo lleva a ver quién le encaja; volver e inscribirse es un paso. */}
+        {/* ► ERA UN PÁRRAFO DORADO Y NADIE LO TOCABA.
+            Texto suelto, sin borde ni flecha ni nada que dijera "esto se
+            pulsa": se leía como un aviso. Es el único camino que hay desde
+            aquí para quien no tiene pareja, así que tiene que parecer una
+            puerta. */}
         <Pressable
           onPress={() => router.push('/(protected)/buscar-pareja')}
           accessibilityRole="button"
-          style={{ paddingVertical: space[2] }}
+          accessibilityLabel="Buscar pareja"
+          style={({ pressed }) => [s.buscarPareja, pressed && { opacity: 0.85 }]}
         >
-          <Text style={{ color: color.goldBright, fontFamily: font.body, fontSize: 12.5, fontWeight: '600' }}>
-            ¿Todavía no tienes con quién? Mira quién juega de tu nivel y del lado contrario
-          </Text>
+          <View style={s.buscarParejaTextos}>
+            <Text style={s.buscarParejaTitulo}>¿Todavía no tienes con quién?</Text>
+            <Text style={s.buscarParejaSub}>
+              Mira quién juega de tu nivel, del lado contrario y por tu zona
+            </Text>
+          </View>
+          <Text style={s.buscarParejaFlecha}>›</Text>
         </Pressable>
 
         <Card variant="standard">
@@ -750,6 +778,18 @@ export default function InscripcionScreen() {
                 <Text style={s.summaryLabel}>Pareja</Text>
                 <Text style={s.summaryValue}>{partnerFound?.full_name ?? parejaNueva?.nombre.trim()}</Text>
               </View>
+              {/* En un exprés no hay hora que elegir, pero sí que decir: se
+                  juega esa tarde y el orden lo pone el sorteo. Dejar el hueco
+                  en blanco haría pensar que falta un paso. */}
+              {esExpres && (
+                <>
+                  <View style={s.summaryDivider} />
+                  <View style={s.summaryRow}>
+                    <Text style={s.summaryLabel}>Horario</Text>
+                    <Text style={s.summaryValue}>Lo pone el sorteo</Text>
+                  </View>
+                </>
+              )}
               {hayHorarios && (
                 <>
                   <View style={s.summaryDivider} />
@@ -914,6 +954,19 @@ const s = StyleSheet.create({
   partnerEmail:          { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
   partnerChange:         { padding: space[2] },
   partnerChangeText:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.gold },
+
+  // Buscar pareja
+  buscarPareja: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderWidth: 1, borderColor: color.goldMuted, borderRadius: radius.md,
+    paddingVertical: space[3], paddingHorizontal: space[3.5],
+    minHeight: touchTarget,
+  },
+  buscarParejaTextos: { flex: 1, gap: 2 },
+  buscarParejaTitulo: { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.goldBright },
+  buscarParejaSub:    { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
+  buscarParejaFlecha: { fontFamily: font.display, fontSize: fontSize.h1Inline, color: color.champagne },
 
   // Horario
 

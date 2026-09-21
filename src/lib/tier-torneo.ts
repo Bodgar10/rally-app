@@ -25,25 +25,71 @@ export interface OpcionTier {
   titulo: string;
   /** Línea corta debajo de la opción: se entiende sin abrir documentación. */
   sub:    string;
+  /**
+   * EL PESO VISUAL DE LA OPCIÓN, y no es adorno.
+   *
+   * Las tres opciones se pintaban iguales —tres rectángulos con un borde gris—
+   * y la única diferencia estaba enterrada al final de la línea de abajo: ×2,
+   * ×1, ×0.6. Un Major es el torneo grande del calendario y tiene que VERSE
+   * como el grande antes de leer nada; si los tres pesan lo mismo en la
+   * pantalla, el organizador elige el primero.
+   *
+   * Es una propiedad del dato y no del componente porque es el tier el que
+   * tiene jerarquía: la pantalla solo la obedece.
+   */
+  destaque: 'maximo' | 'medio' | 'base';
+  /** Lo que multiplica los puntos de ranking. Se pinta grande, a la derecha. */
+  multiplicador: string;
+  /** Cuántos días dura, en una palabra. Para la línea de arriba de la tarjeta. */
+  dias: string;
 }
 
 export const TIER_OPCIONES: OpcionTier[] = [
   {
     valor:  'major',
     titulo: 'Major',
-    sub:    '3+ días · mínimo 24 parejas por categoría · puntos de ranking ×2',
+    sub:    'El torneo grande del calendario. Mínimo 24 parejas por categoría.',
+    destaque: 'maximo',
+    multiplicador: '×2',
+    dias: '3+ días',
   },
   {
     valor:  'p1',
     titulo: 'P1',
-    sub:    '2+ días · mínimo 12 parejas por categoría · puntos de ranking ×1',
+    sub:    'Fin de semana completo. Mínimo 12 parejas por categoría.',
+    destaque: 'medio',
+    multiplicador: '×1',
+    dias: '2+ días',
   },
   {
     valor:  'p2',
     titulo: 'P2',
-    sub:    '1 día · sin mínimo de parejas · puntos de ranking ×0.6',
+    sub:    'Una jornada. Sin mínimo de parejas.',
+    destaque: 'base',
+    multiplicador: '×0.6',
+    dias: '1 día',
   },
 ];
+
+/**
+ * ► EL TIER DE UN EXPRÉS NO SE PREGUNTA: ES P2 Y PUNTO.
+ *
+ *   Un exprés es, por definición, una tarde. Un Major exige 3+ días y 24
+ *   parejas por categoría; un P1, dos días y 12. Ninguno de los dos CABE en un
+ *   exprés, así que ofrecerlos en el formulario es ofrecer dos respuestas
+ *   equivocadas y esperar que el organizador acierte — y si acierta mal, el
+ *   torneo reparte el doble de puntos de ranking que los que le tocan y eso
+ *   contamina la temporada de todos los que jugaron.
+ *
+ *   La pantalla del exprés no lo pregunta: lo declara y explica por qué.
+ */
+export const TIER_EXPRES: TierTorneo = 'p2';
+
+/** La opción completa de un tier, para pintarla sin repetir el `find`. */
+export function opcionDeTier(tier: TierTorneo): OpcionTier {
+  // El `!` es seguro: `TierTorneo` es un enum cerrado y hay una opción por valor.
+  return TIER_OPCIONES.find((o) => o.valor === tier)!;
+}
 
 /** El valor de la tarjeta "Tier" del panel del organizador. */
 export function resumenDeTier(tier: TierTorneo | string | null | undefined): string {

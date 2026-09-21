@@ -30,7 +30,8 @@ import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
-import { TIER_OPCIONES, type TierTorneo } from '@/lib/tier-torneo';
+import { TIER_OPCIONES, TIER_EXPRES, type TierTorneo } from '@/lib/tier-torneo';
+import SelectorDeTier from '@/components/organizer/SelectorDeTier';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { bottomInset, webContentColumn } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -44,6 +45,8 @@ export default function TierTorneoScreen() {
 
   const [nombre, setNombre]     = useState('');
   const [status, setStatus]     = useState<string | null>(null);
+  /** Un exprés tiene el tier fijado por lo que es: una tarde. Ver TIER_EXPRES. */
+  const [esExpres, setEsExpres] = useState(false);
   const [tier, setTier]         = useState<TierTorneo | null>(null);
   const [original, setOriginal] = useState<TierTorneo | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -53,14 +56,15 @@ export default function TierTorneoScreen() {
   const cargar = useCallback(async () => {
     const { data: t } = await supabase
       .from('tournaments')
-      .select('name, tier, status')
+      .select('name, tier, status, modo')
       .eq('id', tournamentId)
       .maybeSingle();
 
     if (t) {
-      const fila = t as { name: string; tier: string | null; status: string };
+      const fila = t as { name: string; tier: string | null; status: string; modo: string | null };
       setNombre(fila.name);
       setStatus(fila.status);
+      setEsExpres(fila.modo === 'expres');
       const valor = (fila.tier as TierTorneo | null) ?? null;
       setTier(valor);
       setOriginal(valor);
@@ -70,7 +74,12 @@ export default function TierTorneoScreen() {
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
-  const bloqueado = status !== null && !EDITABLE_EN.includes(status);
+  /**
+   * Dos motivos distintos para no poder tocarlo, y cada uno dice lo suyo:
+   *   · Inscripciones cerradas — los puntos ya se anunciaron.
+   *   · Es un exprés — no cabe en ningún tier que no sea P2. Ver TIER_EXPRES.
+   */
+  const bloqueado = esExpres || (status !== null && !EDITABLE_EN.includes(status));
 
   const hayCambios  = tier !== original;
   const puedeGuardar = !bloqueado && !!tier && hayCambios && !guardando;
@@ -115,53 +124,29 @@ export default function TierTorneoScreen() {
         {bloqueado && (
           <View style={s.aviso}>
             <Text style={s.avisoTexto}>
-              El tier no se puede cambiar una vez cerradas las inscripciones:
-              los puntos de ranking ya se anunciaron a los jugadores.
+              {esExpres
+                ? 'Un exprés dura una tarde, así que siempre es P2. Major pide '
+                  + '3+ días y 24 parejas por categoría, y P1 dos días y 12: '
+                  + 'ninguno cabe en una tarde.'
+                : 'El tier no se puede cambiar una vez cerradas las inscripciones: '
+                  + 'los puntos de ranking ya se anunciaron a los jugadores.'}
             </Text>
           </View>
         )}
 
-        <View style={s.opciones}>
-          {TIER_OPCIONES.map((o) => {
-            const elegida = tier === o.valor;
-            const contenido = (
-              <>
-                <Text style={[s.opcionTitulo, elegida && s.opcionTituloElegida, bloqueado && !elegida && s.opcionTituloInerte]}>
-                  {o.titulo}
-                </Text>
-                <Text style={[s.opcionSub, bloqueado && !elegida && s.opcionSubInerte]}>{o.sub}</Text>
-              </>
-            );
-
-            // Bloqueado: informativo, sin Pressable — no se puede tocar ni
-            // hay chevron ni respuesta al toque.
-            if (bloqueado) {
-              return (
-                <View
-                  key={o.valor}
-                  style={[s.opcion, elegida && s.opcionElegida, !elegida && s.opcionInerte]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: elegida, disabled: true }}
-                >
-                  {contenido}
-                </View>
-              );
-            }
-
-            return (
-              <Pressable
-                key={o.valor}
-                onPress={() => setTier(o.valor)}
-                style={[s.opcion, elegida && s.opcionElegida]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: elegida }}
-                accessibilityLabel={o.titulo}
-              >
-                {contenido}
-              </Pressable>
-            );
-          })}
-        </View>
+        {/* El mismo control que al crear el torneo. Bloqueado, las opciones
+            que NO están elegidas se apagan: la elegida se sigue leyendo. */}
+        <SelectorDeTier
+          valor={esExpres ? TIER_EXPRES : tier}
+          onChange={setTier}
+          deshabilitados={
+            bloqueado
+              ? TIER_OPCIONES
+                  .map((o) => o.valor)
+                  .filter((v) => v !== (esExpres ? TIER_EXPRES : tier))
+              : []
+          }
+        />
 
         {error && <Text style={s.error}>{error}</Text>}
 
@@ -203,15 +188,6 @@ const s = StyleSheet.create({
   aviso:      { backgroundColor: color.surface, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3] },
   avisoTexto: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne, lineHeight: 17 },
 
-  opciones:  { gap: space[2] },
-  opcion:    { borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[1] },
-  opcionElegida: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
-  opcionInerte:  { opacity: 0.5 },
-  opcionTitulo:  { fontFamily: font.display, fontSize: fontSize.cardName, color: color.text },
-  opcionTituloElegida: { color: color.gold },
-  opcionTituloInerte:  { color: color.muted },
-  opcionSub:     { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
-  opcionSubInerte: { opacity: 0.7 },
 
   error: { fontFamily: font.body, fontSize: fontSize.caption, color: color.danger, textAlign: 'center' },
 
