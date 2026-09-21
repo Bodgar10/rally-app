@@ -35,7 +35,27 @@ import { generarFixtureExpres, planificarExpres } from '../_shared/engine.bundle
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
+  /**
+   * ► LA LISTA CORTA ROMPÍA LA LLAMADA DESDE EL NAVEGADOR.
+   *
+   *   Aquí ponía solo 'authorization, content-type'. El resto de la app llama
+   *   a las Edge Functions con `fetch` a mano y esas dos cabeceras, así que
+   *   nunca se notó — pero las dos pantallas del exprés usan
+   *   `supabase.functions.invoke`, que añade `x-client-info` y `apikey`.
+   *
+   *   El navegador manda esos nombres en el preflight, no los ve en
+   *   Access-Control-Allow-Headers y CANCELA la petición antes de enviarla.
+   *   La función ni se entera: en la app sale "Failed to send a request to
+   *   the Edge Function", que parece que está caída cuando en realidad
+   *   contesta perfectamente — desde node, sin preflight, respondía 200.
+   *
+   *   La lista es la misma de `_shared/cors.ts`. No se importa de allí para
+   *   no meterle otro módulo compartido al bundle de una función que ya
+   *   arrastra el engine, pero si divergen, manda aquella.
+   */
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, 'content-type': 'application/json' } });
