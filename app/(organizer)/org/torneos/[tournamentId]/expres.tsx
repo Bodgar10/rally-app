@@ -33,6 +33,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Card, SectionLabel } from '@/components/ui';
 import BotonVolver from '@/components/ui/BotonVolver';
 import TablaExpresGrupo from '@/components/expres/TablaExpresGrupo';
+import PartidosYCaptura from '@/components/expres/PartidosYCaptura';
 import DecisionDeEmpate from '@/components/expres/DecisionDeEmpate';
 import { fetchParejasPublicas, nombreDePareja, type ParejaPublica } from '@/lib/parejas-publicas';
 import {
@@ -266,6 +267,16 @@ export default function PanelExpresScreen() {
           </View>
         )}
 
+        {/* ► LA AGENDA, CON HORA Y CANCHA, Y SE CAPTURA DESDE AQUÍ.
+            Antes esta pantalla solo enseñaba las dos tablas: el organizador
+            veía cómo iba el grupo pero no qué partido tocaba ni dónde, y para
+            anotar un marcador tenía que irse a la pantalla del juez. En un
+            exprés el organizador ESTÁ en el club esa tarde y muchas veces es
+            él quien apunta, así que pedirle que cambie de rol para hacer su
+            trabajo no tenía sentido.
+
+            Va DEBAJO de las tablas: la primera pregunta al abrir es cómo va
+            el grupo; la segunda, qué toca ahora. */}
         {grupos.map((g) => {
           const empate = g.tabla.empatesSinResolver.find((e) => e.decideClasificacion);
           return (
@@ -283,6 +294,12 @@ export default function PanelExpresScreen() {
             </Card>
           );
         })}
+
+        {/* Al guardar un marcador cambian la tabla y el clinch, así que se
+            recarga esta pantalla entera en vez de recalcularlo aquí. */}
+        {grupos.length > 0 && (
+          <PartidosYCaptura tournamentId={tournamentId} onCambio={() => void cargar()} />
+        )}
       </ScrollView>
     </SafeAreaView>
   );

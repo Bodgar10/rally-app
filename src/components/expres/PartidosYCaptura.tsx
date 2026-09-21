@@ -1,0 +1,292 @@
+/**
+ * src/components/expres/PartidosYCaptura.tsx
+ *
+ * RALLY · La agenda de un exprés: qué se juega, a qué hora, en qué cancha, y
+ * capturar el marcador desde ahí mismo.
+ *
+ * ► POR QUÉ ES UN COMPONENTE Y NO VIVÍA EN LA PANTALLA DEL JUEZ
+ *   Esto solo existía en `(judge)/juez/expres/[tournamentId]`. El panel del
+ *   ORGANIZADOR enseñaba únicamente las dos tablas: podía ver cómo iba el
+ *   grupo, pero no qué partido tocaba, ni a qué hora, ni en qué cancha, ni
+ *   capturar nada.
+ *
+ *   Es justo al revés de cómo se usa. En un exprés el organizador ESTÁ en el
+ *   club esa tarde: es quien canta los partidos por el micrófono y quien
+ *   apunta los marcadores cuando no hay juez asignado — que en un torneo de
+ *   una tarde es casi siempre. Mandarlo a la pantalla de juez para eso es
+ *   pedirle que cambie de rol para hacer su trabajo.
+ *
+ *   Así que la agenda es una sola y la usan los dos. Copiarla habría sido
+ *   garantizar que dentro de un mes la del juez y la del organizador enseñan
+ *   cosas distintas del mismo partido.
+ *
+ * ► AGRUPADA POR RONDA, NO POR HORA SUELTA
+ *   "Grupo A · Ronda 2" es la unidad con la que se trabaja en la cancha: se
+ *   llama a las cuatro parejas a la vez y se juega la ronda entera. Una lista
+ *   plana ordenada por hora obligaría a leer la cabecera de cada fila para
+ *   saber dónde empieza y acaba la tanda.
+ *
+ * ► SE RECARGA ENTERO AL GUARDAR
+ *   Un marcador cambia la tabla del grupo, el clinch de las ocho parejas y a
+ *   veces quién va a cuartos. Recalcular eso a mano en el cliente es
+ *   exactamente cómo la pantalla se despega del motor, así que se vuelve a
+ *   pedir y punto: son dos consultas y pasa cuarenta veces en una tarde, no
+ *   cuarenta veces por segundo.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { supabase } from '@/lib/supabase/client';
+import ScoreCaptureExpres from '@/components/expres/ScoreCaptureExpres';
+import { fetchParejasPublicas, nombreDePareja, type ParejaPublica } from '@/lib/parejas-publicas';
+import { partidosPendientes, type ResultadoSuma6 } from '@/lib/engine/expres';
+import { textoDeBalance } from '@/lib/expres-texto';
+import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
+
+export interface PartidoExpresFila {
+  id: string;
+  groupId: string;
+  grupo: string;
+  ronda: string;
+  hora: string;
+  cancha: string;
+  pairAId: string;
+  pairBId: string;
+  gamesA: number | null;
+  gamesB: number | null;
+}
+
+/** "18:30" en hora de México. Null se pinta vacío, no como "Invalid Date". */
+function horaLocal(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleTimeString('es-MX', {
+        hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City',
+      });
+}
+
+export default function PartidosYCaptura({
+  tournamentId, onCambio,
+}: {
+  tournamentId: string;
+  /** Se guardó un marcador: el padre recarga sus tablas. */
+  onCambio?: () => void;
+}) {
+  const [partidos, setPartidos] = useState<PartidoExpresFila[]>([]);
+  const [parejas, setParejas] = useState<Map<string, ParejaPublica>>(new Map());
+  const [abierto, setAbierto] = useState<PartidoExpresFila | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const nombre = useCallback(
+    (pairId: string) => nombreDePareja(parejas.get(pairId)),
+    [parejas],
+  );
+
+  const cargar = useCallback(async () => {
+    setError(null);
+    try {
+      const { data: ms } = await supabase
+        .from('matches')
+        .select('id, group_id, round_label, scheduled_at, court_label, pair_a_id, pair_b_id')
+        .eq('tournament_id', tournamentId)
+        .eq('stage', 'group')
+        .order('scheduled_at');
+
+      const filas = (ms ?? []) as Array<{
+        id: string; group_id: string | null; round_label: string | null;
+        scheduled_at: string | null; court_label: string | null;
+        pair_a_id: string | null; pair_b_id: string | null;
+      }>;
+      if (filas.length === 0) { setPartidos([]); return; }
+
+      const idsGrupo = [...new Set(filas.map((m) => m.group_id).filter(Boolean))] as string[];
+      const [{ data: gs }, { data: sets }] = await Promise.all([
+        supabase.from('groups').select('id, name').in('id', idsGrupo),
+        supabase.from('match_sets').select('match_id, games_a, games_b')
+          .in('match_id', filas.map((m) => m.id)).eq('set_number', 1),
+      ]);
+
+      const nombreGrupo = new Map((gs ?? []).map((g) => [g.id, g.name]));
+      const games = new Map((sets ?? []).map((x) => [x.match_id, { a: x.games_a, b: x.games_b }]));
+
+      setParejas(await fetchParejasPublicas(
+        filas.flatMap((m) => [m.pair_a_id, m.pair_b_id]).filter(Boolean) as string[],
+      ));
+      setPartidos(filas.map((m) => ({
+        id: m.id,
+        groupId: m.group_id!,
+        grupo: nombreGrupo.get(m.group_id!) ?? '?',
+        ronda: m.round_label ?? '',
+        hora: horaLocal(m.scheduled_at),
+        cancha: m.court_label ?? '',
+        pairAId: m.pair_a_id!,
+        pairBId: m.pair_b_id!,
+        gamesA: games.get(m.id)?.a ?? null,
+        gamesB: games.get(m.id)?.b ?? null,
+      })));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron cargar los partidos.');
+    } finally {
+      setCargando(false);
+    }
+  }, [tournamentId]);
+
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  /** El grupo del partido abierto: el motor recalcula su tabla entera. */
+  const contexto = useMemo(() => {
+    if (!abierto) return null;
+    const delGrupo = partidos.filter((p) => p.groupId === abierto.groupId);
+    return {
+      resultados: delGrupo.map((p) => ({
+        matchId: p.id, pairAId: p.pairAId, pairBId: p.pairBId,
+        gamesA: p.gamesA, gamesB: p.gamesB,
+      })) as ResultadoSuma6[],
+      pairIds: [...new Set(delGrupo.flatMap((p) => [p.pairAId, p.pairBId]))],
+    };
+  }, [abierto, partidos]);
+
+  async function guardar(payload: { marcador: { gamesA: number; gamesB: number } | null }) {
+    const { data, error: fe } = await supabase.functions.invoke('expres-resultado', {
+      body: {
+        match_id: abierto!.id,
+        games_a: payload.marcador?.gamesA ?? null,
+        games_b: payload.marcador?.gamesB ?? null,
+      },
+    });
+    // El cuerpo del error trae el motivo; sin leerlo se ve "non-2xx" y no se
+    // sabe si otro capturó a la vez o si el marcador no era válido.
+    if (fe) {
+      const detalle = await (fe as { context?: Response }).context?.json?.().catch(() => null);
+      throw new Error(detalle?.detail ?? detalle?.error ?? 'No se pudo guardar el marcador.');
+    }
+    if ((data as { error?: string } | null)?.error) {
+      throw new Error((data as { detail?: string; error: string }).detail ?? (data as { error: string }).error);
+    }
+    setAbierto(null);
+    await cargar();
+    onCambio?.();
+  }
+
+  if (abierto && contexto) {
+    return (
+      <ScoreCaptureExpres
+        pairIds={contexto.pairIds}
+        resultados={contexto.resultados}
+        matchId={abierto.id}
+        nombreA={nombre(abierto.pairAId)}
+        nombreB={nombre(abierto.pairBId)}
+        guardado={abierto.gamesA != null ? { gamesA: abierto.gamesA, gamesB: abierto.gamesB! } : null}
+        onGuardar={guardar}
+        onCancelar={() => setAbierto(null)}
+      />
+    );
+  }
+
+  if (cargando) return <ActivityIndicator color={color.gold} />;
+  if (partidos.length === 0) return null;
+
+  const pendientes = partidosPendientes(
+    partidos.map((p) => ({
+      matchId: p.id, pairAId: p.pairAId, pairBId: p.pairBId, gamesA: p.gamesA, gamesB: p.gamesB,
+    })),
+  );
+
+  let rondaActual = '';
+
+  return (
+    <View style={s.raiz}>
+      <Text style={s.titulo}>PARTIDOS</Text>
+      <Text style={s.resumen}>
+        {pendientes === 0
+          ? `Los ${partidos.length} partidos están capturados.`
+          : `Faltan ${pendientes} de ${partidos.length}. Toca uno para anotar el marcador.`}
+      </Text>
+
+      {error && <View style={s.error}><Text style={s.errorTexto}>{error}</Text></View>}
+
+      {partidos.map((p) => {
+        const cabecera = `${p.grupo} · ${p.ronda}`;
+        const nueva = cabecera !== rondaActual;
+        rondaActual = cabecera;
+        const capturado = p.gamesA != null;
+        return (
+          <View key={p.id}>
+            {nueva && <Text style={s.ronda}>{cabecera}</Text>}
+            <Pressable
+              onPress={() => setAbierto(p)}
+              style={({ pressed }) => [s.fila, capturado && s.filaHecha, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel={
+                `${p.hora} cancha ${p.cancha}, ${nombre(p.pairAId)} contra ${nombre(p.pairBId)}`
+                + (capturado ? `, ${p.gamesA} a ${p.gamesB}` : ', sin capturar')
+              }
+            >
+              <View style={s.cuando}>
+                <Text style={s.hora}>{p.hora}</Text>
+                <Text style={s.cancha}>{p.cancha}</Text>
+              </View>
+              <View style={s.quienes}>
+                <Text style={s.pareja} numberOfLines={1}>{nombre(p.pairAId)}</Text>
+                <Text style={s.pareja} numberOfLines={1}>{nombre(p.pairBId)}</Text>
+              </View>
+              {capturado ? (
+                <View style={s.marcador}>
+                  <Text style={s.games}>{p.gamesA}</Text>
+                  <Text style={s.games}>{p.gamesB}</Text>
+                  <Text style={s.saldo}>{textoDeBalance(p.gamesA! - p.gamesB!)}</Text>
+                </View>
+              ) : (
+                <Text style={s.porJugar}>anotar</Text>
+              )}
+            </Pressable>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  raiz: { gap: space[2] },
+  titulo: {
+    color: color.champagne, fontFamily: font.display, fontSize: fontSize.eyebrow,
+    letterSpacing: 2, marginTop: space[3],
+  },
+  resumen: { color: color.muted, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18 },
+
+  ronda: {
+    color: color.champagne, fontFamily: font.display, fontSize: fontSize.section,
+    marginTop: space[3], marginBottom: space[1],
+  },
+
+  fila: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    minHeight: touchTarget + 10, paddingHorizontal: space[3], paddingVertical: space[2],
+    borderRadius: radius.md, borderWidth: 1, borderColor: color.lineSoft,
+    backgroundColor: color.surface,
+  },
+  filaHecha: { borderColor: 'rgba(66,214,164,0.28)' },
+
+  cuando: { width: 56 },
+  hora: { color: color.text, fontFamily: font.display, fontSize: fontSize.cardName },
+  cancha: { color: color.muted, fontFamily: font.body, fontSize: fontSize.minAbsolute },
+
+  quienes: { flex: 1, gap: 2 },
+  pareja: { color: color.text, fontFamily: font.body, fontSize: fontSize.caption },
+
+  marcador: { alignItems: 'flex-end' },
+  games: { color: color.text, fontFamily: font.display, fontSize: fontSize.cardName, lineHeight: 19 },
+  saldo: { color: color.champagne, fontFamily: font.body, fontSize: fontSize.minAbsolute },
+  porJugar: { color: color.gold, fontFamily: font.body, fontSize: fontSize.caption, fontWeight: '600' },
+
+  error: {
+    padding: space[3], borderRadius: radius.sm, backgroundColor: 'rgba(224,114,111,0.13)',
+    borderWidth: 1, borderColor: 'rgba(224,114,111,0.3)',
+  },
+  errorTexto: { color: color.danger, fontFamily: font.body, fontSize: fontSize.body },
+});

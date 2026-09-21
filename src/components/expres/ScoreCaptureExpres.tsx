@@ -3,16 +3,27 @@
  *
  * RALLY · Captura de un partido de SUMA 6.
  *
- * SIETE BOTONES, NO DOS CASILLAS
- *   Un suma 6 solo puede terminar de siete maneras: 6-0, 5-1, 4-2, 3-3 y sus
- *   espejos. Con dos casillas numéricas el juez puede teclear un 7-2 o un 5-5,
- *   y entonces hay que validarlo, explicarle el error y que lo vuelva a
- *   intentar. Un marcador imposible que no se puede ni escribir no hay que
- *   validarlo después.
+ * DOS CASILLAS, COMO EN LA CAPTURA LARGA
+ *   Antes eran siete botones, uno por marcador posible —6-0, 5-1, 4-2, 3-3 y
+ *   sus espejos—, con el argumento de que un marcador imposible que no se
+ *   puede ni escribir no hay que validarlo después.
  *
- *   Es el mismo razonamiento que quitó el interruptor de súper muerte de la
- *   captura larga, llevado un paso más allá: allí el dato sobraba porque
- *   estaba en los números; aquí sobran los números.
+ *   El argumento era bueno y la pantalla era peor. Quien captura viene de
+ *   anotar marcadores en papel y de la captura larga, donde escribe los
+ *   números; una rejilla de botones le obliga a BUSCAR su resultado entre
+ *   siete opciones en vez de teclearlo, que es más lento y se siente raro. Y
+ *   el juez de un torneo hace esto cuarenta veces en una tarde.
+ *
+ *   Así que se escriben. Lo que se gana en velocidad se paga en validación, y
+ *   se paga bien: `validarMarcadorSuma6` ya existía en el motor y el error se
+ *   dice en el momento, sin esperar a Guardar.
+ *
+ * ► LA CASILLA VACÍA SE COMPLETA SOLA, PERO NO SE IMPONE
+ *   En cuanto hay un número en un lado, el otro se rellena con lo que falta
+ *   para seis. Es lo que hace el juez de cabeza de todas formas —si uno hizo
+ *   4, el otro hizo 2— y le ahorra la mitad de las pulsaciones. Puede
+ *   sobrescribirlo: si se equivocó de casilla, corrige la que quiera y la
+ *   otra se ajusta.
  *
  * NO HAY SELECTOR DE GANADOR, Y NO PORQUE SE DERIVE
  *   En la captura larga el ganador se dejó de preguntar porque el marcador ya
@@ -34,9 +45,13 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
-import { MARCADORES_SUMA6, prepararCapturaExpres, type ResultadoSuma6 } from '@/lib/engine/expres';
+import {
+  GAMES_POR_PARTIDO, prepararCapturaExpres, validarMarcadorSuma6, type ResultadoSuma6,
+} from '@/lib/engine/expres';
 import { textoDeBalance } from '@/lib/expres-texto';
 
 export interface ScoreCaptureExpresProps {
@@ -68,15 +83,50 @@ export default function ScoreCaptureExpres({
   onGuardar,
   onCancelar,
 }: ScoreCaptureExpresProps) {
-  const [elegido, setElegido] = useState<number | null>(() =>
-    guardado
-      ? MARCADORES_SUMA6.findIndex((m) => m.gamesA === guardado.gamesA && m.gamesB === guardado.gamesB)
-      : null,
-  );
+  const [textoA, setTextoA] = useState(guardado ? String(guardado.gamesA) : '');
+  const [textoB, setTextoB] = useState(guardado ? String(guardado.gamesB) : '');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const marcador = elegido === null ? null : MARCADORES_SUMA6[elegido];
+  /**
+   * Escribir en una casilla completa la otra hasta seis.
+   *
+   * Solo con un número válido y solo si cabe: con un 9 no se autocompleta un
+   * −3, se deja la otra como esté y la validación dice lo que pasa.
+   */
+  function escribir(lado: 'a' | 'b', crudo: string) {
+    const limpio = crudo.replace(/[^0-9]/g, '').slice(0, 1);
+    const n = limpio === '' ? null : Number(limpio);
+    const complemento = n !== null && n >= 0 && n <= GAMES_POR_PARTIDO
+      ? String(GAMES_POR_PARTIDO - n)
+      : null;
+
+    if (lado === 'a') {
+      setTextoA(limpio);
+      if (complemento !== null) setTextoB(complemento);
+    } else {
+      setTextoB(limpio);
+      if (complemento !== null) setTextoA(complemento);
+    }
+    setError(null);
+  }
+
+  const numA = textoA === '' ? null : Number(textoA);
+  const numB = textoB === '' ? null : Number(textoB);
+  const completo = numA !== null && numB !== null;
+
+  /**
+   * Lo que está mal escrito.
+   *
+   * El mensaje sale del MOTOR y no se redacta aquí: `validarMarcadorSuma6` es
+   * la misma función que corre el servidor, y ya explica el error enumerando
+   * los siete marcadores posibles. Escribir una versión propia en la pantalla
+   * es cómo se acaba con dos textos distintos para el mismo fallo según por
+   * dónde entre el dato.
+   */
+  const errorDeFormato = completo ? (validarMarcadorSuma6(numA, numB)[0] ?? null) : null;
+
+  const marcador = completo && !errorDeFormato ? { gamesA: numA, gamesB: numB } : null;
 
   /**
    * Se prepara en cuanto hay marcador elegido, no al pulsar Guardar: si el
@@ -97,7 +147,7 @@ export default function ScoreCaptureExpres({
     }
   }, [marcador, pairIds, resultados, matchId]);
 
-  const fallo = preparado instanceof Error ? preparado.message : null;
+  const fallo = errorDeFormato ?? (preparado instanceof Error ? preparado.message : null);
 
   async function guardar(borrando: boolean) {
     setError(null);
@@ -123,31 +173,35 @@ export default function ScoreCaptureExpres({
         <Text style={[s.nombre, s.nombreDer]} numberOfLines={2}>{nombreB}</Text>
       </View>
 
-      <Text style={s.eyebrow}>Seis games. El partido no tiene ganador.</Text>
+      <Text style={s.eyebrow}>
+        Seis games entre las dos. El partido no tiene ganador.
+      </Text>
 
-      <View style={s.grid}>
-        {MARCADORES_SUMA6.map((m, i) => {
-          const activo = elegido === i;
-          const saldo = m.gamesA - m.gamesB;
-          return (
-            <Pressable
-              key={`${m.gamesA}-${m.gamesB}`}
-              onPress={() => setElegido(activo ? null : i)}
-              disabled={guardando}
-              accessibilityRole="button"
-              accessibilityState={{ selected: activo }}
-              accessibilityLabel={`${nombreA} ${m.gamesA}, ${nombreB} ${m.gamesB}`}
-              style={[s.boton, activo && s.botonActivo]}
-            >
-              <Text style={[s.marcador, activo && s.marcadorActivo]}>
-                {m.gamesA}–{m.gamesB}
-              </Text>
-              <Text style={[s.saldo, activo && s.saldoActivo]}>
-                {saldo === 0 ? 'no mueve' : textoDeBalance(saldo)}
-              </Text>
-            </Pressable>
-          );
-        })}
+      {/* LAS DOS CASILLAS. Escribir una completa la otra hasta seis. */}
+      <View style={s.casillas}>
+        <TextInput
+          value={textoA}
+          onChangeText={(v) => escribir('a', v)}
+          keyboardType="number-pad"
+          maxLength={1}
+          editable={!guardando}
+          placeholder="–"
+          placeholderTextColor={color.muted}
+          style={[s.casilla, errorDeFormato && s.casillaMala]}
+          accessibilityLabel={`Games de ${nombreA}`}
+        />
+        <Text style={s.guion}>–</Text>
+        <TextInput
+          value={textoB}
+          onChangeText={(v) => escribir('b', v)}
+          keyboardType="number-pad"
+          maxLength={1}
+          editable={!guardando}
+          placeholder="–"
+          placeholderTextColor={color.muted}
+          style={[s.casilla, errorDeFormato && s.casillaMala]}
+          accessibilityLabel={`Games de ${nombreB}`}
+        />
       </View>
 
       {marcador && !fallo && (
@@ -215,25 +269,19 @@ const s = StyleSheet.create({
     letterSpacing: 0.6,
   },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  boton: {
-    minWidth: 88,
-    flexGrow: 1,
-    minHeight: touchTarget + 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    paddingVertical: space[2.5],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+  casillas: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: space[3], marginVertical: space[2],
+  },
+  casilla: {
+    width: 76, height: 76, textAlign: 'center',
+    fontFamily: font.display, fontSize: fontSize.displayL, color: color.text,
+    borderWidth: 1, borderColor: color.goldMuted, borderRadius: radius.md,
     backgroundColor: color.surface,
   },
-  botonActivo: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.14)' },
-  marcador: { color: color.text, fontFamily: font.display, fontSize: fontSize.metric },
-  marcadorActivo: { color: color.goldBright },
-  saldo: { color: color.muted, fontFamily: font.body, fontSize: fontSize.caption },
-  saldoActivo: { color: color.champagne },
+  casillaMala: { borderColor: color.danger },
+  guion: { fontFamily: font.display, fontSize: fontSize.metric, color: color.muted },
+
 
   resumen: {
     padding: space[3],

@@ -70,3 +70,40 @@ describe('gamesEnJuego — el número que hace honesta la tabla', () => {
     }
   });
 });
+
+// ── LA CAPTURA SE ESCRIBE, NO SE ELIGE ──────────────────────────────────────
+// La pantalla pasó de siete botones a dos casillas. Lo que antes era imposible
+// de teclear ahora hay que rechazarlo, así que la validación es lo único que
+// separa un 4-3 de la base.
+describe('esMarcadorSuma6 como red de la captura escrita', () => {
+  it('acepta los siete marcadores posibles', () => {
+    for (let a = 0; a <= 6; a++) {
+      expect(esMarcadorSuma6(a, 6 - a)).toBe(true);
+    }
+  });
+
+  it('rechaza lo que no suma seis', () => {
+    expect(esMarcadorSuma6(4, 3)).toBe(false); // el dedazo típico
+    expect(esMarcadorSuma6(5, 5)).toBe(false);
+    expect(esMarcadorSuma6(0, 0)).toBe(false);
+    expect(esMarcadorSuma6(7, -1)).toBe(false);
+  });
+
+  it('rechaza negativos aunque sumen seis', () => {
+    expect(esMarcadorSuma6(-1, 7)).toBe(false);
+    expect(esMarcadorSuma6(8, -2)).toBe(false);
+  });
+
+  it('rechaza lo que no es un entero', () => {
+    expect(esMarcadorSuma6(3.5, 2.5)).toBe(false);
+    expect(esMarcadorSuma6(Number.NaN, 6)).toBe(false);
+  });
+
+  // El autocompletado de la pantalla: escribir un lado rellena el otro. Esto
+  // fija que la cuenta que hace es la correcta para los siete casos.
+  it('el complemento hasta seis siempre da un marcador válido', () => {
+    for (let a = 0; a <= 6; a++) {
+      expect(esMarcadorSuma6(a, GAMES_POR_PARTIDO - a)).toBe(true);
+    }
+  });
+});
