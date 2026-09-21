@@ -41,9 +41,21 @@
  *   `clean-qa.mjs`— y fuera de los rangos de los otros sembradores:
  *   seed-qa 100–799, seed-cimepa 1000–1799, completar-parejas 2000–2799.
  *
+ * ► METER UNA PAREJA DE VERDAD
+ *   `--pareja correo1,correo2` inscribe a dos cuentas que YA existen antes de
+ *   rellenar con las de prueba. Es para no tener que pasar por la pantalla de
+ *   inscripción cada vez que se rehace el torneo, sin perder el poder mirar la
+ *   tabla y reconocerse en ella: un torneo de prueba entero de nombres
+ *   inventados se lee peor que uno donde sale el tuyo.
+ *
+ *   No crea esas cuentas. Si un correo no existe, para y lo dice: crear una
+ *   cuenta de verdad desde un sembrador de QA es justo como se acaba con un
+ *   duplicado de alguien real.
+ *
  * USO
  *   node scripts/completar-expres.mjs <tournament_id>
  *   node scripts/completar-expres.mjs <tournament_id> --dry
+ *   node scripts/completar-expres.mjs <tournament_id> --pareja ana@x.com,luis@y.com
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -120,6 +132,15 @@ async function main() {
   const argv = process.argv.slice(2);
   const tournamentId = argv.find((a) => !a.startsWith('--'));
   const dry = argv.includes('--dry');
+
+  const iPareja = argv.indexOf('--pareja');
+  const correosPareja = iPareja >= 0
+    ? (argv[iPareja + 1] ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+    : [];
+  if (iPareja >= 0 && correosPareja.length !== 2) {
+    console.error('\n  --pareja necesita DOS correos separados por coma.\n');
+    process.exit(1);
+  }
   if (!tournamentId) {
     console.error('\n  node scripts/completar-expres.mjs <tournament_id> [--dry]\n');
     process.exit(1);
@@ -205,6 +226,40 @@ async function main() {
     ocupado.add(p.player2_id);
   }
 
+  // ── 4.bis · La pareja de verdad, si se pidió ──────────────────────────────
+  let creadaReal = 0;
+  if (correosPareja.length === 2) {
+    const { data: reales } = await s
+      .from('users').select('id, full_name, email').in('email', correosPareja);
+
+    const faltan = correosPareja.filter((c) => !(reales ?? []).some((u) => u.email === c));
+    if (faltan.length) {
+      alto(`No existe(n) en la base: ${faltan.join(', ')}. Este script NO crea cuentas ` +
+           'reales: hazlo desde la app y vuelve.');
+    }
+    // En el orden en que se pidieron, no en el que los devolvió la base: el
+    // primero es player1 y eso decide quién sale primero en la tabla.
+    const [u1, u2] = correosPareja.map((c) => reales.find((u) => u.email === c));
+    if (u1.id === u2.id) alto('Los dos correos son la misma persona.');
+
+    if (ocupado.has(u1.id) || ocupado.has(u2.id)) {
+      log(`\n  ${u1.full_name} / ${u2.full_name} ya está inscrita. No se duplica.`);
+    } else {
+      const { error } = await s.from('pairs').insert({
+        tournament_id:       tournamentId,
+        category_id:         cat.id,
+        player1_id:          u1.id,
+        player2_id:          u2.id,
+        payment_status:      'paid_offline',
+        schedule_preference: 'any',
+      });
+      if (error) alto(`Insertando la pareja real: ${error.message}`);
+      ocupado.add(u1.id); ocupado.add(u2.id);
+      creadaReal = 1;
+      log(`\n  Pareja real inscrita: ${u1.full_name} / ${u2.full_name}`);
+    }
+  }
+
   // ── 5. Las personas ───────────────────────────────────────────────────────
   // Se reutilizan por correo, así que correr esto dos veces no duplica a nadie.
   const { data: yaUsuarios } = await s
@@ -243,7 +298,10 @@ async function main() {
   const [g1, g2] = generosDe(cat.gender);
   const aInsertar = [];
 
-  for (let k = 0; k < faltan; k++) {
+  // La real ya ocupa un sitio del cupo.
+  const porSembrar = faltan - creadaReal;
+
+  for (let k = 0; k < porSembrar; k++) {
     // El índice arranca donde acaban las que ya había, para que dos corridas
     // no se pisen ni dejen huecos.
     const i = BASE + (hay + k) * 2;
@@ -267,7 +325,7 @@ async function main() {
     const { error } = await s.from('pairs').insert(aInsertar.slice(i, i + 50));
     if (error) alto(`Insertando parejas: ${error.message}`);
   }
-  log(`  ${aInsertar.length} parejas insertadas.`);
+  log(`  ${aInsertar.length} parejas de prueba insertadas.`);
 
   // ── 6. Verificación: se relee la base ─────────────────────────────────────
   //
