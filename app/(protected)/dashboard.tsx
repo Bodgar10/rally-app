@@ -53,6 +53,7 @@ import { ordenDelDashboard } from '@/lib/orden-del-dashboard';
 import { webContentColumn, bottomInset, organizerEntryInHeader } from '@/lib/web-layout';
 import { RankingBadge } from '@/components/tournament/RankingBadge';
 import MiSituacion, { type SituacionResuelta } from '@/components/player/MiSituacion';
+import MiSituacionExpres from '@/components/expres/MiSituacionExpres';
 import ProximoRival from '@/components/player/ProximoRival';
 import PreguntaDelPerfil from '@/components/player/PreguntaDelPerfil';
 import TorneosParaTi from '@/components/player/TorneosParaTi';
@@ -491,7 +492,11 @@ export default function DashboardScreen() {
 
         {pairIds.length > 0 && (
           <View style={{ marginBottom: space[4] }}>
+            {/* Los dos se montan y cada uno se calla cuando no le toca: el
+                largo razona sobre victorias y puntos, el exprés sobre saldo
+                de games. Ver la cabecera de `MiSituacionExpres`. */}
             <MiSituacion pairIds={pairIds} onResuelta={setSituacion} />
+            <MiSituacionExpres pairIds={pairIds} />
           </View>
         )}
 

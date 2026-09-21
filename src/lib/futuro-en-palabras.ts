@@ -398,11 +398,19 @@ export function comoSeClasifica(args: {
   const { categoria, grupos, pasanPorGrupo, repescados } = args;
   if (grupos <= 0 || pasanPorGrupo <= 0) return null;
 
+  // ► "LOS 8 QUE PASAN DE CADA GRUPO" ERA FALSO.
+  //   Esta rama multiplicaba por el número de grupos y luego decía "de CADA
+  //   grupo", así que un exprés —2 grupos, pasan 4— anunciaba que de cada
+  //   grupo pasaban ocho, o sea el grupo entero. El número de arriba es el
+  //   total y el de abajo es por grupo; mezclarlos en la misma frase es lo
+  //   que la hacía mentir.
   const directos = pasanPorGrupo === 1
     ? `${grupos === 1 ? 'el primero' : `los ${grupos} primeros`} de grupo`
     : pasanPorGrupo === 2
       ? `los ${grupos * 2} primeros y segundos de grupo`
-      : `los ${grupos * pasanPorGrupo} que pasan de cada grupo`;
+      : grupos === 1
+        ? `los ${pasanPorGrupo} primeros`
+        : `los ${pasanPorGrupo} primeros de cada grupo, ${grupos * pasanPorGrupo} en total`;
 
   // La posición de los repescados sale de cuántos pasan directo: con 1 por
   // grupo son los mejores SEGUNDOS; con 2, los mejores terceros.

@@ -283,7 +283,7 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
   const [{ data: cat }, { data: partidos }, { data: gruposCat }, { count: parejasEnCategoria }] = await Promise.all([
     supabase
       .from('categories')
-      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name, tier )')
+      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name, tier, modo )')
       .eq('id', categoryId)
       .maybeSingle(),
     // `match_sets` para el motor: sin los games no puede resolver los empates,
@@ -298,6 +298,24 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
     // `parejasEnCategoria` del motor de puntos.
     supabase.from('pairs').select('*', { count: 'exact', head: true }).eq('category_id', categoryId),
   ]);
+
+  /**
+   * ► UN EXPRÉS NO PASA POR AQUÍ.
+   *
+   *   Este componente cuelga del motor de `futuro`, que razona sobre
+   *   victorias y puntos: enumera escenarios con una máscara de DOS salidas
+   *   por partido y decide si has empezado mirando `winnerPairId`. En un suma
+   *   6 no hay ganador y hay SIETE salidas, así que no daba respuestas malas:
+   *   daba imposibles. El síntoma era la tarjeta diciendo "Todavía no has
+   *   jugado" encima de "Vas 1.º de tu grupo con 1 partido jugado".
+   *
+   *   Lo suyo lo pinta `MiSituacionExpres`, con `computeClinchExpres`. Los dos
+   *   se montan en el dashboard y cada uno se calla cuando no le toca.
+   */
+  if ((cat as unknown as { tournaments?: { modo?: string | null } | null } | null)
+        ?.tournaments?.modo === 'expres') {
+    return null;
+  }
 
   const c = cat as unknown as {
     display_name: string; tournament_id: string;
