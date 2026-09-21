@@ -42,6 +42,7 @@
  */
 
 import { DEFAULT_BAND_CONFIG } from '@/lib/engine/rating/category-bands';
+import { DIVISIONES, NOMBRE_DIVISION } from '@/lib/divisiones';
 import type { Division } from '@/lib/engine/types';
 
 /** RD por debajo de la cual el rating significa algo. Gemelo del motor. */
@@ -50,17 +51,15 @@ export const RD_FIABLE = DEFAULT_BAND_CONFIG.rdConfidentThreshold;
 /** RD de arranque de Glicko-2. Gemelo del esquema (player_ratings default). */
 export const RD_INICIAL = 350;
 
-export const NOMBRE_DIVISION: Record<Division, string> = {
-  primera: 'Primera',
-  segunda: 'Segunda',
-  tercera: 'Tercera',
-  cuarta: 'Cuarta',
-  quinta: 'Quinta',
-  sexta: 'Sexta',
-};
+/**
+ * Se reexporta y no se declara: la lista vive en `@/lib/divisiones`, que es el
+ * único sitio donde están las siete y donde la compilación comprueba que no
+ * falte ninguna. Sigue saliendo por aquí porque media app la importa de aquí.
+ */
+export { NOMBRE_DIVISION } from '@/lib/divisiones';
 
 /** De menor a mayor. Gemelo del orden de DEFAULT_BANDS. */
-const ESCALERA: Division[] = ['sexta', 'quinta', 'cuarta', 'tercera', 'segunda', 'primera'];
+const ESCALERA = DIVISIONES;
 
 /** Dónde cae su rating medido respecto a la banda de su división. */
 export type PosicionEnLaBanda = 'abajo' | 'dentro' | 'arriba';

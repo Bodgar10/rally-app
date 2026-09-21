@@ -1972,7 +1972,8 @@ function combineOpponentPair(a, b) {
 
 // src/lib/engine/rating/category-bands.ts
 var DEFAULT_BANDS = [
-  { division: "sexta", min: -Infinity, max: 1399 },
+  { division: "septima", min: -Infinity, max: 1249 },
+  { division: "sexta", min: 1250, max: 1399 },
   { division: "quinta", min: 1400, max: 1549 },
   { division: "cuarta", min: 1550, max: 1699 },
   { division: "tercera", min: 1700, max: 1849 },

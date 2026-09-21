@@ -11,8 +11,20 @@ export interface Band {
 }
 
 // Bandas ascendentes (Doc B §7). min/max ilustrativos.
+//
+// ► LA SÉPTIMA ES EL SUELO, Y ANTES LO ERA LA SEXTA (migración 084)
+//   Los torneos reales de la zona se juegan de 3ª a 7ª, así que la séptima
+//   tuvo que existir. Al añadirla, la sexta dejó de ser "todo lo que haya por
+//   debajo de 1400" y pasó a ser una banda normal de 150 puntos, como las
+//   cuatro de encima; el (-Infinity) se lo queda la séptima, que es la nueva
+//   entrada.
+//
+//   El ancho de 150 no es arbitrario: es el que ya tenían quinta, cuarta,
+//   tercera y segunda. Partir el suelo en 1250 mantiene la escalera regular en
+//   vez de inventar un escalón distinto para la banda nueva.
 export const DEFAULT_BANDS: Band[] = [
-  { division: 'sexta', min: -Infinity, max: 1399 },
+  { division: 'septima', min: -Infinity, max: 1249 },
+  { division: 'sexta', min: 1250, max: 1399 },
   { division: 'quinta', min: 1400, max: 1549 },
   { division: 'cuarta', min: 1550, max: 1699 },
   { division: 'tercera', min: 1700, max: 1849 },

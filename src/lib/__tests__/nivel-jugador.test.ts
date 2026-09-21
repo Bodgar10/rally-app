@@ -98,9 +98,25 @@ describe('dónde está dentro de SU división', () => {
     expect(textoDeSiguientePaso(n)).not.toMatch(/quinta|deberías|bajar/i);
   });
 
-  it('sexta y primera no tienen borde por fuera: nunca salen de su banda', () => {
-    expect(nivelDelJugador('sexta', 900, 60, 40).posicion).toBe('dentro');
+  // LAS DOS DE LOS EXTREMOS. Séptima abre por abajo y primera por arriba, así
+  // que por ese lado no tienen borde del que salirse.
+  //
+  // Era la sexta la que abría por abajo hasta que se añadió la séptima
+  // (migración 084). Este test lo fija: si alguien vuelve a poner el
+  // -Infinity en la sexta, la séptima deja de ser el suelo y esto lo caza.
+  it('séptima y primera no tienen borde por fuera: nunca salen de su banda', () => {
+    expect(nivelDelJugador('septima', 900, 60, 40).posicion).toBe('dentro');
     expect(nivelDelJugador('primera', 2500, 60, 40).posicion).toBe('dentro');
+  });
+
+  it('la sexta ya SÍ tiene los dos bordes: es una banda normal de 150', () => {
+    expect(nivelDelJugador('sexta', 900, 60, 40).posicion).toBe('abajo');
+    expect(nivelDelJugador('sexta', 1300, 60, 40).posicion).toBe('dentro');
+    expect(nivelDelJugador('sexta', 1450, 60, 40).posicion).toBe('arriba');
+  });
+
+  it('desde la séptima el siguiente paso es la sexta, no la quinta', () => {
+    expect(nivelDelJugador('septima', 1200, 60, 40).siguiente).toBe('sexta');
   });
 });
 

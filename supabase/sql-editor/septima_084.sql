@@ -1,0 +1,69 @@
+-- ════════════════════════════════════════════════════════════════════
+-- RALLY · PARA COPIAR Y PEGAR EN EL SQL EDITOR
+--
+--   Una sola migración: 084_septima_division.sql
+--
+--   ES UNA LÍNEA. Añade 'septima' al enum `division`, colocada ANTES de
+--   'sexta' para que el orden del enum siga yendo de menor a mayor.
+--
+--   ES IDEMPOTENTE (`if not exists`): correrlo dos veces no hace nada.
+--
+--   NO HAY QUE REDESPLEGAR NINGUNA EDGE FUNCTION. Ninguna tiene la lista
+--   de divisiones escrita: `cron-recompute-ratings` las lee de
+--   `categories.division`, o sea de lo que el organizador dé de alta.
+--
+--   COMPROBACIÓN (en una ejecución APARTE, después de que esto confirme —
+--   Postgres no deja usar un valor de enum en la misma transacción en que
+--   se añade):
+--
+--     select unnest(enum_range(null::public.division));
+--
+--     -- orden esperado:
+--     --   septima, sexta, quinta, cuarta, tercera, segunda, primera
+-- ════════════════════════════════════════════════════════════════════
+
+-- 084_septima_division.sql  ·  RALLY
+--
+-- LA SÉPTIMA
+--
+-- ► POR QUÉ HACE FALTA
+--   El enum `division` nació con seis (001) y la sexta era el suelo. Pero los
+--   torneos reales de la zona se juegan de 3ª a 7ª: sin séptima, todo un
+--   grupo de parejas —el más numeroso, el de quien lleva menos tiempo
+--   jugando— no tiene dónde inscribirse.
+--
+-- ► VA ANTES DE 'sexta', Y ESO IMPORTA
+--   El enum está ordenado de MENOR a MAYOR —sexta, quinta, cuarta, tercera,
+--   segunda, primera— y ese orden es el que usa Postgres al comparar y al
+--   ordenar. `add value` sin posición lo habría puesto al FINAL, o sea por
+--   encima de primera: la séptima habría salido como la división más alta en
+--   cualquier `order by division`.
+--
+-- ► NO VA DENTRO DE UNA TRANSACCIÓN, Y TAMPOCO ES UN DESCUIDO
+--   Postgres deja añadir un valor a un enum dentro de un bloque de
+--   transacción, pero NO deja usarlo hasta que esa transacción confirma. Esta
+--   migración no lo usa —solo lo declara— pero se deja fuera de begin/commit
+--   para que nada de lo que venga después tropiece con esa regla.
+--
+-- ► LAS BANDAS DE RATING SE PARTEN EN EL CÓDIGO, NO AQUÍ
+--   La sexta era "todo lo que esté por debajo de 1400". Ahora la séptima es
+--   el suelo y la sexta pasa a ser 1250-1399, del mismo ancho que las demás
+--   (150 puntos). Eso vive en `DEFAULT_BANDS` (src/lib/engine/rating/
+--   category-bands.ts) y en el bundle de las Edge Functions, no en la base:
+--   la base guarda en QUÉ división compite cada quien, no cuál le tocaría.
+--
+--   Consecuencia de la que conviene estar sobre aviso: quien tenga un rating
+--   medido por debajo de 1250 pasa a leerse como séptima donde antes se leía
+--   sexta. No cambia dónde compite —eso es `player_ratings.division`, y no se
+--   toca— solo dónde diría el rating que encaja.
+
+alter type public.division add value if not exists 'septima' before 'sexta';
+
+-- ────────────────────────────────────────────────────────────
+-- COMPROBACIÓN (ejecutar aparte, DESPUÉS de que esto confirme)
+--
+--   select unnest(enum_range(null::public.division));
+--
+--   -- Tiene que salir en este orden:
+--   --   septima, sexta, quinta, cuarta, tercera, segunda, primera
+-- ────────────────────────────────────────────────────────────

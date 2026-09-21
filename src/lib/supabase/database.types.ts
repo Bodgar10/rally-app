@@ -2544,6 +2544,7 @@ export type Database = {
       connect_status: "pending" | "onboarding" | "active" | "restricted"
       court_speed: "slow" | "medium" | "fast"
       division:
+        | "septima"
         | "sexta"
         | "quinta"
         | "cuarta"
@@ -2729,7 +2730,15 @@ export const Constants = {
       clinch_status: ["clinched", "eliminated", "alive", "repechage_pending"],
       connect_status: ["pending", "onboarding", "active", "restricted"],
       court_speed: ["slow", "medium", "fast"],
-      division: ["sexta", "quinta", "cuarta", "tercera", "segunda", "primera"],
+      division: [
+        "septima",
+        "sexta",
+        "quinta",
+        "cuarta",
+        "tercera",
+        "segunda",
+        "primera",
+      ],
       feedback_type: [
         "general",
         "feature_request",

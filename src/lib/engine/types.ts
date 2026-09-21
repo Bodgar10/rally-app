@@ -5,6 +5,7 @@
 // las Edge Functions / componentes que invocan a los motores.
 
 export type Division =
+  | 'septima'
   | 'sexta'
   | 'quinta'
   | 'cuarta'

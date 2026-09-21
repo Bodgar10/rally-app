@@ -34,6 +34,7 @@ import { useVolver } from '@/hooks/useVolver';
 import { supabase } from '@/lib/supabase/client';
 import { cumplirPaso } from '@/lib/guia-store';
 import type { Database } from '@/lib/supabase/database.types';
+import { DIVISIONES_DESC, ETIQUETA_DIVISION } from '@/lib/divisiones';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -41,21 +42,23 @@ import BotonVolver from '@/components/ui/BotonVolver';
 // ── Modelo ──────────────────────────────────────────────────────────────────
 
 /**
- * Los enums salen del esquema generado, no de literales escritos a mano. Si
- * alguien añade una división en la base y regenera los tipos, la lista de abajo
- * deja de compilar hasta que se actualice — que es exactamente lo que queremos.
+ * Los enums salen del esquema generado, no de literales escritos a mano.
+ *
+ * ► LA LISTA DE DIVISIONES YA NO SE ESCRIBE AQUÍ
+ *   Estaba copiada, con un `satisfies` y un comentario que prometía que si
+ *   alguien añadía una división esto dejaría de compilar. No era cierto:
+ *   `satisfies` comprueba que cada elemento encaje en el tipo, no que estén
+ *   todos, así que quitar una compilaba sin una queja. Ahora sale de
+ *   `@/lib/divisiones`, que sí lo comprueba y es el único sitio donde están.
  */
 type Division = Database['public']['Enums']['division'];
 type Genero   = Database['public']['Enums']['category_gender'];
 
-const DIVISIONES = [
-  { valor: 'sexta',   etiqueta: '6ª' },
-  { valor: 'quinta',  etiqueta: '5ª' },
-  { valor: 'cuarta',  etiqueta: '4ª' },
-  { valor: 'tercera', etiqueta: '3ª' },
-  { valor: 'segunda', etiqueta: '2ª' },
-  { valor: 'primera', etiqueta: '1ª' },
-] as const satisfies ReadonlyArray<{ valor: Division; etiqueta: string }>;
+/** De la más alta a la más baja: 1ª arriba, que es como se leen en un cartel. */
+const DIVISIONES = DIVISIONES_DESC.map((valor) => ({
+  valor,
+  etiqueta: ETIQUETA_DIVISION[valor],
+}));
 
 /** Los tres del enum. Ver cabecera. */
 const GRUPOS = [

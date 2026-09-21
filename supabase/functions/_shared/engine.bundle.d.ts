@@ -1,4 +1,4 @@
-type Division = 'sexta' | 'quinta' | 'cuarta' | 'tercera' | 'segunda' | 'primera';
+type Division = 'septima' | 'sexta' | 'quinta' | 'cuarta' | 'tercera' | 'segunda' | 'primera';
 type FormatType = 'round_robin' | 'groups_then_knockout' | 'knockout_only';
 type KnockoutStart = 'final' | 'semi' | 'quarter' | 'r16' | 'r32';
 type Stage = 'group' | 'round_of_32' | 'round_of_16' | 'quarter' | 'semi' | 'final' | 'third_place';
@@ -1125,8 +1125,22 @@ interface OpponentResult {
  * Si no hay oponentes, solo infla RD por inactividad (φ* = sqrt(φ² + σ²)).
  */
 declare function updateRating(player: GlickoRating, opponents: OpponentResult[], tau?: number): GlickoRating;
-/** Combina dos rivales en un oponente virtual: rating promedio, RD media cuadrática. */
-declare function combineOpponentPair(a: GlickoRating, b: GlickoRating): {
+/**
+ * Combina dos rivales en un oponente virtual: rating promedio, RD media
+ * cuadrática.
+ *
+ * Pide solo `rating` y `rd` —y no un `GlickoRating` entero— porque son los
+ * únicos que usa. Exigir además la volatilidad obligaba a inventarse un valor
+ * a quien solo quiere saber cuánto vale una pareja, que es justo lo que
+ * necesita el scouting.
+ */
+declare function combineOpponentPair(a: {
+    rating: number;
+    rd: number;
+}, b: {
+    rating: number;
+    rd: number;
+}): {
     rating: number;
     rd: number;
 };

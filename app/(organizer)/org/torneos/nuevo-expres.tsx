@@ -39,25 +39,30 @@ import VenuePicker, { type Venue } from '@/components/organizer/VenuePicker';
 import CalendarioRango from '@/components/ui/CalendarioRango';
 import { type RangoSeleccion } from '@/lib/rango-fechas';
 import { TIER_EXPRES, opcionDeTier } from '@/lib/tier-torneo';
+import { DIVISIONES_DESC, ETIQUETA_DIVISION, NOMBRE_DIVISION } from '@/lib/divisiones';
+import type { Division } from '@/lib/engine/types';
 import CrearExpres, { type ConfigExpres } from '@/components/expres/CrearExpres';
 import type { PlanExpres } from '@/lib/engine/expres';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
-type Division = 'sexta' | 'quinta' | 'cuarta' | 'tercera' | 'segunda' | 'primera';
 type Genero = 'male' | 'female' | 'mixed';
 
-const DIVISIONES: { v: Division; t: string }[] = [
-  { v: 'primera', t: '1ª' }, { v: 'segunda', t: '2ª' }, { v: 'tercera', t: '3ª' },
-  { v: 'cuarta', t: '4ª' }, { v: 'quinta', t: '5ª' }, { v: 'sexta', t: '6ª' },
-];
+/**
+ * ► LA LISTA Y LOS NOMBRES SALÍAN DE AQUÍ, ESCRITOS A MANO
+ *   Esta pantalla tenía su propio `type Division` con las seis divisiones
+ *   literales, su propia lista de chips y su propio `NOMBRE_DIVISION`. Al
+ *   añadir la séptima (migración 084) nada de esto habría dejado de compilar:
+ *   el alta del exprés se habría quedado sin la división nueva en silencio.
+ *
+ *   Ahora sale de `@/lib/divisiones`, que es el único sitio donde están las
+ *   siete y donde la compilación comprueba que no falte ninguna.
+ */
+const DIVISIONES = DIVISIONES_DESC.map((v) => ({ v, t: ETIQUETA_DIVISION[v] }));
+
 const GENEROS: { v: Genero; t: string }[] = [
   { v: 'male', t: 'Varonil' }, { v: 'female', t: 'Femenil' }, { v: 'mixed', t: 'Mixto' },
 ];
-const NOMBRE_DIVISION: Record<Division, string> = {
-  primera: 'Primera', segunda: 'Segunda', tercera: 'Tercera',
-  cuarta: 'Cuarta', quinta: 'Quinta', sexta: 'Sexta',
-};
 
 /** La semilla del sorteo. Se genera UNA vez y se guarda: ver expres_config. */
 function nuevaSemilla(): string {

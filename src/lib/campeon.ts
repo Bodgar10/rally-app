@@ -32,11 +32,13 @@ import { leerConReintento } from '@/lib/lectura-reintentada';
 import { fetchPuntosDelPartido } from '@/lib/puntos-de-la-ronda';
 
 /**
- * De menor a mayor. `primera` es la división más alta, `sexta` la de entrada:
+ * De menor a mayor. `primera` es la división más alta, `septima` la de entrada:
  * el mismo orden ascendente que `DEFAULT_BANDS` del motor de rating, que las
  * ordena por el rating que hace falta para estar en cada una.
  */
-const DIVISION: string[] = ['sexta', 'quinta', 'cuarta', 'tercera', 'segunda', 'primera'];
+const DIVISION: string[] = [
+  'septima', 'sexta', 'quinta', 'cuarta', 'tercera', 'segunda', 'primera',
+];
 
 /** Una final ganada, tal como está en la base. */
 export interface FinalGanada {
@@ -54,7 +56,7 @@ export interface FinalGanada {
  * De todas las finales que ganó, la que se enseña.
  *
  * UN SOLO CAMPEONATO A LA VEZ. Con dos en el mismo fin de semana manda el de la
- * división MÁS ALTA: ganar la primera pesa más que ganar la sexta, y dos
+ * división MÁS ALTA: ganar la primera pesa más que ganar la séptima, y dos
  * trofeos en la misma pantalla se estorban. El otro sigue existiendo en sus
  * resultados y en su ranking.
  *

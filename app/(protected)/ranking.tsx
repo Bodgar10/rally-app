@@ -25,6 +25,7 @@ import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/database.types';
 import ProyeccionDeRanking from '@/components/player/ProyeccionDeRanking';
+import { ETIQUETA_DIVISION } from '@/lib/divisiones';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -950,23 +951,13 @@ function EmptyRanking() {
 
 // ─── Utils ────────────────────────────────────────────────────────────────
 
-/** Convierte el valor de división del enum a etiqueta legible.
- *  Enum real public.division = primera..sexta (solo tier). Se mantienen también
- *  las claves con sufijo de género por compatibilidad futura. */
 /**
- * Etiqueta corta de una división. El parámetro es el enum del esquema, así que
- * el mapa solo puede tener las seis claves que existen — las variantes
- * `*_varonil` / `*_femenil` / `*_mixto` que vivían aquí eran de un esquema
- * anterior y ninguna llamada podía alcanzarlas.
+ * Etiqueta corta de una división: "3ª".
+ *
+ * El mapa vive en `@/lib/divisiones` y no aquí. Tenía su propia copia de las
+ * seis claves y al añadir la séptima (migración 084) había que acordarse de
+ * esta pantalla además de las otras tres que también la copiaban.
  */
 function labelForDivision(value: Division): string {
-  const map: Record<Division, string> = {
-    primera: '1ª',
-    segunda: '2ª',
-    tercera: '3ª',
-    cuarta: '4ª',
-    quinta: '5ª',
-    sexta: '6ª',
-  };
-  return map[value] ?? value;
+  return ETIQUETA_DIVISION[value] ?? value;
 }
