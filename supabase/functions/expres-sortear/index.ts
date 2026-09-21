@@ -99,7 +99,18 @@ Deno.serve(async (req) => {
       admin.from('expres_config').select('*').eq('tournament_id', cat.tournament_id).maybeSingle(),
       admin.from('expres_etapa').select('stage, formato, minutos').eq('tournament_id', cat.tournament_id),
       admin.from('tournament_windows').select('dia, desde, hasta').eq('tournament_id', cat.tournament_id).order('dia'),
-      admin.from('pairs').select('id').eq('category_id', categoryId).order('id'),
+      // ► SOLO LAS QUE PAGARON, igual que el camino largo.
+      //   Antes se tomaban TODAS las parejas de la categoría, así que una
+      //   inscripción en 'pending' entraba al sorteo. `close-registration`
+      //   nunca las contó; que el exprés sí lo hiciera era la misma pregunta
+      //   con dos respuestas. `sembrar_expres` lo comprueba otra vez del lado
+      //   de la base: aquí se filtra para que el reparto salga bien, allí
+      //   para que no se pueda escribir mal aunque se llame por otro camino.
+      admin.from('pairs')
+        .select('id')
+        .eq('category_id', categoryId)
+        .in('payment_status', ['paid_online', 'paid_offline', 'comp'])
+        .order('id'),
     ]);
 
     const torneo = torneoRes.data;

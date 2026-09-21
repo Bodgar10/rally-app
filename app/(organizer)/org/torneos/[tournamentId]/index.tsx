@@ -659,19 +659,37 @@ export default function OrgTournamentScreen() {
              DORADA, igual que "Abrir inscripciones" en draft: es la acción
              principal del torneo en este estado y no destruye nada. Esta
              tarjeta solo NAVEGA; el cierre real se elige y se confirma
-             categoría por categoría en la pantalla de destino. */}
+             categoría por categoría en la pantalla de destino.
+
+             ► EN UN EXPRÉS NO SE CIERRA: SE SORTEA, Y ES EL MISMO GESTO.
+               Esta tarjeta llevaba al organizador de un exprés a una pantalla
+               que le exigía que las parejas eligieran horario — algo que en un
+               exprés no existe, porque el calendario entero sale del sorteo.
+               Se quedaba ahí, con "No se cerró ninguna categoría" y sin
+               ninguna salida. El sorteo cierra la categoría y arranca el
+               torneo en la misma transacción (migración 085). */}
         {esAbierto && abiertas.length > 0 && (
           <>
             <Text style={s.seccion}>SIGUIENTE PASO</Text>
             <Pressable
-              onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`)}
+              onPress={() => router.push(
+                esExpres
+                  ? `/(organizer)/org/torneos/${tournamentId}/expres`
+                  : `/(organizer)/org/torneos/${tournamentId}/cerrar-inscripciones`,
+              )}
               style={({ pressed }) => [s.btnSiguientePaso, pressed && { opacity: 0.85 }]}
               accessibilityRole="button"
-              accessibilityLabel="Cerrar inscripciones"
+              accessibilityLabel={esExpres ? 'Sortear los grupos' : 'Cerrar inscripciones'}
             >
-              <Text style={s.btnSiguientePasoTexto}>Cerrar inscripciones</Text>
+              <Text style={s.btnSiguientePasoTexto}>
+                {esExpres ? 'Sortear los grupos' : 'Cerrar inscripciones'}
+              </Text>
               <Text style={s.btnSiguientePasoSub}>
-                {abiertas.length === categories.length
+                {esExpres
+                  ? 'El sorteo reparte las parejas en los dos grupos, arma las cinco '
+                    + 'rondas con sus horas y sus canchas, y cierra las inscripciones. '
+                    + 'Se hace una sola vez.'
+                  : abiertas.length === categories.length
                   ? 'Eliges qué categorías cerrar y ves la vista previa de grupos y cuadro de cada una antes de confirmar.'
                   : `Quedan ${abiertas.length} de ${categories.length} sin cerrar: ${resumenCategorias(abiertas)}.`}
               </Text>

@@ -735,10 +735,13 @@ export default function CerrarInscripcionesScreen() {
       // Cast hasta que se aplique la 044 y se corra `npm run types:db`.
       (supabase.from as unknown as (v: string) => {
         select: (c: string) => { eq: (c: string, v: string) => {
-          single: () => Promise<{ data: { name: string; courts: number | null; match_minutes: number | null } | null }>;
+          single: () => Promise<{ data: {
+            name: string; courts: number | null; match_minutes: number | null;
+            modo: string | null;
+          } | null }>;
         } };
       })('tournaments')
-        .select('name, courts, match_minutes, tercer_lugar').eq('id', tournamentId).single(),
+        .select('name, courts, match_minutes, tercer_lugar, modo').eq('id', tournamentId).single(),
       supabase.from('categories')
         .select('id, display_name, status, num_groups, advance_per_group, best_extra_qualifiers')
         .eq('tournament_id', tournamentId).order('division'),
@@ -751,6 +754,25 @@ export default function CerrarInscripcionesScreen() {
     ]);
 
     if (t) setNombre(t.name);
+
+    /**
+     * ► UN EXPRÉS NO PASA POR AQUÍ, Y SI LLEGA SE LE SACA.
+     *
+     *   Esta pantalla exige que las parejas hayan elegido horario antes de
+     *   cerrar. En un exprés nadie elige: las cinco rondas salen del sorteo.
+     *   Así que el organizador de un exprés se encontraba con "16 parejas no
+     *   eligieron horario" y "No se cerró ninguna categoría", sin ninguna
+     *   salida y sin forma de saber que estaba en la pantalla equivocada.
+     *
+     *   El panel ya no trae aquí a un exprés, pero la URL sigue existiendo
+     *   —y es justo por ahí como apareció— así que se redirige en vez de
+     *   confiar en que nadie la teclee. Sortear ES cerrar: el sorteo cierra
+     *   la categoría y arranca el torneo en la misma transacción (085).
+     */
+    if (t?.modo === 'expres') {
+      router.replace(`/(organizer)/org/torneos/${tournamentId}/expres`);
+      return;
+    }
 
     const filas = (cats ?? []) as Array<{
       id: string; display_name: string; status: string;
@@ -855,7 +877,7 @@ export default function CerrarInscripcionesScreen() {
       conConteos.filter((c) => c.estado === 'lista' || c.estado === 'ambigua').map((c) => c.id),
     ));
     setFase({ t: 'lista' });
-  }, [tournamentId]);
+  }, [tournamentId, router]);
 
   useFocusEffect(useCallback(() => { void cargar(); }, [cargar]));
 
