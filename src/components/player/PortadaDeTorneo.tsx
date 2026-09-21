@@ -20,10 +20,26 @@
  *   El club va encima de la ciudad y más grande: "Padel District Pedregal" es
  *   lo que alguien busca en el mapa; "CDMX" solo le dice que no está lejos.
  *
- * ► EL MAJOR SE VE DISTINTO ANTES DE LEERLO
- *   Un Major es el torneo grande del calendario y reparte el doble de puntos
- *   de ranking. Lleva banda de oro con gradiente, sello y nombre en dorado; el
- *   P1 una banda discreta de champán; el P2 apenas un filo.
+ * ► LOS TRES SON PORTADAS. LO QUE CAMBIA ES CUÁNTO GRITAN
+ *   El primer intento dejaba al Major con banda de oro y a los otros dos con
+ *   un filo de nada, y eso no era una jerarquía: era un torneo con cartel y
+ *   dos sin cartel. Un P2 sigue siendo el torneo al que alguien va el
+ *   domingo — también merece portada.
+ *
+ *   Así que los tres llevan banda entera, con gradiente, y lo que baja es la
+ *   temperatura:
+ *
+ *     MAJOR  oro (grad-gold) sobre texto oscuro. Banda alta, borde dorado de
+ *            2px y la tarjeta entera con un tinte cálido. Se ve desde el otro
+ *            lado de la pantalla, que es justo lo que es un Major.
+ *     P1     granate (grad-wine). Color propio y rico, claramente un escalón
+ *            abajo del oro sin parecer apagado.
+ *     P2     grafito (grad-hero) con hairline y texto champán. Sobrio, pero
+ *            sigue siendo una banda y sigue siendo una portada.
+ *
+ *   Los tres gradientes son los OFICIALES de Doc D §2.3. No se inventa
+ *   ninguno: el escalón se consigue eligiendo entre los que ya existen, que
+ *   es justo para lo que están.
  *
  *   La jerarquía sale del dato (`destaque` en `@/lib/tier-torneo`), igual que
  *   en el selector del organizador: las dos pantallas dicen lo mismo del mismo
@@ -39,6 +55,31 @@ import { resumenDeDivisiones } from '@/lib/divisiones';
 import { formatearRango } from '@/lib/fechas';
 import { color, font, fontSize, gradient, radius, space } from '@/lib/design-tokens';
 
+/**
+ * El aspecto de cada escalón. Vive junto al componente porque son decisiones
+ * de pintura —qué gradiente, qué color de texto— y no del dominio; lo que sí
+ * es del dominio es CUÁL de los tres le toca a cada torneo, y eso lo dice
+ * `destaque` en `@/lib/tier-torneo`.
+ */
+const BANDA = {
+  maximo: {
+    gradiente: gradient.gold,
+    texto: color.onGold,
+    // El único con la banda alta. Es el torneo grande del calendario.
+    alta: true,
+  },
+  medio: {
+    gradiente: gradient.wine,
+    texto: color.onWine,
+    alta: false,
+  },
+  base: {
+    gradiente: gradient.hero,
+    texto: color.champagne,
+    alta: false,
+  },
+} as const;
+
 export default function PortadaDeTorneo({
   torneo, onPress,
 }: {
@@ -46,8 +87,12 @@ export default function PortadaDeTorneo({
   onPress: () => void;
 }) {
   const tier = torneo.tier ? opcionDeTier(torneo.tier) : null;
-  const esMajor = tier?.destaque === 'maximo';
-  const esP1 = tier?.destaque === 'medio';
+  // Sin tier se pinta como el escalón de abajo: no sabemos qué reparte, así
+  // que no se le pone ni el oro ni el granate.
+  const destaque = tier?.destaque ?? 'base';
+  const esMajor = destaque === 'maximo';
+  const banda = BANDA[destaque];
+
   const categorias = resumenDeDivisiones(torneo.divisiones);
   const motivo = porQueSale(torneo);
 
@@ -63,26 +108,31 @@ export default function PortadaDeTorneo({
       ]}
     >
       {/* ── LA BANDA ─────────────────────────────────────────────────
-          Es lo único que cambia de verdad entre tiers. En el Major ocupa
-          y brilla; en el P2 es un filo que casi no se ve. */}
-      {esMajor ? (
-        <LinearGradient
-          colors={gradient.gold.colors}
-          start={gradient.gold.start}
-          end={gradient.gold.end}
-          style={s.banda}
+          Entera en los tres, con gradiente en los tres. Lo que sube con el
+          tier es la temperatura, no la presencia. */}
+      <LinearGradient
+        colors={banda.gradiente.colors}
+        start={banda.gradiente.start}
+        end={banda.gradiente.end}
+        style={[s.banda, banda.alta && s.bandaAlta]}
+      >
+        <Text
+          style={[s.bandaTitulo, { color: banda.texto }, esMajor && s.bandaTituloMajor]}
         >
-          <Text style={s.bandaMajor}>MAJOR</Text>
-          {torneo.modo === 'expres' && <Text style={s.bandaMajorModo}>EXPRÉS</Text>}
-        </LinearGradient>
-      ) : (
-        <View style={[s.bandaFina, esP1 && s.bandaFinaP1]}>
-          <Text style={[s.bandaTexto, esP1 && s.bandaTextoP1]}>
-            {tier ? tier.titulo.toUpperCase() : 'TORNEO'}
-            {torneo.modo === 'expres' ? '  ·  EXPRÉS' : ''}
-          </Text>
+          {tier ? tier.titulo.toUpperCase() : 'TORNEO'}
+        </Text>
+
+        <View style={s.bandaDerecha}>
+          {torneo.modo === 'expres' && (
+            <Text style={[s.bandaModo, { color: banda.texto }]}>EXPRÉS</Text>
+          )}
+          {tier && (
+            <Text style={[s.bandaPuntos, { color: banda.texto }]}>
+              {tier.multiplicador} puntos
+            </Text>
+          )}
         </View>
-      )}
+      </LinearGradient>
 
       <View style={s.cuerpo}>
         <Text style={[s.nombre, esMajor && s.nombreMajor]} numberOfLines={2}>
@@ -146,37 +196,35 @@ const s = StyleSheet.create({
     backgroundColor: color.surface,
     overflow: 'hidden',
   },
-  tarjetaMajor: { borderColor: color.gold },
+  // El Major se distingue también con la tarjeta apagada: borde de oro y un
+  // tinte cálido en todo el cuerpo, no solo en la banda.
+  tarjetaMajor: {
+    borderWidth: 2,
+    borderColor: color.gold,
+    backgroundColor: 'rgba(212,175,55,0.05)',
+  },
 
-  // La banda del Major: alta, dorada y con el sello dentro.
   banda: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: space[4], paddingVertical: space[2.5],
+    paddingHorizontal: space[4], paddingVertical: space[2.5], gap: space[3],
   },
-  bandaMajor: {
-    fontFamily: font.display, fontSize: fontSize.section, color: color.onGold,
-    letterSpacing: 4, fontWeight: '700',
-  },
-  bandaMajorModo: {
-    fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.onGold,
-    letterSpacing: 2, opacity: 0.75,
-  },
+  bandaAlta: { paddingVertical: space[4] },
 
-  // P1 y P2: un filo, no una banda.
-  bandaFina: {
-    paddingHorizontal: space[4], paddingVertical: space[2],
-    borderBottomWidth: 1, borderBottomColor: color.lineSoft,
-    backgroundColor: 'rgba(255,255,255,0.02)',
+  bandaTitulo: {
+    fontFamily: font.display, fontSize: fontSize.section,
+    letterSpacing: 2.5, fontWeight: '700',
   },
-  bandaFinaP1: {
-    borderBottomColor: color.goldMuted,
-    backgroundColor: 'rgba(233,221,182,0.06)',
+  bandaTituloMajor: { fontSize: fontSize.h1Inline, letterSpacing: 5 },
+
+  bandaDerecha: { alignItems: 'flex-end' },
+  bandaModo: {
+    fontFamily: font.display, fontSize: fontSize.eyebrow,
+    letterSpacing: 2, fontWeight: '700',
   },
-  bandaTexto: {
-    fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.muted,
-    letterSpacing: 2.5,
+  bandaPuntos: {
+    fontFamily: font.body, fontSize: fontSize.minAbsolute,
+    opacity: 0.8,
   },
-  bandaTextoP1: { color: color.champagne },
 
   cuerpo: { padding: space[4], gap: space[1] },
 
