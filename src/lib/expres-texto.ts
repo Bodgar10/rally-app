@@ -71,6 +71,10 @@ const POR_CRITERIO: Record<CriterioExpres, string> = {
   directo: 'por el partido entre ellas',
   manual: 'lo decidió el organizador',
   sin_resolver: 'empate sin resolver',
+  // Empata pero le quedan partidos: el puesto se va a deshacer solo. No se
+  // dice "empate" — no lo es todavía, y decirlo hacía que un grupo recién
+  // sorteado saliera entero en rojo pidiendo resolver algo inexistente.
+  provisional: 'provisional, aún le faltan partidos',
 };
 
 export function explicacionDeCriterio(criterio: CriterioExpres): string {

@@ -330,3 +330,75 @@ describe('lo que rechaza', () => {
     ).toThrow(/Un grupo sin partidos se pasa como \[\]/);
   });
 });
+
+// ── EMPATE PROVISIONAL vs EMPATE DE VERDAD ──────────────────────────────────
+//
+// El grupo recién sorteado salía con las OCHO parejas en rojo y "empate sin
+// resolver" antes de jugarse un punto. Era formalmente cierto —todas a cero y
+// ninguna se enfrentó— y completamente inútil: no hay nada que resolver.
+describe('un empate solo cuenta cuando ya no puede deshacerse solo', () => {
+  const ids = ['p1', 'p2', 'p3', 'p4'];
+
+  /** Los seis cruces de cuatro parejas, sin jugar. */
+  const sinJugar = [
+    { matchId: 'm1', pairAId: 'p1', pairBId: 'p2', gamesA: null, gamesB: null },
+    { matchId: 'm2', pairAId: 'p3', pairBId: 'p4', gamesA: null, gamesB: null },
+    { matchId: 'm3', pairAId: 'p1', pairBId: 'p3', gamesA: null, gamesB: null },
+    { matchId: 'm4', pairAId: 'p2', pairBId: 'p4', gamesA: null, gamesB: null },
+    { matchId: 'm5', pairAId: 'p1', pairBId: 'p4', gamesA: null, gamesB: null },
+    { matchId: 'm6', pairAId: 'p2', pairBId: 'p3', gamesA: null, gamesB: null },
+  ];
+
+  it('recién sorteado NO hay empates que resolver', () => {
+    const t = computeTablaExpres({ pairIds: ids, resultados: sinJugar, clasifican: 2 });
+    expect(t.empatesSinResolver).toEqual([]);
+    expect(t.bloqueaClasificacion).toBe(false);
+  });
+
+  it('y ninguna fila sale marcada en rojo', () => {
+    const t = computeTablaExpres({ pairIds: ids, resultados: sinJugar, clasifican: 2 });
+    expect(t.filas.every((f) => f.criterio === 'provisional')).toBe(true);
+    expect(t.filas.some((f) => f.empateSinResolver)).toBe(false);
+  });
+
+  it('a media fase sigue siendo provisional: el balance todavía puede cambiar', () => {
+    const aMedias = [
+      { matchId: 'm7', pairAId: 'p1', pairBId: 'p2', gamesA: 3, gamesB: 3 },
+      { matchId: 'm8', pairAId: 'p3', pairBId: 'p4', gamesA: 3, gamesB: 3 },
+      ...sinJugar.slice(2),
+    ];
+    const t = computeTablaExpres({ pairIds: ids, resultados: aMedias, clasifican: 2 });
+    expect(t.empatesSinResolver).toEqual([]);
+  });
+
+  // Lo contrario: todo jugado y empatadas de verdad. Aquí SÍ hay que avisar,
+  // que es para lo que existe la pantalla de desempate.
+  it('con TODO jugado y empate real, se marca y puede bloquear', () => {
+    const todoEmpatado = sinJugar.map((r) => ({ ...r, gamesA: 3, gamesB: 3 }));
+    const t = computeTablaExpres({ pairIds: ids, resultados: todoEmpatado, clasifican: 2 });
+    expect(t.grupoTerminado).toBe(true);
+    expect(t.empatesSinResolver).toHaveLength(1);
+    expect(t.empatesSinResolver[0].pairIds).toHaveLength(4);
+    expect(t.bloqueaClasificacion).toBe(true);
+    expect(t.filas.every((f) => f.empateSinResolver)).toBe(true);
+  });
+
+  // El caso fino: dos parejas terminaron LO SUYO con el grupo a medias. Entre
+  // ellas el empate ya es definitivo aunque el grupo siga vivo.
+  it('dos que ya jugaron todo lo suyo SÍ cuentan, aunque el grupo siga abierto', () => {
+    // p1 y p2 juegan sus tres cada una; p3 y p4 no han jugado entre sí.
+    const resultados = [
+      { matchId: 'm9', pairAId: 'p1', pairBId: 'p2', gamesA: 3, gamesB: 3 },
+      { matchId: 'm10', pairAId: 'p1', pairBId: 'p3', gamesA: 3, gamesB: 3 },
+      { matchId: 'm11', pairAId: 'p1', pairBId: 'p4', gamesA: 3, gamesB: 3 },
+      { matchId: 'm12', pairAId: 'p2', pairBId: 'p3', gamesA: 3, gamesB: 3 },
+      { matchId: 'm13', pairAId: 'p2', pairBId: 'p4', gamesA: 3, gamesB: 3 },
+      { matchId: 'm14', pairAId: 'p3', pairBId: 'p4', gamesA: null, gamesB: null },
+    ];
+    const t = computeTablaExpres({ pairIds: ids, resultados, clasifican: 2 });
+    expect(t.grupoTerminado).toBe(false);
+    // p3 y p4 tienen un partido pendiente, así que el bloque de los cuatro
+    // no está cerrado: sigue siendo provisional.
+    expect(t.empatesSinResolver).toEqual([]);
+  });
+});

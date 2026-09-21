@@ -67,7 +67,23 @@ export type CriterioExpres =
   /** Empataba y no había forma de separarlas: lo decidió el organizador. */
   | 'manual'
   /** Empataba y nadie lo ha resuelto todavía. El puesto NO es deportivo. */
-  | 'sin_resolver';
+  | 'sin_resolver'
+  /**
+   * Empata, pero todavía le quedan partidos por jugar.
+   *
+   * ► NO ES UN EMPATE SIN RESOLVER, Y CONFUNDIRLOS ERA EL FALLO
+   *   Recién sorteado el grupo, las ocho parejas están a balance 0 y no se ha
+   *   enfrentado ninguna. Formalmente eso es un bloque empatado que el
+   *   reglamento no separa, así que la tabla salía con las ocho en rojo y
+   *   "empate sin resolver" antes de que se jugara un solo punto.
+   *
+   *   Es verdad y es inútil. Un empate solo es un PROBLEMA cuando ya no se
+   *   puede deshacer solo — es decir, cuando las implicadas jugaron todo lo
+   *   suyo y su balance ya no va a cambiar. Antes de eso el puesto es
+   *   provisional, que es otra cosa: no hay nada que resolver ni nada que
+   *   decidirle al organizador.
+   */
+  | 'provisional';
 
 export interface FilaTablaExpres {
   pairId: string;
@@ -184,6 +200,22 @@ export function computeTablaExpres(entrada: EntradaTablaExpres): TablaExpres {
     return s.gamesFavor - s.gamesContra;
   };
 
+  /**
+   * ¿Esta pareja ya jugó TODO lo suyo?
+   *
+   *   Mientras le quede un partido, su balance puede cambiar y cualquier
+   *   empate en el que esté puede deshacerse solo. Se mide por pareja y no por
+   *   grupo: dos parejas pueden haber terminado sus cinco partidos con el
+   *   grupo a medias, y entre ellas el empate SÍ es definitivo.
+   */
+  const pendientesDe = new Map<string, number>(pairIds.map((id) => [id, 0]));
+  for (const r of resultados) {
+    if (r.gamesA !== null && r.gamesB !== null) continue;
+    pendientesDe.set(r.pairAId, (pendientesDe.get(r.pairAId) ?? 0) + 1);
+    pendientesDe.set(r.pairBId, (pendientesDe.get(r.pairBId) ?? 0) + 1);
+  }
+  const terminoLoSuyo = (id: string) => (pendientesDe.get(id) ?? 0) === 0;
+
   // Orden base: balance descendente. El desempate técnico por id NO es
   // deportivo — existe solo para que la salida sea un orden total y
   // determinista, y las filas afectadas van marcadas.
@@ -225,6 +257,16 @@ export function computeTablaExpres(entrada: EntradaTablaExpres): TablaExpres {
       const manual = ordenDelOrganizador(sub, entrada?.ordenManual, pairIds);
       if (manual) {
         for (const id of manual) filas.push(fila(id, 'manual', []));
+        continue;
+      }
+
+      // ► TODAVÍA LES QUEDAN PARTIDOS: NO HAY EMPATE QUE RESOLVER.
+      //   El puesto es provisional y se va a deshacer solo. No se marca en
+      //   rojo y NO entra en `empatesSinResolver`, así que tampoco puede
+      //   bloquear la clasificación ni pedirle al organizador que decida algo
+      //   que el propio torneo va a decidir en la siguiente ronda.
+      if (!sub.every(terminoLoSuyo)) {
+        for (const id of sub) filas.push(fila(id, 'provisional', []));
         continue;
       }
 

@@ -111,8 +111,14 @@ export default function TablaExpresGrupo({
                   {nombreDePareja(f.pairId)}
                 </Text>
                 {/* Por qué está donde está. Un orden sin explicación se lee
-                    como arbitrario aunque no lo sea. */}
-                {f.criterio !== 'balance' && (
+                    como arbitrario aunque no lo sea.
+
+                    'balance' no se explica: es el caso normal y decirlo en
+                    todas las filas es ruido. 'provisional' tampoco — con el
+                    grupo recién sorteado serían ocho líneas idénticas
+                    diciendo que todavía no se ha jugado nada, que ya se ve
+                    en la columna PJ. */}
+                {f.criterio !== 'balance' && f.criterio !== 'provisional' && (
                   <Text style={[s.criterio, f.empateSinResolver && s.criterioAlerta]}>
                     {explicacionDeCriterio(f.criterio)}
                   </Text>
