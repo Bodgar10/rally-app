@@ -31,7 +31,7 @@ export async function cargarTorneosParaTi(
   limite = 4,
 ): Promise<TorneosDelDashboard> {
   try {
-    const [{ data: torneos }, { data: ratings }, { data: zona }] = await Promise.all([
+    const [{ data: torneos }, { data: ratings }, { data: zona }, { data: parejas }] = await Promise.all([
       supabase
         .from('tournaments')
         .select(
@@ -42,6 +42,14 @@ export async function cargarTorneosParaTi(
         .order('start_date', { ascending: true }),
       supabase.from('player_ratings').select('division').eq('player_id', userId),
       supabase.rpc('zona_del_jugador', { p_player: userId }),
+      // En qué torneos ya tiene pareja. Se resuelve por `pairs` y no por
+      // `registrations`: esa tabla solo existe cuando hubo cobro por Stripe,
+      // así que una pareja que el organizador metió a mano no tendría fila y
+      // el jugador vería "inscríbete" en un torneo en el que ya está.
+      supabase
+        .from('pairs')
+        .select('tournament_id')
+        .or(`player1_id.eq.${userId},player2_id.eq.${userId}`),
     ]);
 
     const filas = (torneos ?? []) as unknown as Array<{
@@ -77,8 +85,12 @@ export async function cargarTorneosParaTi(
 
     const ciudad = typeof zona === 'string' && zona.length > 0 ? zona : null;
 
+    const inscritoEn = Array.from(
+      new Set(((parejas ?? []) as { tournament_id: string }[]).map((p) => p.tournament_id)),
+    );
+
     return {
-      lista: torneosParaTi(listables, { zona: ciudad, divisiones }, limite),
+      lista: torneosParaTi(listables, { zona: ciudad, divisiones, inscritoEn }, limite),
       zona: ciudad,
     };
   } catch {

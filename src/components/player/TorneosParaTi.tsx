@@ -84,7 +84,15 @@ export default function TorneosParaTi({ userId }: { userId: string }) {
         <PortadaDeTorneo
           key={t.id}
           torneo={t}
-          onPress={() => router.push(`/(protected)/inscripcion/${t.id}`)}
+          // ► INSCRITO VA A SU TORNEO, NO AL FORMULARIO.
+          //   Mandarlo a inscribirse en algo donde ya tiene pareja lo llevaba
+          //   a llenar un formulario que iba a chocar contra el unique de
+          //   `pairs`. Lo que quiere ver ahí es cómo va, no volver a entrar.
+          onPress={() => router.push(
+            t.inscrito
+              ? `/(protected)/torneos/${t.id}`
+              : `/(protected)/inscripcion/${t.id}`,
+          )}
         />
       ))}
     </View>

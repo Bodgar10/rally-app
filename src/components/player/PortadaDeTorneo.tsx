@@ -100,7 +100,10 @@ export default function PortadaDeTorneo({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${torneo.nombre}, ${formatearRango(torneo.inicio, torneo.fin)}`}
+      accessibilityLabel={
+        `${torneo.nombre}, ${formatearRango(torneo.inicio, torneo.fin)}`
+        + (torneo.inscrito ? ', ya inscrito' : '')
+      }
       style={({ pressed }) => [
         s.tarjeta,
         esMajor && s.tarjetaMajor,
@@ -140,6 +143,19 @@ export default function PortadaDeTorneo({
       </LinearGradient>
 
       <View style={s.cuerpo}>
+        {/* ► YA ESTÁ DENTRO.
+            Va ARRIBA del nombre y no como una esquinita: cambia lo que la
+            tarjeta significa. Deja de ser "¿me apunto?" y pasa a ser "mi
+            torneo", y eso hay que leerlo antes que nada — incluida la cuota,
+            que para él ya no es una decisión.
+            Verde `live` y no dorado: el oro en esta tarjeta ya está diciendo
+            otra cosa (el tier) y dos dorados compiten. */}
+        {torneo.inscrito && (
+          <View style={s.inscritoCaja}>
+            <Text style={s.inscritoTexto}>✓  YA INSCRITO</Text>
+          </View>
+        )}
+
         <Text style={[s.nombre, esMajor && s.nombreMajor]} numberOfLines={2}>
           {torneo.nombre}
         </Text>
@@ -158,20 +174,24 @@ export default function PortadaDeTorneo({
           pie={torneo.sede && torneo.ciudad ? torneo.ciudad : null}
         />
 
-        <Ficha
-          etiqueta="CUOTA"
-          valor={torneo.cuota > 0
-            ? `$${torneo.cuota.toLocaleString('es-MX')} MXN`
-            : 'Gratuito'}
-          pie={torneo.cuota > 0 ? 'por pareja' : null}
-        />
-
-        {motivo && (
-          <View style={s.pie}>
-            <Text style={s.motivo}>{motivo}</Text>
-            <Text style={s.flecha}>›</Text>
-          </View>
+        {/* Inscrito, la cuota deja de ser información: ya decidió, y si hay
+            algo que pagar eso se le dice en su torneo, no aquí. */}
+        {!torneo.inscrito && (
+          <Ficha
+            etiqueta="CUOTA"
+            valor={torneo.cuota > 0
+              ? `$${torneo.cuota.toLocaleString('es-MX')} MXN`
+              : 'Gratuito'}
+            pie={torneo.cuota > 0 ? 'por pareja' : null}
+          />
         )}
+
+        <View style={s.pie}>
+          <Text style={[s.motivo, torneo.inscrito && s.motivoInscrito]}>
+            {torneo.inscrito ? 'Ver mi torneo' : (motivo ?? 'Ver e inscribirme')}
+          </Text>
+          <Text style={s.flecha}>›</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -233,6 +253,19 @@ const s = StyleSheet.create({
 
   cuerpo: { padding: space[4], gap: space[1] },
 
+  inscritoCaja: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: space[2.5], paddingVertical: space[1],
+    borderRadius: radius.sm,
+    borderWidth: 1, borderColor: 'rgba(66,214,164,0.45)',
+    backgroundColor: 'rgba(66,214,164,0.12)',
+    marginBottom: space[2],
+  },
+  inscritoTexto: {
+    fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.live,
+    letterSpacing: 1.5, fontWeight: '700',
+  },
+
   nombre: { fontFamily: font.display, fontSize: fontSize.metric, color: color.text, lineHeight: 28 },
   nombreMajor: { color: color.goldBright },
   categorias: {
@@ -261,5 +294,6 @@ const s = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: color.lineSoft,
   },
   motivo: { flex: 1, fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
+  motivoInscrito: { color: color.live, fontWeight: '600' },
   flecha: { fontFamily: font.display, fontSize: fontSize.h1Inline, color: color.gold },
 });

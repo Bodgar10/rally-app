@@ -60,6 +60,8 @@ export interface TorneoRecomendado extends TorneoListable {
   enTuZona: boolean;
   /** Alguna de sus categorías es una división en la que el jugador juega. */
   deTuNivel: boolean;
+  /** Ya tiene pareja inscrita en este torneo. */
+  inscrito: boolean;
 }
 
 export interface Criterios {
@@ -67,6 +69,8 @@ export interface Criterios {
   zona: string | null;
   /** Las divisiones en las que tiene rating. Vacío si es nuevo. */
   divisiones: readonly string[];
+  /** Los torneos en los que ya tiene pareja. Ver `inscrito` en el orden. */
+  inscritoEn?: readonly string[];
 }
 
 /** Menor es antes. El orden de `TIER_OPCIONES`, que ya es el de importancia. */
@@ -89,16 +93,25 @@ export function torneosParaTi(
   const sabemosZona = criterios.zona !== null;
   const sabemosNivel = criterios.divisiones.length > 0;
 
+  const inscritoEn = criterios.inscritoEn ?? [];
+
   const marcados: TorneoRecomendado[] = torneos.map((t) => ({
     ...t,
     enTuZona: sabemosZona && t.ciudad !== null && t.ciudad === criterios.zona,
     deTuNivel: sabemosNivel && t.divisiones.some((d) => criterios.divisiones.includes(d)),
+    inscrito: inscritoEn.includes(t.id),
   }));
 
   // Lo que no es ni de su zona ni de su nivel sale de la lista corta. Solo
   // cuando SABEMOS las dos cosas: si no, no hay nada que descartar.
+  //
+  // ► SALVO AQUELLO EN LO QUE YA ESTÁ INSCRITO, QUE NO SE FILTRA NUNCA.
+  //   Puede haberse apuntado a un torneo de otra ciudad o de otra división
+  //   —se va el finde, acompaña a un amigo, juega una categoría que no es la
+  //   suya— y esconderle SU torneo por no encajar en el filtro sería el peor
+  //   fallo posible de esta lista.
   const utiles = sabemosZona && sabemosNivel
-    ? marcados.filter((t) => t.enTuZona || t.deTuNivel)
+    ? marcados.filter((t) => t.inscrito || t.enTuZona || t.deTuNivel)
     : marcados;
 
   return [...utiles].sort(comparar).slice(0, limite);
@@ -110,6 +123,12 @@ export function torneosParaTi(
  * dashboard: la misma lista en dos órdenes se lee como dos listas.
  */
 export function comparar(a: TorneoRecomendado, b: TorneoRecomendado): number {
+  // 0 · EN LO QUE YA ESTÁ INSCRITO VA PRIMERO, POR ENCIMA DE TODO.
+  //     Deja de ser una recomendación y pasa a ser SU torneo: lo que quiere
+  //     de esa tarjeta ya no es decidir si se apunta, es ver cómo va. Un
+  //     Major recomendado por delante del torneo que juega el domingo sería
+  //     enseñarle publicidad encima de su propia información.
+  if (a.inscrito !== b.inscrito) return a.inscrito ? -1 : 1;
   // 1 · La zona. Lo de fuera de su ciudad no es peor, es inalcanzable.
   if (a.enTuZona !== b.enTuZona) return a.enTuZona ? -1 : 1;
   // 2 · Su división.
@@ -132,6 +151,9 @@ export function comparar(a: TorneoRecomendado, b: TorneoRecomendado): number {
  * azar — y un orden que no se explica se lee como un orden que no existe.
  */
 export function porQueSale(t: TorneoRecomendado): string | null {
+  // Ya está dentro: el motivo por el que sale es obvio y decir "por tu zona"
+  // debajo de "Ya inscrito" sobra. La etiqueta lo dice todo.
+  if (t.inscrito) return null;
   if (t.enTuZona && t.deTuNivel) return 'Por tu zona y tu nivel';
   if (t.enTuZona) return 'Por tu zona';
   if (t.deTuNivel) return 'De tu nivel';

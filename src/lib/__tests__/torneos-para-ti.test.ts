@@ -135,3 +135,45 @@ describe('porQueSale', () => {
     expect(porQueSale(x)).toBeNull();
   });
 });
+
+describe('lo que ya está inscrito', () => {
+  const YO_INSCRITO = { ...YO, inscritoEn: ['mio'] };
+
+  it('va primero, por encima incluso de un Major de su zona', () => {
+    const lista = torneosParaTi([
+      t({ id: 'major', tier: 'major' }),
+      t({ id: 'mio', tier: 'p2' }),
+    ], YO_INSCRITO);
+    expect(lista[0].id).toBe('mio');
+    expect(lista[0].inscrito).toBe(true);
+  });
+
+  // El peor fallo posible de esta lista sería esconderle SU torneo: puede
+  // haberse apuntado a otra ciudad o a una categoría que no es la suya.
+  it('NO se filtra aunque no sea de su zona ni de su nivel', () => {
+    const lista = torneosParaTi([
+      t({ id: 'mio', ciudad: 'Mérida', divisiones: ['primera'] }),
+      t({ id: 'otro' }),
+    ], YO_INSCRITO);
+    expect(lista.map((x) => x.id)).toEqual(['mio', 'otro']);
+  });
+
+  it('entre dos inscritos manda el orden de siempre', () => {
+    const lista = torneosParaTi([
+      t({ id: 'b', tier: 'p2' }),
+      t({ id: 'a', tier: 'major' }),
+    ], { ...YO, inscritoEn: ['a', 'b'] });
+    expect(lista.map((x) => x.id)).toEqual(['a', 'b']);
+  });
+
+  it('sin inscritoEn nadie sale marcado', () => {
+    const [x] = torneosParaTi([t({ id: 'x' })], YO);
+    expect(x.inscrito).toBe(false);
+  });
+
+  // La etiqueta "Ya inscrito" ya lo dice todo; "Por tu zona" debajo sobra.
+  it('no se le da un motivo: la etiqueta lo explica sola', () => {
+    const [x] = torneosParaTi([t({ id: 'mio' })], YO_INSCRITO);
+    expect(porQueSale(x)).toBeNull();
+  });
+});
