@@ -138,6 +138,15 @@ export default function OrgTournamentScreen() {
   const [updating, setUpdating]       = useState(false);
   const [finishState, setFinishState] = useState<FinishState>({ status: 'idle' });
   const [ventanas, setVentanas]       = useState<Ventana[]>([]);
+  /**
+   * Cuándo se sorteó el exprés, o null si todavía no.
+   *
+   * Es lo que decide si el panel le ofrece SORTEAR o VER. Sin este dato la
+   * tarjeta dorada seguía diciendo "Sortear los grupos" con el torneo ya
+   * sorteado, y era una trampa: la RPC corta con `expres_ya_sorteado` y el
+   * organizador se queda sin saber adónde ir a mirar lo que ya existe.
+   */
+  const [sorteadoAt, setSorteadoAt]   = useState<string | null>(null);
 
   const load = useCallback(async () => {
     // Una sola tanda: la pantalla necesita sede, conteos y el estado de Connect
@@ -173,6 +182,14 @@ export default function OrgTournamentScreen() {
     ]);
 
     setVentanas(ws ?? []);
+
+    // Solo en un exprés: en un torneo largo esta tabla ni existe para él.
+    const { data: cfgExpres } = await supabase
+      .from('expres_config')
+      .select('sorteado_at')
+      .eq('tournament_id', tournamentId)
+      .maybeSingle();
+    setSorteadoAt((cfgExpres as { sorteado_at: string | null } | null)?.sorteado_at ?? null);
 
     if (t) {
       const fila = t as unknown as Tournament & { organizer_id: string };
@@ -612,7 +629,13 @@ export default function OrgTournamentScreen() {
             <TarjetaAjuste
               icon="clock"
               title="Torneo exprés"
-              value="Sortear los grupos, ver las tablas y resolver empates"
+              // Antes del sorteo la frase empezaba por "Sortear", y después
+              // seguía igual: el organizador que ya había sorteado no
+              // encontraba dónde mirar sus grupos porque la tarjeta le seguía
+              // hablando de una acción hecha.
+              value={sorteadoAt
+                ? 'Las tablas de los dos grupos, los partidos y los empates'
+                : 'Sortear los grupos y armar la tarde'}
               onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/expres`)}
             />
           ) : (
@@ -668,6 +691,15 @@ export default function OrgTournamentScreen() {
                Se quedaba ahí, con "No se cerró ninguna categoría" y sin
                ninguna salida. El sorteo cierra la categoría y arranca el
                torneo en la misma transacción (migración 085). */}
+        {/* ► UN EXPRÉS YA SORTEADO NO SE VUELVE A SORTEAR.
+            La tarjeta dorada seguía diciendo "Sortear los grupos" con el
+            sorteo hecho, y eso es una trampa: la RPC corta con
+            `expres_ya_sorteado` —bien, porque volver a sortear daría otro
+            reparto y borraría lo capturado— y el organizador se queda mirando
+            un error sin saber adónde ir a ver lo que YA existe.
+
+            Con el sorteo hecho, el siguiente paso deja de ser una acción de
+            preparación y pasa a ser el panel del torneo en marcha. */}
         {esAbierto && abiertas.length > 0 && (
           <>
             <Text style={s.seccion}>SIGUIENTE PASO</Text>
@@ -679,16 +711,26 @@ export default function OrgTournamentScreen() {
               )}
               style={({ pressed }) => [s.btnSiguientePaso, pressed && { opacity: 0.85 }]}
               accessibilityRole="button"
-              accessibilityLabel={esExpres ? 'Sortear los grupos' : 'Cerrar inscripciones'}
+              accessibilityLabel={
+                !esExpres ? 'Cerrar inscripciones'
+                : sorteadoAt ? 'Ver los grupos'
+                : 'Sortear los grupos'
+              }
             >
               <Text style={s.btnSiguientePasoTexto}>
-                {esExpres ? 'Sortear los grupos' : 'Cerrar inscripciones'}
+                {!esExpres ? 'Cerrar inscripciones'
+                  : sorteadoAt ? 'Ver los grupos y capturar resultados'
+                  : 'Sortear los grupos'}
               </Text>
               <Text style={s.btnSiguientePasoSub}>
                 {esExpres
-                  ? 'El sorteo reparte las parejas en los dos grupos, arma las cinco '
-                    + 'rondas con sus horas y sus canchas, y cierra las inscripciones. '
-                    + 'Se hace una sola vez.'
+                  ? (sorteadoAt
+                      ? 'Ya está sorteado: aquí ves las tablas de los dos grupos, los '
+                        + 'partidos con su hora y su cancha, y resuelves los empates '
+                        + 'cuando los haya.'
+                      : 'El sorteo reparte las parejas en los dos grupos, arma las cinco '
+                        + 'rondas con sus horas y sus canchas, y cierra las inscripciones. '
+                        + 'Se hace una sola vez.')
                   : abiertas.length === categories.length
                   ? 'Eliges qué categorías cerrar y ves la vista previa de grupos y cuadro de cada una antes de confirmar.'
                   : `Quedan ${abiertas.length} de ${categories.length} sin cerrar: ${resumenCategorias(abiertas)}.`}
