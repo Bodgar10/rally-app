@@ -1,4 +1,6 @@
-import { agendaExpres, estaCapturado, type PartidoAgenda } from '@/lib/agenda-expres';
+import {
+  agendaExpres, estaCapturado, coincide, normalizar, type PartidoAgenda,
+} from '@/lib/agenda-expres';
 
 const p = (
   id: string, grupo: string, ronda: string, hora: string,
@@ -84,5 +86,70 @@ describe('agendaExpres · los extremos', () => {
     const entrada = [p('a', 'A', 'Ronda 1', '12:00', 4, 2), p('b', 'A', 'Ronda 1', '12:00')];
     agendaExpres(entrada);
     expect(entrada.map((x) => x.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('buscar una pareja por nombre', () => {
+  const A = 'Luis Martínez / Manuel Torres';
+  const B = 'Carlos Gómez / Daniel Morales';
+
+  it('sin escribir nada no filtra nada', () => {
+    expect(coincide('', A, B)).toBe(true);
+    expect(coincide('   ', A, B)).toBe(true);
+  });
+
+  // El caso que hace o rompe el buscador en español: media plantilla se
+  // llama Martínez y nadie teclea la tilde con el teléfono en una mano.
+  it('encuentra sin acentos', () => {
+    expect(coincide('martinez', A, B)).toBe(true);
+    expect(coincide('gomez', A, B)).toBe(true);
+    expect(coincide('MARTINEZ', A, B)).toBe(true);
+  });
+
+  it('también con acentos, por si los escribe', () => {
+    expect(coincide('martínez', A, B)).toBe(true);
+  });
+
+  it('encuentra por el apellido del segundo jugador', () => {
+    expect(coincide('torres', A, B)).toBe(true);
+  });
+
+  it('busca en las DOS parejas del partido', () => {
+    expect(coincide('morales', A, B)).toBe(true);
+  });
+
+  // Así es como se nombra a una pareja en la cancha: dos apellidos sueltos.
+  it('varias palabras se exigen todas, en cualquier orden', () => {
+    expect(coincide('luis torres', A, B)).toBe(true);
+    expect(coincide('torres luis', A, B)).toBe(true);
+    expect(coincide('luis morales', A, B)).toBe(true); // uno de cada pareja
+    expect(coincide('luis inexistente', A, B)).toBe(false);
+  });
+
+  it('lo que no está, no aparece', () => {
+    expect(coincide('ramirez', A, B)).toBe(false);
+  });
+
+  it('encuentra por trozo de palabra', () => {
+    expect(coincide('mart', A, B)).toBe(true);
+  });
+});
+
+describe('normalizar', () => {
+  it('quita tildes y baja a minúsculas', () => {
+    expect(normalizar('Martínez Óscar')).toBe('martinez oscar');
+  });
+
+  // La ñ TAMBIÉN se pliega a n, y para buscar es lo que se quiere: quien no
+  // la tenga a mano en el teclado escribe "bolanos" y encuentra igual. Como
+  // los dos lados pasan por aquí, "Bolaños" también encuentra a "Bolaños".
+  it('la ñ se pliega a n para que el buscador perdone el teclado', () => {
+    expect(normalizar('Bolaños')).toBe('bolanos');
+    expect(coincide('bolanos', 'Aldo Bolaños / Bodgar Espinosa')).toBe(true);
+    expect(coincide('bolaños', 'Aldo Bolaños / Bodgar Espinosa')).toBe(true);
+  });
+
+  it('recorta los espacios de los extremos', () => {
+    expect(normalizar('  Ruiz  ')).toBe('ruiz');
   });
 });

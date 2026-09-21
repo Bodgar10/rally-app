@@ -44,13 +44,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View,
+} from 'react-native';
 
 import { supabase } from '@/lib/supabase/client';
 import ScoreCaptureExpres from '@/components/expres/ScoreCaptureExpres';
 import { fetchParejasPublicas, nombreDePareja, type ParejaPublica } from '@/lib/parejas-publicas';
 import { type ResultadoSuma6 } from '@/lib/engine/expres';
-import { agendaExpres } from '@/lib/agenda-expres';
+import { agendaExpres, coincide } from '@/lib/agenda-expres';
 import { textoDeBalance } from '@/lib/expres-texto';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 
@@ -90,6 +92,17 @@ export default function PartidosYCaptura({
   const [abierto, setAbierto] = useState<PartidoExpresFila | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * ► EL BUSCADOR ES POR QUIÉN JUEGA, NO POR HORA.
+   *
+   *   En la cancha nadie llega diciendo "el de las 13:30 en la 2": llega una
+   *   pareja y dice su nombre. Con 40 partidos, encontrar el suyo bajando la
+   *   lista es lo que hace que la fila se acumule.
+   *
+   *   Busca en las DOS parejas del partido y perdona acentos y ñ, que es lo
+   *   que decide si un buscador sirve en español — ver `coincide`.
+   */
+  const [busqueda, setBusqueda] = useState('');
 
   const nombre = useCallback(
     (pairId: string) => nombreDePareja(parejas.get(pairId)),
@@ -200,7 +213,11 @@ export default function PartidosYCaptura({
   if (cargando) return <ActivityIndicator color={color.gold} />;
   if (partidos.length === 0) return null;
 
-  const agenda = agendaExpres(partidos);
+  const filtrados = partidos.filter(
+    (p) => coincide(busqueda, nombre(p.pairAId), nombre(p.pairBId)),
+  );
+  const agenda = agendaExpres(filtrados);
+  const buscando = busqueda.trim().length > 0;
 
   const seccion = (
     titulo: string | null,
@@ -253,10 +270,43 @@ export default function PartidosYCaptura({
     <View style={s.raiz}>
       <Text style={s.titulo}>PARTIDOS</Text>
       <Text style={s.resumen}>
-        {agenda.faltan === 0
-          ? `Los ${agenda.total} partidos están capturados.`
-          : `Faltan ${agenda.faltan} de ${agenda.total}. Toca uno para anotar el marcador.`}
+        {buscando
+          ? `${agenda.total} ${agenda.total === 1 ? 'partido' : 'partidos'} de ${partidos.length}.`
+          : agenda.faltan === 0
+            ? `Los ${agenda.total} partidos están capturados.`
+            : `Faltan ${agenda.faltan} de ${agenda.total}. Toca uno para anotar el marcador.`}
       </Text>
+
+      <View style={s.buscador}>
+        <TextInput
+          value={busqueda}
+          onChangeText={setBusqueda}
+          placeholder="Busca por nombre o apellido"
+          placeholderTextColor={color.muted}
+          autoCorrect={false}
+          autoCapitalize="none"
+          style={s.buscadorInput}
+          accessibilityLabel="Buscar un partido por el nombre de una pareja"
+        />
+        {buscando && (
+          <Pressable
+            onPress={() => setBusqueda('')}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Borrar la búsqueda"
+          >
+            <Text style={s.buscadorLimpiar}>✕</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Buscar y no encontrar tiene que decirse: si no, la lista vacía se
+          lee como que no hay partidos. */}
+      {buscando && agenda.total === 0 && (
+        <Text style={s.sinResultados}>
+          Ningún partido con «{busqueda.trim()}». Prueba solo con el apellido.
+        </Text>
+      )}
 
       {error && <View style={s.error}><Text style={s.errorTexto}>{error}</Text></View>}
 
@@ -286,6 +336,22 @@ const s = StyleSheet.create({
     color: color.muted, fontFamily: font.display, fontSize: fontSize.eyebrow,
     letterSpacing: 2, marginTop: space[5], marginBottom: space[1],
     borderTopWidth: 1, borderTopColor: color.lineSoft, paddingTop: space[4],
+  },
+
+  buscador: {
+    flexDirection: 'row', alignItems: 'center', gap: space[2],
+    borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md,
+    backgroundColor: color.surface, paddingHorizontal: space[3],
+    minHeight: touchTarget, marginTop: space[1],
+  },
+  buscadorInput: {
+    flex: 1, color: color.text, fontFamily: font.body, fontSize: fontSize.body,
+    minHeight: touchTarget,
+  },
+  buscadorLimpiar: { color: color.muted, fontFamily: font.body, fontSize: fontSize.body },
+  sinResultados: {
+    color: color.muted, fontFamily: font.body, fontSize: fontSize.caption,
+    lineHeight: 18, paddingVertical: space[3],
   },
 
   ronda: {

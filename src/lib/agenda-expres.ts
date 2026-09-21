@@ -89,3 +89,40 @@ export function agendaExpres<T extends PartidoAgenda>(
     total: partidos.length,
   };
 }
+
+// ── BUSCAR UNA PAREJA ───────────────────────────────────────────────────────
+
+/**
+ * El texto, sin acentos ni ñ y en minúsculas.
+ *
+ * ► SIN ESTO EL BUSCADOR NO SIRVE EN ESPAÑOL
+ *   Media plantilla se llama Martínez, Gómez, Díaz o Sánchez. Quien teclea en
+ *   la cancha —deprisa, con el teléfono en una mano— escribe "martinez", y un
+ *   `includes` a secas no lo encuentra. Buscar un nombre que existe y que no
+ *   aparezca es peor que no tener buscador: se deja de confiar en él.
+ *
+ *   `NFD` separa la letra de su tilde y el rango ̀-ͯ borra las
+ *   tildes sueltas, así que "Martínez" y "martinez" acaban en el mismo texto.
+ */
+export function normalizar(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * ¿Alguno de los nombres contiene lo que se busca?
+ *
+ * Con la consulta vacía devuelve `true`: un buscador sin escribir nada no
+ * filtra nada. Y se parte por espacios, así que "luis torres" encuentra a
+ * "Luis Martínez / Manuel Torres" aunque sean dos jugadores distintos de la
+ * misma pareja — que es justo como la gente nombra a una pareja.
+ */
+export function coincide(consulta: string, ...nombres: string[]): boolean {
+  const palabras = normalizar(consulta).split(/\s+/).filter(Boolean);
+  if (palabras.length === 0) return true;
+  const heno = normalizar(nombres.join(' '));
+  return palabras.every((w) => heno.includes(w));
+}
