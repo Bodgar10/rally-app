@@ -63,9 +63,18 @@ describe('la demo corre el motor de verdad', () => {
 });
 
 describe('la ficha del rival de la demo', () => {
-  it('enseña el caso que la ficha existe para avisar: zurdo de revés', () => {
+  // Un zurdo NO juega el revés: juega el drive, porque ese lado hace para él
+  // el papel que el revés hace para un diestro. Desde ahí su derecha apunta
+  // al centro y cierra el cruzado, y ESE es el caso que hay que avisar.
+  it('enseña el caso que la ficha existe para avisar: zurdo de DRIVE', () => {
     const zurdo = RIVAL_DEMO.jugadores.find((j) => j.mano === 'Zurdo');
-    expect(zurdo?.lado).toBe('Revés');
+    expect(zurdo?.lado).toBe('Drive');
     expect(RIVAL_DEMO.aviso).toContain('zurdo');
+    expect(RIVAL_DEMO.aviso).toContain('drive');
+  });
+
+  it('la pareja es complementaria: uno de drive y otro de revés', () => {
+    const lados = RIVAL_DEMO.jugadores.map((j) => j.lado).sort();
+    expect(lados).toEqual(['Drive', 'Revés']);
   });
 });

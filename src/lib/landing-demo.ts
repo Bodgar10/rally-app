@@ -104,19 +104,20 @@ export function tablaEnElPaso(paso: number, clasifican = 4): FilaDemo[] {
 // ── La ficha del rival ──────────────────────────────────────────────────────
 
 /**
- * El caso que la ficha existe para avisar: un zurdo jugando el revés.
+ * El caso que la ficha existe para avisar: un ZURDO EN EL DRIVE.
  *
- * En pádel es la configuración más temida — su derecha apunta al centro y
- * cierra el cruzado que la mayoría busca. Quien lleva años lo ve en el
- * calentamiento; quien lleva uno, no.
+ * Un zurdo no juega el revés: juega el drive, porque para él ese lado hace el
+ * papel que el revés hace para un diestro. Y desde ahí su derecha apunta al
+ * centro y cierra el cruzado que la mayoría busca. Quien lleva años lo ve en
+ * el calentamiento; quien lleva uno, no.
  */
 export const RIVAL_DEMO = {
   pareja: 'Del Valle / Otero',
   jugadores: [
-    { nombre: 'Andrés Del Valle', mano: 'Diestro', lado: 'Drive' },
-    { nombre: 'Marco Otero', mano: 'Zurdo', lado: 'Revés' },
+    { nombre: 'Andrés Del Valle', mano: 'Diestro', lado: 'Revés' },
+    { nombre: 'Marco Otero', mano: 'Zurdo', lado: 'Drive' },
   ],
-  aviso: 'Marco Otero es zurdo y juega el revés: su derecha te cierra el cruzado.',
+  aviso: 'Marco Otero es zurdo y juega el drive: su derecha te cierra el cruzado.',
   historial: 'Jugaron 2 veces. 1-1.',
 } as const;
 

@@ -4,7 +4,7 @@
  * RALLY · La ficha del rival, apareciendo.
  *
  * ► ES LA CARTA MÁS FUERTE QUE TIENE LA APP Y CABE EN UNA LÍNEA
- *   "Marco Otero es zurdo y juega el revés." Quien lleva años jugando lo ve
+ *   "Marco Otero es zurdo y juega el drive." Quien lleva años jugando lo ve
  *   en el calentamiento; quien lleva uno, no — y se pasa el primer set sin
  *   entender por qué no le entra el cruzado de siempre.
  *

@@ -108,18 +108,25 @@ export function textoDeJugador(perfil: PerfilDeJuego): string | null {
 /**
  * Lo que hay que saber de la pareja rival, si es que hay algo.
  *
- * ► EL ZURDO DE REVÉS SE DICE APARTE.
- *   En pádel es la configuración más temida: el zurdo en el revés tiene su
- *   derecha hacia el centro y cierra el cruzado que la mayoría busca. Quien
- *   lleva años lo ve en el calentamiento; quien lleva uno, no — y decírselo es
- *   exactamente lo que la ficha tiene que hacer por él.
+ * ► EL ZURDO DE DRIVE SE DICE APARTE.
+ *
+ *   ESTO ESTABA AL REVÉS, LITERALMENTE. La primera versión avisaba del "zurdo
+ *   de revés", y un zurdo no juega el revés: juega el DRIVE. El lado se nombra
+ *   desde la cancha —drive es el derecho, revés el izquierdo— y para un zurdo
+ *   el drive hace el papel que el revés hace para un diestro. Por eso los
+ *   zurdos se colocan ahí.
+ *
+ *   Y por eso es noticia: un zurdo en el drive tiene su derecha apuntando al
+ *   centro y cierra el cruzado que la mayoría busca. Quien lleva años lo ve en
+ *   el calentamiento; quien lleva uno, no — y decírselo es exactamente lo que
+ *   la ficha tiene que hacer por él.
  */
 export function avisoDeLaPareja(a: PerfilDeJuego, b: PerfilDeJuego, nombreA: string, nombreB: string): string | null {
-  const zurdoDeReves = (p: PerfilDeJuego, n: string) =>
-    p.mano === 'zurdo' && p.lado === 'reves' ? n : null;
+  const zurdoDeDrive = (p: PerfilDeJuego, n: string) =>
+    p.mano === 'zurdo' && p.lado === 'drive' ? n : null;
 
-  const zurdo = zurdoDeReves(a, nombreA) ?? zurdoDeReves(b, nombreB);
-  if (zurdo) return `${zurdo} es zurdo por el revés: te va a cerrar el cruzado.`;
+  const zurdo = zurdoDeDrive(a, nombreA) ?? zurdoDeDrive(b, nombreB);
+  if (zurdo) return `${zurdo} es zurdo por el drive: te va a cerrar el cruzado.`;
 
   // Los dos en el mismo lado significa que uno juega fuera de su sitio.
   if (a.lado && a.lado === b.lado && a.lado !== 'ambos') {

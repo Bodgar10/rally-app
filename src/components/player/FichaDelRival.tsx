@@ -127,7 +127,7 @@ export function FichaDelRival({ tituloRival, userId, rivales, ...entrada }: Fich
         ) : null;
       })}
 
-      {/* Y lo que hay que saber de los dos juntos: el zurdo de revés, o que
+      {/* Y lo que hay que saber de los dos juntos: el zurdo de drive, o que
           los dos jueguen el mismo lado. */}
       {rivales && (() => {
         const aviso = avisoDeLaPareja(

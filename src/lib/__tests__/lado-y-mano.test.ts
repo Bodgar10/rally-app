@@ -62,23 +62,25 @@ describe('el aviso de la pareja rival', () => {
     // Quien lleva años lo ve en el calentamiento; quien lleva uno, no.
     const aviso = avisoDeLaPareja(
       { lado: 'drive', mano: 'diestro' },
-      { lado: 'reves', mano: 'zurdo' },
+      { lado: 'drive', mano: 'zurdo' },
       'MARTÍNEZ',
       'RUIZ',
     );
-    expect(aviso).toBe('RUIZ es zurdo por el revés: te va a cerrar el cruzado.');
+    expect(aviso).toBe('RUIZ es zurdo por el drive: te va a cerrar el cruzado.');
   });
 
   it('lo detecta en cualquiera de los dos', () => {
     expect(
-      avisoDeLaPareja({ lado: 'reves', mano: 'zurdo' }, { lado: 'drive', mano: 'diestro' }, 'A', 'B'),
+      avisoDeLaPareja({ lado: 'drive', mano: 'zurdo' }, { lado: 'reves', mano: 'diestro' }, 'A', 'B'),
     ).toMatch(/^A es zurdo/);
   });
 
-  it('un zurdo de DRIVE no es noticia: eso es lo normal invertido', () => {
+  // Un zurdo en el revés está fuera de su sitio: es raro, pero no es la
+  // configuración que cierra el cruzado, así que no se avisa de ella.
+  it('un zurdo de REVÉS no es noticia: no es el que cierra el cruzado', () => {
     const aviso = avisoDeLaPareja(
-      { lado: 'drive', mano: 'zurdo' },
-      { lado: 'reves', mano: 'diestro' },
+      { lado: 'reves', mano: 'zurdo' },
+      { lado: 'drive', mano: 'diestro' },
       'A',
       'B',
     );

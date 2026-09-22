@@ -103,14 +103,17 @@ const generosDe = (gender) =>
  *
  * Se escribe AL CREAR y no en una pasada aparte: sin esto, la ficha del rival
  * y el buscador de pareja salen vacíos en todo el torneo de prueba, que es
- * justo lo que se quiere ver funcionando. El patrón deja zurdos de revés —la
- * configuración más temida en pádel— porque es el caso que la ficha existe
- * para avisar.
+ * justo lo que se quiere ver funcionando.
+ *
+ * El patrón deja ZURDOS DE DRIVE, que es el caso que la ficha existe para
+ * avisar: un zurdo se coloca en el drive —para él hace el papel que el revés
+ * hace para un diestro— y desde ahí su derecha apunta al centro y cierra el
+ * cruzado. `i % 4 === 0` cae siempre en par, o sea en drive.
  */
 function ladoYMano(i) {
   return {
     preferred_side: i % 5 === 4 ? 'ambos' : i % 2 === 0 ? 'drive' : 'reves',
-    mano: i % 6 === 1 ? 'zurdo' : 'diestro',
+    mano: i % 4 === 0 ? 'zurdo' : 'diestro',
   };
 }
 
