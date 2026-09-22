@@ -17,6 +17,7 @@ import {
   Pressable,
   ActivityIndicator,
   FlatList,
+  StyleSheet,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -25,6 +26,7 @@ import { webContentColumn } from '@/lib/web-layout';
 import { supabase } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/database.types';
 import ProyeccionDeRanking from '@/components/player/ProyeccionDeRanking';
+import { conCortes, textoDelSalto } from '@/lib/tabla-de-ranking';
 import { ETIQUETA_DIVISION } from '@/lib/divisiones';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
@@ -220,7 +222,10 @@ export default function RankingScreen() {
         .eq('division', selectedDivision)
         .eq('season', seasonSeleccionada);
 
-      // 3. Top 50 del leaderboard (full_name viene directo de la vista, sin embed)
+      // 3. El top del leaderboard (full_name viene directo de la vista, sin embed).
+      //    100 y no 50: cuesta lo mismo y llena la pantalla cuando una
+      //    división tenga gente. El jugador que quede fuera se añade abajo
+      //    con su posición real — ver el push de más adelante.
       const { data: board, error: boardErr } = await supabase
         .from('ranking_public')
         .select(`
@@ -232,7 +237,7 @@ export default function RankingScreen() {
         .eq('division', selectedDivision)
         .eq('season', seasonSeleccionada)
         .order('position', { ascending: true })
-        .limit(50);
+        .limit(100);
 
       if (boardErr) throw boardErr;
 
@@ -278,7 +283,9 @@ export default function RankingScreen() {
           is_me: r.player_id === userId,
         }));
 
-      // Si el jugador autenticado no está en el top 50, agregar su fila al final
+      // Si el jugador autenticado no está en el top, se agrega su fila al
+      // final con su posición REAL. Verse es lo que hace querer subir, y
+      // `conCortes` se encarga de que el salto se vea como salto.
       if (myRow && !rows.some((r) => r.player_id === userId)) {
         rows.push({
           player_id: userId,
@@ -481,9 +488,27 @@ export default function RankingScreen() {
               </Text>
             </View>
 
-            {leaderboard.map((row) => (
-              <LeaderboardRow key={row.player_id} row={row} />
-            ))}
+            {/* ► EL SALTO SE DICE, NO SE DISIMULA.
+                La fila propia se cuelga al final cuando el jugador no está en
+                el top, y antes se pintaba pegada a la última: quien iba 340.º
+                veía su fila debajo de la 100.ª y la leía como la 101.ª. El
+                número estaba, pero un número no compite con lo que dice la
+                posición en la lista. Ver `@/lib/tabla-de-ranking`. */}
+            {conCortes(leaderboard).map(({ fila, saltoAntes }) => {
+              const salto = textoDelSalto(saltoAntes);
+              return (
+                <View key={fila.player_id}>
+                  {salto && (
+                    <View style={estilosCorte.corte}>
+                      <View style={estilosCorte.linea} />
+                      <Text style={estilosCorte.texto}>{salto}</Text>
+                      <View style={estilosCorte.linea} />
+                    </View>
+                  )}
+                  <LeaderboardRow row={fila} />
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -961,3 +986,26 @@ function EmptyRanking() {
 function labelForDivision(value: Division): string {
   return ETIQUETA_DIVISION[value] ?? value;
 }
+
+/**
+ * El corte entre el top y la fila propia.
+ *
+ * Dos líneas y el número en medio, para que se lea como un salto y no como
+ * una fila más. Aparte del resto de estilos de la pantalla porque es lo
+ * único que se añadió con `StyleSheet`: lo demás va en línea desde antes.
+ */
+const estilosCorte = StyleSheet.create({
+  corte: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    paddingVertical: space[3],
+  },
+  linea: { flex: 1, height: 1, backgroundColor: color.lineSoft },
+  texto: {
+    fontFamily: font.body,
+    fontSize: 11,
+    color: color.muted,
+    letterSpacing: 0.4,
+  },
+});

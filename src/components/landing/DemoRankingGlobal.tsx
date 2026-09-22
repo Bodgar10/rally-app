@@ -66,7 +66,11 @@ export default function DemoRankingGlobal() {
         const haySalto = i > 0 && f.pos - TABLA[i - 1].pos > 1;
         return (
           <View key={f.pos}>
-            {haySalto && <Text style={s.salto}>· · ·</Text>}
+            {haySalto && (
+              <Text style={s.salto}>
+                {(f.pos - TABLA[i - 1].pos - 1).toLocaleString('es-MX')} jugadores más
+              </Text>
+            )}
             <View style={[s.fila, f.yo && s.filaYo, !!medalla && s.filaPodio]}>
               {medalla ? (
                 <View style={[s.medalla, { borderColor: medalla }]}>
