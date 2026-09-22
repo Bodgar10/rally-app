@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   if (!actor) return json({ ok: false, error: "unauthenticated" }, 401);
 
   const supa = adminClient();
-  const siteUrl = Deno.env.get("SITE_URL") ?? "https://rally-app-theta-three.vercel.app";
+  const siteUrl = Deno.env.get("SITE_URL") ?? "https://padelcrown.mx";
 
   // Token aleatorio robusto.
   const bytes = new Uint8Array(32);

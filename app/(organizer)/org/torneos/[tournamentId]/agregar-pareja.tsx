@@ -91,8 +91,15 @@ const NUEVO_VACIO: Nuevo = { nombre: '', correo: '', telefono: '', esMenor: fals
 
 const RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-/** Sin https:// ni barra final: es una dirección que se dicta en voz alta. */
-const SITIO = (process.env.EXPO_PUBLIC_SITE_URL ?? 'rally-app-theta-three.vercel.app')
+/**
+ * Sin https:// ni barra final: es una dirección que se dicta en voz alta.
+ *
+ * El respaldo es el dominio de verdad y no el de Vercel: si mañana falta la
+ * variable de entorno, lo peor que puede pasar es que se le dicte al jugador
+ * una dirección que existe. Con la de Vercel escrita aquí, el fallo era que se
+ * le dictaba la URL vieja sin que nadie se enterara.
+ */
+const SITIO = (process.env.EXPO_PUBLIC_SITE_URL ?? 'padelcrown.mx')
   .replace(/^https?:\/\//, '')
   .replace(/\/+$/, '');
 

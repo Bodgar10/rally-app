@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
 
   const supa = adminClient();
   const stripe = stripeClient();
-  const siteUrl = Deno.env.get("SITE_URL") ?? "https://rally-app-theta-three.vercel.app";
+  const siteUrl = Deno.env.get("SITE_URL") ?? "https://padelcrown.mx";
 
   // Datos del usuario + customer existente.
   const { data: profile } = await supa
