@@ -62,6 +62,58 @@ export default function PanelExpresScreen() {
   const [grupos, setGrupos] = useState<GrupoEnPantalla[]>([]);
   const [parejas, setParejas] = useState<Map<string, ParejaPublica>>(new Map());
   const [resolviendo, setResolviendo] = useState<{ groupId: string; empate: EmpateExpres } | null>(null);
+  /** Id de la categoría, para armar el cuadro. */
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  /** Partidos de grupo que faltan por capturar. 0 = la fase terminó. */
+  const [faltanGrupo, setFaltanGrupo] = useState<number | null>(null);
+  /** Ya existe el cuadro: entonces no hay nada que armar. */
+  const [hayCuadro, setHayCuadro] = useState(false);
+  const [armando, setArmando] = useState(false);
+
+  /**
+   * Armar el cuadro con los que clasificaron.
+   *
+   * ► ES `generate-bracket`, EL MISMO DE LOS TORNEOS LARGOS
+   *   Se valoró escribir un sembrador propio para el exprés y no hacía falta:
+   *   con dos grupos y cuatro que pasan salen ocho clasificados, que es
+   *   exactamente un cuadro de cuartos. Y `selectQualifiers` ya ordena por
+   *   posición de grupo y desempata por saldo de games — que en un exprés es
+   *   el único criterio que existe, porque los puntos siempre valen cero.
+   *
+   *   Lo único que no sabía hacer era poner el `formato` que un exprés exige
+   *   en cada partido. Eso se resolvió en la base (migración 088): el trigger
+   *   lo rellena desde `expres_etapa` en vez de rechazar el insert, así que
+   *   ningún camino que cree partidos tiene que acordarse.
+   */
+  async function armarCuadro() {
+    setError(null);
+    setArmando(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Tu sesión expiró. Vuelve a entrar.');
+
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/generate-bracket`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action: 'seed', category_id: categoryId }),
+        },
+      );
+      const cuerpo = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(cuerpo?.detail ?? cuerpo?.error ?? 'No se pudo armar el cuadro.');
+      }
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo armar el cuadro.');
+    } finally {
+      setArmando(false);
+    }
+  }
 
   const nombre = useCallback(
     (pairId: string) => nombreDePareja(parejas.get(pairId)),
@@ -89,6 +141,7 @@ export default function PanelExpresScreen() {
         setError('El torneo no tiene categoría.');
         return;
       }
+      setCategoryId(categoryId);
 
       const [parejasRes, gruposRes] = await Promise.all([
         supabase.from('pairs').select('id').eq('category_id', categoryId),
@@ -101,6 +154,16 @@ export default function PanelExpresScreen() {
         setGrupos([]);
         return;
       }
+
+      // Lo que decide si se puede armar el cuadro: que no quede ningún
+      // partido de grupo sin capturar, y que el cuadro no exista ya.
+      const { data: todos } = await supabase
+        .from('matches')
+        .select('id, stage, status')
+        .eq('tournament_id', tournamentId);
+      const deGrupo = (todos ?? []).filter((m) => m.stage === 'group');
+      setFaltanGrupo(deGrupo.filter((m) => m.status !== 'finished').length);
+      setHayCuadro((todos ?? []).some((m) => m.stage !== 'group'));
 
       const ids = gs.map((g) => g.id);
       const [standingsRes, partidosRes] = await Promise.all([
@@ -295,6 +358,61 @@ export default function PanelExpresScreen() {
           );
         })}
 
+        {/* ── ARMAR EL CUADRO ──────────────────────────────────────────
+            Faltaba por completo: un exprés podía jugar sus 40 partidos de
+            grupo y quedarse ahí, sin camino a cuartos. El botón sigue el
+            mismo patrón que el torneo largo — visible desde el principio y
+            APAGADO hasta que se puede — porque un botón que aparece de
+            repente no se busca: quien no sabe que existe no lo espera. */}
+        {sorteadoAt && faltanGrupo !== null && !hayCuadro && (
+          <Card>
+            <Text style={s.texto}>Armar el cuadro</Text>
+            <Text style={s.pista}>
+              {faltanGrupo > 0
+                ? `Faltan ${faltanGrupo} ${faltanGrupo === 1 ? 'partido' : 'partidos'} de la `
+                  + 'fase de grupos. Cuando estén todos, aquí se cruzan los 8 que pasan: '
+                  + '1.º de A contra 4.º de B, y así.'
+                : 'Los 8 que pasaron se cruzan en cuartos: el 1.º de cada grupo contra el '
+                  + '4.º del otro. Se hace una sola vez.'}
+            </Text>
+
+            {bloqueados.length > 0 && faltanGrupo === 0 && (
+              <Text style={s.avisoEmpate}>
+                Hay un empate sin resolver que decide quién pasa. Resuélvelo antes:
+                el orden decide los cruces.
+              </Text>
+            )}
+
+            <Pressable
+              onPress={armarCuadro}
+              disabled={armando || faltanGrupo > 0 || bloqueados.length > 0}
+              style={[
+                s.boton,
+                (armando || faltanGrupo > 0 || bloqueados.length > 0) && s.botonOff,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Armar el cuadro de cuartos"
+            >
+              {armando
+                ? <ActivityIndicator color={color.bg} />
+                : <Text style={s.botonTexto}>
+                    {faltanGrupo > 0 ? 'Falta terminar la fase de grupos' : 'Armar cuartos de final'}
+                  </Text>}
+            </Pressable>
+          </Card>
+        )}
+
+        {/* Ya existe: el cuadro se mira en su pantalla, no aquí. */}
+        {hayCuadro && (
+          <Card>
+            <Text style={s.texto}>El cuadro ya está armado</Text>
+            <Text style={s.pista}>
+              Los cruces de cuartos, semis y final se ven en el calendario del
+              torneo.
+            </Text>
+          </Card>
+        )}
+
         {/* Al guardar un marcador cambian la tabla y el clinch, así que se
             recarga esta pantalla entera en vez de recalcularlo aquí. */}
         {grupos.length > 0 && (
@@ -334,6 +452,11 @@ const s = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.8,
   },
   alertaTexto: { color: color.text, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18 },
+
+  avisoEmpate: {
+    color: color.danger, fontFamily: font.body, fontSize: fontSize.caption,
+    lineHeight: 18, marginTop: space[2],
+  },
 
   error: {
     padding: space[3], borderRadius: radius.sm, backgroundColor: 'rgba(224,114,111,0.13)',
