@@ -49,8 +49,8 @@ export default function DemoAgenda() {
       </View>
 
       <Text style={s.pie}>
-        Pones los inscritos y sale la tarde entera: los dos grupos, las cinco
-        rondas de cada pareja, y quién juega a qué hora y en qué cancha.
+        De una lista de nombres a la tarde entera: dos grupos, cinco rondas por
+        pareja, y cada partido con su hora y su cancha.
       </Text>
     </View>
   );

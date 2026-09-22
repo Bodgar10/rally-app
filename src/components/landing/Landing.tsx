@@ -81,29 +81,29 @@ export default function Landing() {
             />
 
             <Revelar>
-              <Text style={s.marca}>R A L L Y</Text>
+              <Text style={s.marca}>PADEL CROWN</Text>
             </Revelar>
 
             <Revelar retraso={120}>
               <Text style={s.h1}>
-                Juega amateur.{'\n'}
-                <Text style={s.h1Oro}>Siéntete profesional.</Text>
+                Todos los domingos{'\n'}
+                <Text style={s.h1Oro}>se corona alguien.</Text>
               </Text>
             </Revelar>
 
             <Revelar retraso={220}>
               <Parrafo>
-                {'Cuadros, *ranking*, *marcadores en vivo* y ficha de tus rivales. '
-                  + 'Todo lo que tiene un circuito profesional, '
-                  + '*en el torneo del domingo de tu club*.'}
+                {'Cuadros, *ranking* y *marcadores en vivo*. Lo que tiene un '
+                  + 'circuito profesional, en el torneo de *16 parejas de tu '
+                  + 'club*.'}
               </Parrafo>
             </Revelar>
 
             <Revelar retraso={320}>
               <View style={s.ctaHero}>
                 <BotonEntrar
-                  texto="Buscar un torneo →"
-                  pie="Entrar es gratis. Solo pagas la inscripción del torneo que juegues."
+                  texto="Buscar mi torneo →"
+                  pie="Crear la cuenta no cuesta nada. Solo pagas el torneo que juegues."
                 />
               </View>
             </Revelar>
@@ -111,24 +111,24 @@ export default function Landing() {
 
           {/* ── EN VIVO ──────────────────────────────────────────── */}
           <Seccion
-            grande="Sabes cuándo entras."
+            grande="Nadie vuelve a preguntar cuándo entra."
             chico={
-              'Tu cancha está ocupada por otra categoría y nadie te avisa. '
-              + 'Aquí ves ese partido *juego a juego*: si te da tiempo a comer '
-              + 'algo o *tienes que estar calentando*.'
+              'Tu cancha la está usando otra categoría. Aquí ves ese partido '
+              + '*juego a juego* y sabes si te da tiempo a un café o si *ya '
+              + 'deberías estar calentando*.'
             }
           >
             <DemoEnVivo />
-            <BotonEntrar texto="Ver los torneos abiertos" variante="borde" />
+            <BotonEntrar texto="Ver qué hay abierto" variante="borde" />
           </Seccion>
 
           {/* ── LA TABLA EN VIVO ─────────────────────────────────── */}
           <Seccion
-            grande="Y sabes cómo vas."
+            grande="La tabla se mueve mientras juegas."
             chico={
-              'Cada marcador *reordena tu grupo al momento*. Y cuando dos '
-              + 'parejas empatan, la tabla *dice en qué se separan* — sin '
-              + 'discutirlo con una hoja arrugada.'
+              'Se captura un marcador y tu grupo *se reordena solo*. Si dos '
+              + 'parejas empatan, la tabla *dice exactamente qué las separa*. Se '
+              + 'acabó la discusión de la hoja arrugada.'
             }
           >
             <DemoTablaViva />
@@ -137,37 +137,37 @@ export default function Landing() {
 
           {/* ── CLINCH Y FINAL ───────────────────────────────────── */}
           <Seccion
-            grande="Te dice que pasaste antes de que lo sepas."
+            grande="Te enteras de que pasaste antes que nadie."
             chico={
-              'La app calcula si *ya no te pueden sacar*. Te enteras de que '
-              + 'clasificaste *mientras comes algo*. Y de ahí en adelante deja '
-              + 'de hablarte de la tabla: *cuartos, semifinales, la final*.'
+              'La app sabe el momento exacto en que *ya no te pueden sacar*. Y '
+              + 'cuando entras al cuadro deja de hablarte de la tabla: *cuartos, '
+              + 'semifinales, la final*. Cada una pesa más que la anterior.'
             }
           >
             <DemoFinal />
-            <BotonEntrar texto="Quiero llegar a una final" variante="borde" />
+            <BotonEntrar texto="Quiero jugar una final" variante="borde" />
           </Seccion>
 
           {/* ── LA FICHA DEL RIVAL ───────────────────────────────── */}
           <Seccion
-            grande="Contra quién juegas, antes de salir."
+            grande="Sabes a quién te enfrentas antes de verle la cara."
             chico={
-              'De qué lado juega cada uno y con qué mano. Parece poco hasta que '
-              + 'te toca *un zurdo en el drive* y lo entiendes en el tercer '
-              + 'juego. Es simétrico: *ellos ven lo mismo de ti*.'
+              'De qué lado juega cada uno y con qué mano. Parece un detalle '
+              + 'hasta que te toca *un zurdo en el drive* y lo descubres '
+              + 'perdiendo 4-1. Es simétrico: *ellos ven lo mismo de ti*.'
             }
           >
             <DemoFichaRival />
-            <BotonEntrar texto="Saber contra quién juego" variante="borde" />
+            <BotonEntrar texto="Ver a mis rivales" variante="borde" />
           </Seccion>
 
           {/* ── PARA EL ORGANIZADOR ──────────────────────────────── */}
           <Seccion
-            grande="Y si tú lo organizas, no haces nada."
+            grande="Organizarlo deja de ser un trabajo."
             chico={
-              'Pones los inscritos y sale *el sorteo, los grupos, las rondas y '
-              + 'el horario de cada cancha*. Tú anotas marcadores. *Lo demás ya '
-              + 'está hecho*.'
+              'Subes la lista de inscritos y sale *el sorteo, los grupos, las '
+              + 'cinco rondas y el horario de cada cancha*. Tu único trabajo es '
+              + '*anotar marcadores*.'
             }
           >
             {/* Las filas entrando una a una: el trabajo que desaparece. */}
@@ -178,16 +178,16 @@ export default function Landing() {
                 con una lista de cinco filas. */}
             <DemoPanel />
 
-            <BotonEntrar texto="Organizar mi torneo" variante="borde" />
+            <BotonEntrar texto="Montar mi torneo" variante="borde" />
           </Seccion>
 
           {/* ── EL RANKING ───────────────────────────────────────── */}
           <Seccion
-            grande="Todo cuenta."
+            grande="Nada de lo que juegas se pierde."
             chico={
-              'Cada torneo reparte puntos según lo que es, *como en el '
-              + 'circuito*. Tu nivel *se mide solo*, partido a partido, sin que '
-              + 'nadie apunte nada en una libreta.'
+              'Cada torneo reparte puntos *según lo que es*, como en el '
+              + 'circuito. Tu nivel *se calcula solo*, partido a partido, sin '
+              + 'libretas ni favores.'
             }
           >
             <View style={s.tiers}>
@@ -216,26 +216,26 @@ export default function Landing() {
           <View style={s.cierre}>
             <Revelar>
               <Text style={s.cierreTitulo}>
-                Nos vemos{'\n'}en la cancha.
+                El domingo{'\n'}hay corona.
               </Text>
             </Revelar>
             <Revelar retraso={120}>
               <View style={s.cierreTexto}>
                 <Parrafo>
-                  {'Busca un torneo *cerca de ti*, apúntate con tu pareja y '
-                    + '*olvídate del resto* hasta el domingo.'}
+                  {'Busca un torneo *por tu zona*, apúntate con tu pareja y '
+                    + '*no vuelvas a pensar en la logística*.'}
                 </Parrafo>
               </View>
             </Revelar>
             <Revelar retraso={220}>
               <BotonEntrar
-                texto="Entrar a RALLY →"
-                pie="Si ya tienes cuenta, te lleva directo a tus torneos."
+                texto="Entrar a Padel Crown →"
+                pie="¿Ya tienes cuenta? Te deja directo en tus torneos."
               />
             </Revelar>
           </View>
 
-          <Text style={s.legal}>RALLY · Torneos de pádel en México</Text>
+          <Text style={s.legal}>Padel Crown · Torneos de pádel en México</Text>
         </ScrollView>
       </ScrollDeLanding.Provider>
     </SafeAreaView>
@@ -282,7 +282,7 @@ const s = StyleSheet.create({
   heroFondo: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   marca: {
     fontFamily: font.display, fontSize: fontSize.cardName, color: color.gold,
-    letterSpacing: 10, marginBottom: space[3],
+    letterSpacing: 5, marginBottom: space[3],
   },
   h1: {
     fontFamily: font.display, fontSize: fontSize.displayL, color: color.text,

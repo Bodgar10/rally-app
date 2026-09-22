@@ -122,9 +122,9 @@ export default function DemoTablaViva() {
       </View>
 
       <Text style={s.pie}>
-        Aquí los partidos no se ganan: se suman los games que hiciste y se restan
-        los que te hicieron. Todas juegan lo mismo, así que los saldos se
-        comparan directos.
+        Los partidos no se ganan: se suman tus games y se restan los del rival.
+        Todas juegan los mismos cinco, así que los saldos se comparan directo.
+        Pasan cuatro.
       </Text>
     </View>
   );
