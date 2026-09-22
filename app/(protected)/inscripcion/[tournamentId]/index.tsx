@@ -747,9 +747,9 @@ export default function InscripcionScreen() {
                     )}
                     style={({ pressed }) => [s.crearCuenta, pressed && { opacity: 0.85 }]}
                     accessibilityRole="button"
-                    accessibilityLabel="Crearle cuenta en RALLY"
+                    accessibilityLabel="Crearle cuenta en Padel Crown"
                   >
-                    <Text style={s.crearCuentaTexto}>+  Crearle cuenta en RALLY</Text>
+                    <Text style={s.crearCuentaTexto}>+  Crearle cuenta en Padel Crown</Text>
                   </Pressable>
                 </View>
               )}

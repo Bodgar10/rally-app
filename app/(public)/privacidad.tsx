@@ -24,12 +24,12 @@ export default function PrivacidadScreen() {
     <SafeAreaView style={s.safe}>
       <BotonVolver texto="Volver" />
       <ScrollView contentContainerStyle={s.content}>
-        <Text style={s.eyebrow}>RALLY</Text>
+        <Text style={s.eyebrow}>PADEL CROWN</Text>
         <Text style={s.title}>Aviso de Privacidad</Text>
         <Text style={s.meta}>Versión 1.0.0 · Vigente desde junio 2026</Text>
 
         <Section title="Responsable">
-          RALLY es el responsable del tratamiento de tus datos personales, con domicilio en Ciudad de México, México. Contacto: privacidad@rallypadel.mx
+          Padel Crown es el responsable del tratamiento de tus datos personales, con domicilio en Ciudad de México, México. Contacto: privacidad@rallypadel.mx
         </Section>
 
         <Section title="Datos que recopilamos">

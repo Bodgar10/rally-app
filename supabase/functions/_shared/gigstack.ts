@@ -32,7 +32,7 @@ export async function emitSubscriptionCfdi(args: EmitArgs): Promise<CfdiResult> 
     client: { email: args.email, rfc, legal_name: legalName },
     items: [
       {
-        description: args.conceptDescription ?? "Suscripción RALLY",
+        description: args.conceptDescription ?? "Suscripción Padel Crown",
         product_key: productCode ?? undefined,
         quantity: 1,
         total: args.amountPesos, // pesos

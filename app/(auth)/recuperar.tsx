@@ -136,7 +136,7 @@ export default function RecuperarScreen() {
     return (
       <View style={styles.flex}>
         <View style={styles.center}>
-          <Text style={styles.eyebrow}>RALLY</Text>
+          <Text style={styles.eyebrow}>PADEL CROWN</Text>
           <Text style={styles.title}>Revisa tu correo</Text>
           <Text style={styles.subtitle}>
             Te enviamos un link para restablecer tu contraseña. Puede tardar unos minutos.
@@ -155,7 +155,7 @@ export default function RecuperarScreen() {
   return (
     <View style={styles.flex}>
       <View style={styles.center}>
-        <Text style={styles.eyebrow}>RALLY</Text>
+        <Text style={styles.eyebrow}>PADEL CROWN</Text>
         <Text style={styles.title}>
           {esActivacion ? 'Crea tu contraseña' : 'Recuperar contraseña'}
         </Text>

@@ -19,7 +19,7 @@ const supabaseAnon = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
 if (!supabaseUrl || !supabaseAnon) {
   throw new Error(
-    '[RALLY] Faltan EXPO_PUBLIC_SUPABASE_URL o EXPO_PUBLIC_SUPABASE_ANON_KEY en las variables de entorno.',
+    '[Padel Crown] Faltan EXPO_PUBLIC_SUPABASE_URL o EXPO_PUBLIC_SUPABASE_ANON_KEY en las variables de entorno.',
   );
 }
 

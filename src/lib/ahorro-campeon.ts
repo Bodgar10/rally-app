@@ -99,7 +99,7 @@ export function textoEnElPago(base: number, ahorro: number): string {
   if (ahorro < descuentoDe(base)) {
     return `Ahorras ${pesos(ahorro)} — lo que te quedaba de tu suscripción. A partir de aquí, precio normal.`;
   }
-  return `Ahorras ${pesos(ahorro)}: tu comisión la cubre RALLY.`;
+  return `Ahorras ${pesos(ahorro)}: tu comisión la cubre Padel Crown.`;
 }
 
 /**

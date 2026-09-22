@@ -149,7 +149,7 @@ export default function CuotaTorneoScreen() {
           </View>
           <Text style={s.hint}>
             {puedeCobrar
-              ? 'Deja 0 si el torneo es gratuito. RALLY cobra 5% solo cuando tú cobras.'
+              ? 'Deja 0 si el torneo es gratuito. Padel Crown cobra 5% solo cuando tú cobras.'
               : 'El campo se habilita en cuanto Stripe verifique tu cuenta.'}
           </Text>
         </View>

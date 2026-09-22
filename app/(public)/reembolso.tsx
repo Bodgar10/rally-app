@@ -24,15 +24,15 @@ export default function ReembolsoScreen() {
     <SafeAreaView style={s.safe}>
       <BotonVolver texto="Volver" />
       <ScrollView contentContainerStyle={s.content}>
-        <Text style={s.eyebrow}>RALLY</Text>
+        <Text style={s.eyebrow}>PADEL CROWN</Text>
         <Text style={s.title}>Política de Reembolso</Text>
         <Text style={s.meta}>Versión 1.0.0 · Vigente desde junio 2026</Text>
 
         <Section title="Inscripciones a torneos">
-          Las inscripciones a torneos son gestionadas por el organizador de cada evento. La política de reembolso de inscripciones la define el organizador y se informa en la página del torneo. RALLY puede facilitar el proceso de solicitud de reembolso, pero la decisión final corresponde al organizador.
+          Las inscripciones a torneos son gestionadas por el organizador de cada evento. La política de reembolso de inscripciones la define el organizador y se informa en la página del torneo. Padel Crown puede facilitar el proceso de solicitud de reembolso, pero la decisión final corresponde al organizador.
         </Section>
 
-        <Section title="Suscripción RALLY Pro / Campeón">
+        <Section title="Suscripción Padel Crown Pro / Campeón">
           Si cancelas tu suscripción dentro de los primeros 7 días naturales desde la fecha de contratación o renovación, puedes solicitar un reembolso completo. Pasado ese período, no se realizan reembolsos parciales: tu acceso continúa hasta el final del período pagado.
         </Section>
 

@@ -943,7 +943,7 @@ export default function PlanesScreen() {
           Al suscribirte aceptas nuestros{' '}
           <Text style={{ color: color.champagne }}>Términos y Condiciones</Text>.
           Puedes cancelar en cualquier momento desde tu perfil.{'\n'}
-          RALLY · Reforma PROFECO 2025 cumplida.
+          Padel Crown · Reforma PROFECO 2025 cumplida.
         </Text>
       </ScrollView>
     </View>

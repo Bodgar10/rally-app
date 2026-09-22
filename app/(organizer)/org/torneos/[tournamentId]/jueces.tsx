@@ -450,7 +450,7 @@ export default function JuecesTorneoScreen() {
           <BuscadorDeUsuario
             label="Asignar juez"
             placeholder="Nombre o correo"
-            ayuda="Busca a cualquier persona con cuenta en RALLY. No hace falta que sea de tu organización. Puedes asignar todos los que necesites."
+            ayuda="Busca a cualquier persona con cuenta en Padel Crown. No hace falta que sea de tu organización. Puedes asignar todos los que necesites."
             yaElegidos={judges.map((j) => j.userId)}
             textoYaElegido="Ya es juez"
             onElegir={asignar}
@@ -458,16 +458,16 @@ export default function JuecesTorneoScreen() {
               <View style={s.sinResultados}>
                 <Text style={s.sinResultadosTexto}>
                   Nadie con ese nombre o correo. El juez tiene que tener cuenta
-                  en RALLY.
+                  en Padel Crown.
                 </Text>
                 {consulta.includes('@') && (
                   <Pressable
                     onPress={() => Share.share({
-                      message: `Te invito a RALLY para que puedas capturar resultados: ${SITE_URL}`,
+                      message: `Te invito a Padel Crown para que puedas capturar resultados: ${SITE_URL}`,
                     })}
                     style={s.invitar}
                     accessibilityRole="button"
-                    accessibilityLabel="Invitar a RALLY"
+                    accessibilityLabel="Invitar a Padel Crown"
                   >
                     <Text style={s.invitarTexto}>Enviar invitación →</Text>
                   </Pressable>

@@ -25,20 +25,20 @@ export default function TerminosScreen() {
     <SafeAreaView style={s.safe}>
       <BotonVolver texto="Volver" />
       <ScrollView contentContainerStyle={s.content}>
-        <Text style={s.eyebrow}>RALLY</Text>
+        <Text style={s.eyebrow}>PADEL CROWN</Text>
         <Text style={s.title}>Términos y Condiciones</Text>
         <Text style={s.meta}>Versión 1.0.0 · Vigente desde junio 2026</Text>
 
         <Section title="1. Aceptación">
-          Al crear una cuenta o usar la plataforma RALLY, aceptas estos Términos y Condiciones en su totalidad. Si no los aceptas, no uses la plataforma.
+          Al crear una cuenta o usar la plataforma Padel Crown, aceptas estos Términos y Condiciones en su totalidad. Si no los aceptas, no uses la plataforma.
         </Section>
 
         <Section title="2. Descripción del servicio">
-          RALLY es una plataforma digital que facilita la organización, inscripción y seguimiento de torneos de pádel. El servicio incluye: registro de torneos, inscripción de parejas, tabla de posiciones en vivo, clasificación anticipada y análisis estadístico del jugador (en planes de suscripción).
+          Padel Crown es una plataforma digital que facilita la organización, inscripción y seguimiento de torneos de pádel. El servicio incluye: registro de torneos, inscripción de parejas, tabla de posiciones en vivo, clasificación anticipada y análisis estadístico del jugador (en planes de suscripción).
         </Section>
 
         <Section title="3. Inscripciones a torneos">
-          Las inscripciones a torneos son pagos únicos por pareja. El pago se procesa a través de Stripe Connect. RALLY actúa como intermediario tecnológico y cobra una comisión de servicio sobre cada inscripción. El organizador del torneo es el responsable del evento. Los pagos y devoluciones de inscripciones se sujetan a la política del organizador.
+          Las inscripciones a torneos son pagos únicos por pareja. El pago se procesa a través de Stripe Connect. Padel Crown actúa como intermediario tecnológico y cobra una comisión de servicio sobre cada inscripción. El organizador del torneo es el responsable del evento. Los pagos y devoluciones de inscripciones se sujetan a la política del organizador.
         </Section>
 
         <Section title="4. Suscripción (plan Pro / Campeón)">
@@ -50,15 +50,15 @@ export default function TerminosScreen() {
         </Section>
 
         <Section title="6. Propiedad intelectual">
-          Todo el contenido de RALLY (diseño, logotipos, código, textos) es propiedad de sus creadores. Los datos estadísticos generados por tu participación en torneos son tuyos; RALLY los usa de forma agregada y anonimizada para el ranking de la red.
+          Todo el contenido de Padel Crown (diseño, logotipos, código, textos) es propiedad de sus creadores. Los datos estadísticos generados por tu participación en torneos son tuyos; Padel Crown los usa de forma agregada y anonimizada para el ranking de la red.
         </Section>
 
         <Section title="7. Limitación de responsabilidad">
-          RALLY no se hace responsable de lesiones, daños o pérdidas ocurridas durante los torneos. La responsabilidad máxima de RALLY se limita al monto pagado por el usuario en los últimos 12 meses.
+          Padel Crown no se hace responsable de lesiones, daños o pérdidas ocurridas durante los torneos. La responsabilidad máxima de Padel Crown se limita al monto pagado por el usuario en los últimos 12 meses.
         </Section>
 
         <Section title="8. Modificaciones">
-          RALLY puede actualizar estos términos. Te notificaremos con al menos 30 días de anticipación ante cambios sustanciales. El uso continuado de la plataforma implica aceptación de los nuevos términos.
+          Padel Crown puede actualizar estos términos. Te notificaremos con al menos 30 días de anticipación ante cambios sustanciales. El uso continuado de la plataforma implica aceptación de los nuevos términos.
         </Section>
 
         <Section title="9. Ley aplicable">

@@ -119,7 +119,7 @@ export default function RegistroScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>RALLY</Text>
+          <Text style={styles.eyebrow}>PADEL CROWN</Text>
           <Text style={styles.title}>Crea tu cuenta</Text>
           <Text style={styles.subtitle}>Entra al ranking. Gratis.</Text>
         </View>

@@ -109,7 +109,7 @@ export function ConsentBox({
         >
           Acepto que{' '}
           <Text style={{ color: color.text, fontWeight: '500' }}>
-            RALLY me cobrará {plan.price} {plan.renewal}
+            Padel Crown me cobrará {plan.price} {plan.renewal}
           </Text>{' '}
           de forma automática hasta que cancele. El próximo cobro será el{' '}
           <Text style={{ color: color.text, fontWeight: '500' }}>

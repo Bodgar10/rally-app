@@ -95,7 +95,7 @@ export default function OrganizadorLandingScreen() {
 
         <View style={s.precioBox}>
           <Text style={s.precioText}>
-            Sin costo fijo ni mensualidad. RALLY cobra 5% solo cuando tú cobras.
+            Sin costo fijo ni mensualidad. Padel Crown cobra 5% solo cuando tú cobras.
           </Text>
         </View>
 

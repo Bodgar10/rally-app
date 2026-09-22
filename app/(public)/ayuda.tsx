@@ -26,11 +26,11 @@ const CATEGORIES: Category[] = [
     faqs: [
       {
         q: '¿Cómo me inscribo a un torneo?',
-        a: 'Ve a la sección "Torneos", elige el torneo que te interesa y toca "Inscribirme". Necesitas tener a tu pareja registrada en RALLY — busca su correo dentro del flujo de inscripción.',
+        a: 'Ve a la sección "Torneos", elige el torneo que te interesa y toca "Inscribirme". Necesitas tener a tu pareja registrada en Padel Crown — busca su correo dentro del flujo de inscripción.',
       },
       {
-        q: '¿Mi pareja necesita estar registrada en RALLY?',
-        a: 'Sí. Ambos jugadores de la pareja deben tener cuenta en RALLY. Si tu pareja aún no está registrada, primero comparte la app con ella para que se registre.',
+        q: '¿Mi pareja necesita estar registrada en Padel Crown?',
+        a: 'Sí. Ambos jugadores de la pareja deben tener cuenta en Padel Crown. Si tu pareja aún no está registrada, primero comparte la app con ella para que se registre.',
       },
       {
         q: '¿Puedo cambiar de pareja o categoría después de inscribirme?',
@@ -59,11 +59,11 @@ const CATEGORIES: Category[] = [
       },
       {
         q: '¿Qué significa "Ya clasificaste"?',
-        a: 'Es el motor de clasificación anticipada de RALLY. Significa que matemáticamente ya no puedes quedar fuera, sin importar los resultados restantes. Puedes jugar tranquilo.',
+        a: 'Es el motor de clasificación anticipada de Padel Crown. Significa que matemáticamente ya no puedes quedar fuera, sin importar los resultados restantes. Puedes jugar tranquilo.',
       },
       {
         q: '¿Qué es la "dependencia"?',
-        a: 'Si aparece "Dependes del partido X", significa que tu clasificación depende del resultado de ese partido entre otras parejas. RALLY te dice exactamente de qué resultado necesitas.',
+        a: 'Si aparece "Dependes del partido X", significa que tu clasificación depende del resultado de ese partido entre otras parejas. Padel Crown te dice exactamente de qué resultado necesitas.',
       },
       {
         q: '¿Quién captura los resultados?',
@@ -80,11 +80,11 @@ const CATEGORIES: Category[] = [
       },
       {
         q: '¿Los puntos se acumulan entre torneos?',
-        a: 'Sí. Los puntos de ranking se acumulan en toda la red RALLY, sin importar el organizador. Tu posición refleja tu temporada completa.',
+        a: 'Sí. Los puntos de ranking se acumulan en toda la red Padel Crown, sin importar el organizador. Tu posición refleja tu temporada completa.',
       },
       {
         q: '¿Qué es el rating Glicko?',
-        a: 'Es una medida estadística de tu habilidad real (similar al ELO del ajedrez). RALLY lo calcula internamente desde tu primer torneo. Se mostrará en una próxima actualización.',
+        a: 'Es una medida estadística de tu habilidad real (similar al ELO del ajedrez). Padel Crown lo calcula internamente desde tu primer torneo. Se mostrará en una próxima actualización.',
       },
     ],
   },
@@ -96,7 +96,7 @@ const CATEGORIES: Category[] = [
         a: 'Tabla en vivo, tu próximo partido, clasificación anticipada ("ya clasificaste"), historial de torneos y tu posición en el ranking. Todo lo esencial para jugar.',
       },
       {
-        q: '¿Qué agrega RALLY Pro?',
+        q: '¿Qué agrega Padel Crown Pro?',
         a: 'Análisis de rendimiento (win-rate, clutch en super muertes, rendimiento por horario y sede), ranking histórico detallado, 5% de descuento en inscripciones y acceso anticipado a nuevas funciones.',
       },
       {
@@ -121,7 +121,7 @@ const CATEGORIES: Category[] = [
         a: 'Escríbenos a privacidad@rallypadel.mx solicitando la eliminación de tu cuenta. Lo procesamos en máximo 30 días hábiles.',
       },
       {
-        q: '¿RALLY comparte mis datos con patrocinadores?',
+        q: '¿Padel Crown comparte mis datos con patrocinadores?',
         a: 'Solo si tú lo autorizas explícitamente al solicitar un producto de un patrocinador. Tu nombre y correo se comparten solo en ese momento y con ese patrocinador específico.',
       },
     ],
@@ -154,7 +154,7 @@ export default function AyudaScreen() {
       <BotonVolver texto="Volver" />
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <Text style={s.eyebrow}>RALLY</Text>
+        <Text style={s.eyebrow}>PADEL CROWN</Text>
         <Text style={s.title}>Ayuda</Text>
         <Text style={s.subtitle}>¿Tienes alguna duda? Aquí están las respuestas.</Text>
 

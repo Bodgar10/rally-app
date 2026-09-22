@@ -139,7 +139,7 @@ export default function LoginScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>RALLY</Text>
+          <Text style={styles.eyebrow}>PADEL CROWN</Text>
           <Text style={styles.title}>Bienvenido</Text>
           <Text style={styles.subtitle}>
             {paso === 'correo'
@@ -243,7 +243,7 @@ export default function LoginScreen() {
         {/* Footer — registro. En el paso 1 sobra: si el correo no existe, el
             propio "Continuar" lleva al registro con el correo ya puesto. */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>¿Primera vez en RALLY?</Text>
+          <Text style={styles.footerText}>¿Primera vez en Padel Crown?</Text>
           <Link href="/(auth)/registro" asChild>
             <Pressable accessibilityRole="link">
               <Text style={styles.footerLink}>Crea tu cuenta</Text>

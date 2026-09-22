@@ -74,7 +74,7 @@ describe('cuánto le falta para que salga gratis', () => {
 
 describe('el momento de pagar, siendo Campeón', () => {
   it('con descuento completo lo dice claro', () => {
-    expect(textoEnElPago(950, 48)).toBe('Ahorras $48: tu comisión la cubre RALLY.');
+    expect(textoEnElPago(950, 48)).toBe('Ahorras $48: tu comisión la cubre Padel Crown.');
   });
 
   it('con el tope a medias NO lo disimula', () => {

@@ -341,7 +341,7 @@ export function ProBenefitsSheet({
                   flex: 1,
                 }}
               >
-                La suscripción se gestiona desde el sitio web de RALLY. Al
+                La suscripción se gestiona desde el sitio web de Padel Crown. Al
                 tocar el botón de abajo se abrirá en tu navegador.
               </Text>
             </View>

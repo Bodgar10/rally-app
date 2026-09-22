@@ -102,8 +102,8 @@ function primerNombre(nombre: string): string {
 
 // El pie cambia según a quién le hablamos: en una cuenta de menor el lector es
 // el tutor, y decirle "te inscribieron" sería falso.
-const PIE_JUGADOR = "Recibes este correo porque un organizador te inscribió en un torneo de RALLY.";
-const PIE_TUTOR   = "Recibe este correo porque un organizador inscribió en un torneo de RALLY a un menor a su cargo.";
+const PIE_JUGADOR = "Recibes este correo porque un organizador te inscribió en un torneo de Padel Crown.";
+const PIE_TUTOR   = "Recibe este correo porque un organizador inscribió en un torneo de Padel Crown a un menor a su cargo.";
 
 // ── Piezas de la plantilla ───────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ function layout(opts: {
         <!-- Marca -->
         <tr>
           <td align="center" style="padding-bottom:20px;">
-            <span style="font-family:${FUENTE_DISPLAY};font-size:22px;font-weight:600;color:${GOLD};letter-spacing:6px;">RALLY</span>
+            <span style="font-family:${FUENTE_DISPLAY};font-size:22px;font-weight:600;color:${GOLD};letter-spacing:6px;">PADEL CROWN</span>
           </td>
         </tr>
 
@@ -230,7 +230,7 @@ function layout(opts: {
               ${esc(opts.pie)}
             </p>
             <p style="margin:0;font-family:${FUENTE_BODY};font-size:11px;line-height:17px;color:${MUTED};">
-              RALLY · Torneos de padel
+              PADEL CROWN · Torneos de pádel
             </p>
           </td>
         </tr>
@@ -275,7 +275,7 @@ export function plantillaCuentaCreada(
     </h1>
     <p style="margin:0 0 20px;font-family:${FUENTE_BODY};font-size:15px;line-height:23px;color:${TEXT};">
       <strong style="color:${CHAMPAGNE};">${esc(t.organizador)}</strong> te inscribió en
-      <strong style="color:${CHAMPAGNE};">${esc(t.nombre)}</strong> y creó tu cuenta en RALLY con este correo.
+      <strong style="color:${CHAMPAGNE};">${esc(t.nombre)}</strong> y creó tu cuenta en Padel Crown con este correo.
     </p>
 
     ${bloqueTorneo(t)}
@@ -299,7 +299,7 @@ export function plantillaCuentaCreada(
   const text = [
     `Hola, ${nombre}`,
     ``,
-    `${t.organizador} te inscribió en ${t.nombre} y creó tu cuenta en RALLY con este correo.`,
+    `${t.organizador} te inscribió en ${t.nombre} y creó tu cuenta en Padel Crown con este correo.`,
     ``,
     `Torneo:    ${t.nombre}`,
     `Fechas:    ${formatearRango(t.fechaInicio, t.fechaFin)}`,
@@ -313,7 +313,7 @@ export function plantillaCuentaCreada(
     ``,
     `¿No esperabas esto? Puedes ignorar el correo: sin contraseña, la cuenta no se puede usar.`,
     ``,
-    `RALLY · Torneos de padel`,
+    `PADEL CROWN · Torneos de pádel`,
   ].filter((l) => l !== "").join("\n");
 
   return {
@@ -384,7 +384,7 @@ export function plantillaTeInscribieron(
     `Ver tus partidos:`,
     url,
     ``,
-    `RALLY · Torneos de padel`,
+    `PADEL CROWN · Torneos de pádel`,
   ].filter((l) => l !== "").join("\n");
 
   return {
@@ -442,7 +442,7 @@ export function plantillaCuentaMenor(
       <strong style="color:${CHAMPAGNE};">${esc(t.organizador)}</strong> inscribió a
       <strong style="color:${CHAMPAGNE};">${jugador}</strong> en
       <strong style="color:${CHAMPAGNE};">${esc(t.nombre)}</strong>${cuentaNueva
-        ? `, y creó su cuenta en RALLY con este correo porque es menor de 18 años.`
+        ? `, y creó su cuenta en Padel Crown con este correo porque es menor de 18 años.`
         : `.`}
     </p>
 
@@ -474,7 +474,7 @@ export function plantillaCuentaMenor(
     `Inscribieron a ${nombreJugador}`,
     ``,
     cuentaNueva
-      ? `${t.organizador} inscribió a ${nombreJugador} en ${t.nombre}, y creó su cuenta en RALLY con este correo porque es menor de 18 años.`
+      ? `${t.organizador} inscribió a ${nombreJugador} en ${t.nombre}, y creó su cuenta en Padel Crown con este correo porque es menor de 18 años.`
       : `${t.organizador} inscribió a ${nombreJugador} en ${t.nombre}.`,
     ``,
     `Torneo:    ${t.nombre}`,
@@ -493,7 +493,7 @@ export function plantillaCuentaMenor(
       ? `Al activarla se le pedirá aceptar los términos como tutor de ${nombreJugador}.`
       : ``,
     ``,
-    `RALLY · Torneos de padel`,
+    `PADEL CROWN · Torneos de pádel`,
   ].filter((l) => l !== "").join("\n");
 
   return {

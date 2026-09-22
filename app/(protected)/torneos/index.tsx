@@ -129,7 +129,7 @@ export default function TorneosScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>RALLY</Text>
+        <Text style={styles.eyebrow}>PADEL CROWN</Text>
         <Text style={styles.title}>Torneos</Text>
       </View>
 

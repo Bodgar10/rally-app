@@ -527,7 +527,7 @@ export default function AgregarParejaScreen() {
             <View style={s.nota}>
               <Text style={s.notaTexto}>
                 Esta inscripción es un dato de seguimiento. No registra ingreso
-                económico en RALLY. La pareja participa en el cuadro igual que
+                económico en Padel Crown. La pareja participa en el cuadro igual que
                 cualquier otra.
               </Text>
             </View>
@@ -678,9 +678,9 @@ function BloqueJugador({
             })}
             style={({ pressed }) => [s.crearCuenta, pressed && s.filaPulsada]}
             accessibilityRole="button"
-            accessibilityLabel="Crearle cuenta en RALLY"
+            accessibilityLabel="Crearle cuenta en Padel Crown"
           >
-            <Text style={s.crearCuentaTexto}>+  Crearle cuenta en RALLY</Text>
+            <Text style={s.crearCuentaTexto}>+  Crearle cuenta en Padel Crown</Text>
           </Pressable>
         )}
       />

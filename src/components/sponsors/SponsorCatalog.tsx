@@ -127,10 +127,10 @@ export function SponsorCatalog({ tournamentId, onReserve }: SponsorCatalogProps)
 
   return (
     <View style={{ gap: space[3] }}>
-      {/* Productos RALLY (plataforma) */}
+      {/* Productos Padel Crown (plataforma) */}
       {rally.length > 0 && (
         <View>
-          <SectionLabel title="Ofertas RALLY" />
+          <SectionLabel title="Ofertas Padel Crown" />
           <View style={{ paddingHorizontal: space[4], gap: 12, marginTop: space[2] }}>
             {rally.map((p) => (
               <ProductCard key={p.id} product={p} onReserve={onReserve} isPlatform />
@@ -175,7 +175,7 @@ function ProductCard({
         overflow: 'hidden',
       }}
     >
-      {/* Borde dorado superior solo en productos RALLY */}
+      {/* Borde dorado superior solo en productos Padel Crown */}
       {isPlatform && (
         <View
           style={{
@@ -264,7 +264,7 @@ function ProductCard({
                 textTransform: 'uppercase',
               }}
             >
-              RALLY
+              Padel Crown
             </Text>
           </View>
         )}
@@ -396,7 +396,7 @@ async function loadProducts(tournamentId: string): Promise<CatalogState> {
       `)
       .in('sponsor_id', sponsorIds)
       .eq('active', true)
-      .order('product_type', { ascending: false }) // 'own_product' (RALLY) antes que 'sponsor_lead'
+      .order('product_type', { ascending: false }) // 'own_product' (Padel Crown) antes que 'sponsor_lead'
       .order('created_at', { ascending: true });
 
     if (error) throw error;

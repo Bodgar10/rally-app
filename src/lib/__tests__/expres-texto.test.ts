@@ -126,7 +126,7 @@ describe('el aviso del empate que bloquea', () => {
     expect(aviso).toMatch(/decide quién pasa a cuartos/);
   });
 
-  it('dice que RALLY no lo resuelve y sugiere el tiebreak', () => {
+  it('dice que Padel Crown no lo resuelve y sugiere el tiebreak', () => {
     const aviso = avisoDeEmpateExpres(ciclo())!;
     expect(aviso).toMatch(/El reglamento no da para más/);
     expect(aviso).toMatch(/tiebreak en la cancha/);

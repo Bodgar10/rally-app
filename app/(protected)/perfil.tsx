@@ -147,7 +147,7 @@ export default function PerfilScreen() {
           ) : (
             <>
               <Text style={styles.subNote}>
-                Suscríbete a RALLY Pro para acceder al análisis de tu juego y ranking histórico.
+                Suscríbete a Padel Crown Pro para acceder al análisis de tu juego y ranking histórico.
               </Text>
               <View style={{ marginTop: space[3] }}>
                 <Button
@@ -276,7 +276,7 @@ export default function PerfilScreen() {
           />
         </View>
 
-        <Text style={styles.version}>RALLY v0.1.0 · Sprint 0</Text>
+        <Text style={styles.version}>Padel Crown v0.1.0 · Sprint 0</Text>
 
       </ScrollView>
     </SafeAreaView>

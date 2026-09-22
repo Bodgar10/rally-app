@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
             amountPesos: amountTotal,
             rfc: subRow?.tax_rfc ?? null,
             legalName: subRow?.tax_legal_name ?? null,
-            conceptDescription: "Suscripción RALLY (acceso a análisis y ranking)",
+            conceptDescription: "Suscripción Padel Crown (acceso a análisis y ranking)",
           });
           if (res.skipped) cfdiStatus = "skipped";
           else if (res.ok) { cfdiStatus = "emitted"; providerId = res.providerId ?? null; }

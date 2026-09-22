@@ -160,7 +160,7 @@ export default function TorneoDetailScreen() {
         {/* Hero info */}
         <View style={s.heroCard}>
           <View style={s.accentBar} />
-          <Text style={s.eyebrow}>RALLY</Text>
+          <Text style={s.eyebrow}>PADEL CROWN</Text>
           <Text style={s.title}>{tournament.name}</Text>
           <Text style={s.dates}>
             {formatearRango(tournament.start_date, tournament.end_date)}

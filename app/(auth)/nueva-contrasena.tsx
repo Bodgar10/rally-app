@@ -136,7 +136,7 @@ export default function NuevaContrasenaScreen() {
     return (
       <View style={s.flex}>
         <View style={s.center}>
-        <Text style={s.eyebrow}>RALLY</Text>
+        <Text style={s.eyebrow}>PADEL CROWN</Text>
         <Text style={s.title}>
           {esDeMenor ? 'Cuenta activada' : '¡Contraseña actualizada!'}
         </Text>
@@ -155,7 +155,7 @@ export default function NuevaContrasenaScreen() {
 
   return (
     <ScrollView contentContainerStyle={[s.contenido, s.center]} keyboardShouldPersistTaps="handled">
-      <Text style={s.eyebrow}>RALLY</Text>
+      <Text style={s.eyebrow}>PADEL CROWN</Text>
       <Text style={s.title}>
         {esDeMenor ? 'Activa la cuenta' : 'Nueva contraseña'}
       </Text>

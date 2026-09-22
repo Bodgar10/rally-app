@@ -329,7 +329,7 @@ export default function DashboardScreen() {
         {/* ── Header ─────────────────────────────────────────── */}
         <View style={styles.header}>
           <View style={styles.headerTextos}>
-            <Text style={styles.eyebrow}>RALLY</Text>
+            <Text style={styles.eyebrow}>PADEL CROWN</Text>
             <Text style={styles.greeting}>Hola, {displayName} 👋</Text>
           </View>
 

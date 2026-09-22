@@ -17,7 +17,7 @@ describe('la regla de todos los textos', () => {
     // Nadie comparte un anuncio. Un texto que empieza por la marca no lo manda
     // nadie, y entonces no sirve para nada.
     for (const m of todos) {
-      expect(m.startsWith('RALLY')).toBe(false);
+      expect(m.startsWith('Padel Crown')).toBe(false);
       expect(m.trimEnd().endsWith(urlDeLaApp())).toBe(true);
     }
   });

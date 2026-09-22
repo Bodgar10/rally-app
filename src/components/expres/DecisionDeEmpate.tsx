@@ -96,7 +96,7 @@ export default function DecisionDeEmpate({
           . Hasta aquí llega el reglamento.
         </Text>
         <Text style={s.explicaTexto}>
-          Lo normal es jugar un tiebreak en la cancha. RALLY no lo gestiona: cuando lo
+          Lo normal es jugar un tiebreak en la cancha. Padel Crown no lo gestiona: cuando lo
           tengan, marca aquí el orden y la tabla se cierra.
         </Text>
         <Text style={s.plazas}>

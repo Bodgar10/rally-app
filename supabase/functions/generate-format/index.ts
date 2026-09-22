@@ -193,7 +193,7 @@ serve(async (req) => {
       })
       .join("\n");
 
-    const aiPrompt = `Eres el asistente de RALLY, una plataforma de torneos de padel.
+    const aiPrompt = `Eres el asistente de Padel Crown, una plataforma de torneos de padel.
 El organizador tiene ${pairCount} parejas inscritas en la categoría "${category.display_name}".
 El motor de formato detectó ambigüedad y generó estas opciones de cuadro:
 

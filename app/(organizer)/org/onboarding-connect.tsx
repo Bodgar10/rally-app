@@ -336,7 +336,7 @@ export default function OnboardingConnectScreen() {
               }}
             >
               Tu cuenta de Stripe está activa. Las inscripciones se dividirán
-              automáticamente entre tu cuenta y RALLY.
+              automáticamente entre tu cuenta y Padel Crown.
             </Text>
 
             <StatusPill status="active" />
@@ -373,7 +373,7 @@ export default function OnboardingConnectScreen() {
                 sub: 'ejemplo $1,900',
               },
               {
-                label: 'Comisión RALLY (5%)',
+                label: 'Comisión Padel Crown (5%)',
                 value: '−5%',
                 sub: 'se descuenta automáticamente',
               },
@@ -652,7 +652,7 @@ export default function OnboardingConnectScreen() {
             marginBottom: 20,
           }}
         >
-          El registro es con Stripe. RALLY{' '}
+          El registro es con Stripe. Padel Crown{' '}
           <Text style={{ color: color.champagne, fontWeight: '500' }}>
             nunca
           </Text>{' '}

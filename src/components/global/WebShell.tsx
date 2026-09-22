@@ -104,7 +104,7 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
         <View style={styles.navInner}>
         {isDesktop ? (
           <>
-            <Text style={styles.wordmark}>RALLY</Text>
+            <Text style={styles.wordmark}>PADEL CROWN</Text>
             <View style={styles.navItems}>
               {items.map(item => {
                 const active = isActive(pathname, item.segment);
@@ -148,7 +148,7 @@ export default function WebShell({ children }: { children: React.ReactNode }) {
               <View style={styles.burgerLine} />
             </Pressable>
 
-            <Text style={styles.wordmark}>RALLY</Text>
+            <Text style={styles.wordmark}>PADEL CROWN</Text>
 
             {/* Espaciador del mismo ancho que la hamburguesa, para centrar el wordmark */}
             <View style={styles.burgerSpacer} />

@@ -16,7 +16,7 @@ export default function ComoCancelarScreen() {
     <SafeAreaView style={s.safe}>
       <BotonVolver texto="Volver" />
       <ScrollView contentContainerStyle={s.content}>
-        <Text style={s.eyebrow}>RALLY</Text>
+        <Text style={s.eyebrow}>PADEL CROWN</Text>
         <Text style={s.title}>Cómo cancelar tu suscripción</Text>
         <Text style={s.intro}>
           Puedes cancelar tu suscripción en cualquier momento, sin cargos adicionales, siguiendo estos pasos:
