@@ -138,8 +138,10 @@ export default function Landing() {
             grande="Te dice que pasaste antes de que lo sepas."
             chico={
               'La app calcula, partido a partido, si ya no te pueden sacar. '
-              + 'Muchas veces te enteras de que estás en cuartos mientras comes '
-              + 'algo. Y cuando llegas a la final, se nota.'
+              + 'Muchas veces te enteras de que clasificaste mientras comes algo. '
+              + 'Y a partir de ahí deja de hablarte de la tabla: te habla de la '
+              + 'ronda. Cuartos, semifinales, la final — cada una se ve más '
+              + 'grande que la anterior.'
             }
           >
             <DemoFinal />
