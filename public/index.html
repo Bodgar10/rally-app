@@ -12,6 +12,43 @@
     <meta name="format-detection" content="telephone=no" />
     <meta name="color-scheme" content="dark" />
     <title>%WEB_TITLE%</title>
+
+    <!--
+      LO QUE SE VE AL COMPARTIR EL ENLACE
+
+      Sin estas etiquetas, pegar padelcrown.mx en WhatsApp dejaba una tarjeta
+      gris con la URL y nada más. Y la mayoría de la gente va a llegar aquí
+      justo así: por un enlace que le pasó su pareja de dobles.
+
+      · og:image es ABSOLUTA a propósito. WhatsApp, Telegram y Twitter no
+        resuelven rutas relativas: con "/og.png" no se ve nada.
+      · 1200x630 es la proporción que esperan todos. Con una imagen cuadrada
+        —el icono de la app— la recortan o la enseñan como miniatura pegada
+        al texto, que es la tarjeta pobre de siempre.
+      · twitter:card summary_large_image es lo que hace que la imagen salga
+        GRANDE arriba en vez de en un cuadradito a la izquierda.
+
+      Al cambiar la imagen hay que cambiarle el nombre o WhatsApp seguirá
+      enseñando la vieja durante días: la cachea por URL y no respeta
+      cabeceras.
+    -->
+    <meta name="description" content="Torneos de pádel con cuadros, ranking y marcadores en vivo. Te inscribes, ves tu grupo en vivo y sabes contra quién juegas y a qué hora." />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Padel Crown" />
+    <meta property="og:locale" content="es_MX" />
+    <meta property="og:url" content="https://padelcrown.mx/" />
+    <meta property="og:title" content="El pádel amateur más profesional del mundo" />
+    <meta property="og:description" content="Cuadros, ranking y marcadores en vivo en el torneo del domingo de tu club. Todos los domingos se corona alguien." />
+    <meta property="og:image" content="https://padelcrown.mx/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Padel Crown — El pádel amateur más profesional del mundo" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="El pádel amateur más profesional del mundo" />
+    <meta name="twitter:description" content="Cuadros, ranking y marcadores en vivo en el torneo del domingo de tu club." />
+    <meta name="twitter:image" content="https://padelcrown.mx/og.png" />
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* These styles make the body full-height */
