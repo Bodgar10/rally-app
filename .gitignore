@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Vercel CLI: enlace local del proyecto. No va al repo.
+.vercel
+.env*
