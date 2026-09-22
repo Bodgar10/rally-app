@@ -46,6 +46,8 @@ import DemoTablaViva from '@/components/landing/DemoTablaViva';
 import DemoFichaRival from '@/components/landing/DemoFichaRival';
 import DemoAgenda from '@/components/landing/DemoAgenda';
 import DemoPanel from '@/components/landing/DemoPanel';
+import DemoFormatos from '@/components/landing/DemoFormatos';
+import DemoRankingGlobal from '@/components/landing/DemoRankingGlobal';
 import DemoEnVivo from '@/components/landing/DemoEnVivo';
 import DemoFinal from '@/components/landing/DemoFinal';
 import { TIER_OPCIONES, puntosDelCampeon } from '@/lib/tier-torneo';
@@ -165,11 +167,19 @@ export default function Landing() {
           <Seccion
             grande="Organizarlo deja de ser un trabajo."
             chico={
-              'Subes la lista de inscritos y sale *el sorteo, los grupos, las '
-              + 'cinco rondas y el horario de cada cancha*. Tu único trabajo es '
-              + '*anotar marcadores*.'
+              'Monta un *exprés de una tarde* o un torneo de *dos o tres días '
+              + 'con varias categorías*. Subes la lista de inscritos y sale el '
+              + 'sorteo, los grupos y el horario de cada cancha. Tu único '
+              + 'trabajo es *anotar marcadores*.'
             }
           >
+            {/* ► LOS DOS FORMATOS, PRIMERO.
+                Todas las demos salen de un exprés, y quien organiza torneos de
+                fin de semana podía irse pensando que esto solo sirve para
+                tardes cortas. Es al revés: el motor largo es el que lleva un
+                torneo de 165 parejas con ocho categorías. */}
+            <DemoFormatos />
+
             {/* Las filas entrando una a una: el trabajo que desaparece. */}
             <DemoAgenda />
 
@@ -183,13 +193,16 @@ export default function Landing() {
 
           {/* ── EL RANKING ───────────────────────────────────────── */}
           <Seccion
-            grande="Nada de lo que juegas se pierde."
+            grande="Un solo ranking. El que de verdad vale."
             chico={
-              'Cada torneo reparte puntos *según lo que es*, como en el '
-              + 'circuito. Tu nivel *se calcula solo*, partido a partido, sin '
-              + 'libretas ni favores.'
+              'Olvídate de que cada torneo tenga su propia tabla y ganar cuatro '
+              + 'sean *cuatro victorias sueltas*. Aquí todos cuentan para el '
+              + '*mismo ranking*, lo monte quien lo monte. Por eso entrar a un '
+              + 'torneo nuevo *suma en vez de empezar de cero*.'
             }
           >
+            <DemoRankingGlobal />
+
             <View style={s.tiers}>
               {TIER_OPCIONES.map((o, i) => (
                 <Revelar key={o.valor} retraso={i * 90}>

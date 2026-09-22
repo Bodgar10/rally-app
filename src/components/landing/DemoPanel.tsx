@@ -127,23 +127,53 @@ function Horarios() {
   );
 }
 
-/** 3 · La captura: dos casillas, y la segunda se completa sola. */
+/**
+ * 3 · La captura de un torneo grande: SETS, con su súper muerte.
+ *
+ * ► LA PRIMERA VERSIÓN ENSEÑABA LA DEL EXPRÉS, Y ESTÁ EN LA SECCIÓN
+ *   EQUIVOCADA
+ *   Ponía dos casillas sumando seis, que es la captura de un suma 6. Pero
+ *   esta sección habla sobre todo de torneos de varios días, y ahí se juega
+ *   a sets de verdad: dos ganados, y si hace falta un tercero que suele ser
+ *   súper muerte. Enseñar la del exprés aquí hace pensar que la app solo
+ *   sabe hacer torneos cortos.
+ *
+ * ► NO HAY INTERRUPTOR DE SÚPER MUERTE, Y ES A PROPÓSITO
+ *   Es fiel a la captura de verdad: si el tercer set se anotó 10-8, el motor
+ *   ya sabe que eso no es un set normal. Se avisa DESPUÉS de escribirlo,
+ *   para que quien captura vea que se entendió — en vez de pedirle que lo
+ *   declare antes.
+ */
 function Capturar() {
+  const sets = [
+    { n: 1, a: 6, b: 4, nota: '✓ Set cerrado' },
+    { n: 2, a: 3, b: 6, nota: '✓ Set cerrado' },
+    { n: 3, a: 10, b: 8, nota: 'Súper muerte' },
+  ];
   return (
-    <View style={[s.vista, s.vistaCentrada]}>
-      <Text style={s.titulo}>Grupo A · Ronda 3 · Cancha 2</Text>
+    <View style={s.vista}>
+      <Text style={s.titulo}>Cuartos de final · Cancha 1</Text>
+
       <View style={s.capturaNombres}>
         <Text style={s.capturaPareja} numberOfLines={1}>Rivera / Solís</Text>
-        <Text style={s.capturaVs}>games</Text>
         <Text style={[s.capturaPareja, s.capturaParejaDer]} numberOfLines={1}>Cantú / Mejía</Text>
       </View>
-      <View style={s.casillas}>
-        <View style={s.casilla}><Text style={s.casillaNum}>4</Text></View>
-        <Text style={s.casillaGuion}>–</Text>
-        <View style={s.casilla}><Text style={s.casillaNum}>2</Text></View>
-      </View>
+
+      {sets.map((x) => (
+        <View key={x.n} style={s.setFila}>
+          <Text style={s.setNum}>{x.n}</Text>
+          <View style={s.casilla}><Text style={s.casillaNum}>{x.a}</Text></View>
+          <Text style={s.casillaGuion}>–</Text>
+          <View style={s.casilla}><Text style={s.casillaNum}>{x.b}</Text></View>
+          <Text style={[s.setNota, x.nota === 'Súper muerte' && s.setNotaOro]}>
+            {x.nota}
+          </Text>
+        </View>
+      ))}
+
       <Text style={s.nota}>
-        Escribes un lado y el otro se completa hasta seis. Un 4-3 no entra.
+        Dos sets, y un tercero si hace falta. Si lo anotas 10-8, el motor sabe
+        solo que fue súper muerte: no hay que declararlo antes.
       </Text>
     </View>
   );
@@ -222,7 +252,6 @@ const s = StyleSheet.create({
 
   lienzo: { height: ALTO },
   vista: { flex: 1, gap: space[1] },
-  vistaCentrada: { justifyContent: 'center', gap: space[3] },
 
   titulo: {
     fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne,
@@ -249,14 +278,17 @@ const s = StyleSheet.create({
   capturaPareja: { flex: 1, fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
   capturaParejaDer: { textAlign: 'right' },
   capturaVs: { fontFamily: font.body, fontSize: 10, color: color.muted },
-  casillas: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[3] },
+  setFila: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[1] },
+  setNum: { width: 14, fontFamily: font.display, fontSize: fontSize.caption, color: color.muted },
   casilla: {
-    width: 64, height: 64, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: color.goldMuted, borderRadius: radius.md,
+    width: 46, height: 42, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: color.goldMuted, borderRadius: radius.sm,
     backgroundColor: color.bg,
   },
-  casillaNum: { fontFamily: font.display, fontSize: fontSize.displayL, color: color.text },
-  casillaGuion: { fontFamily: font.display, fontSize: fontSize.metric, color: color.muted },
+  casillaNum: { fontFamily: font.display, fontSize: fontSize.metric, color: color.text },
+  casillaGuion: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.muted },
+  setNota: { flex: 1, fontFamily: font.body, fontSize: 10, color: color.muted },
+  setNotaOro: { color: color.goldBright },
 
   cuadro: { flexDirection: 'row', gap: space[2], flex: 1 },
   columna: { flex: 1, gap: space[2] },
