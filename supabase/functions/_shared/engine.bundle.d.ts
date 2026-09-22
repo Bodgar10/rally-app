@@ -20,11 +20,25 @@ interface MatchResultInput {
     matchId: string;
     pairAId: string;
     pairBId: string;
-    /** null si el partido aún no se juega. */
+    /**
+     * null si el partido aún no se juega.
+     *
+     * ► O si el formato NO TIENE GANADOR. Ver `sinGanador`: en un suma 6 esto
+     *   es null incluso con el partido terminado, y confundir las dos cosas es
+     *   lo que hacía que un exprés con los 40 partidos capturados dijera que
+     *   tenía 40 sin resultado.
+     */
     winnerPairId: string | null;
     /** Sets capturados; vacío si no se ha jugado. */
     sets: SetScore[];
     played: boolean;
+    /**
+     * El formato no produce ganador (suma 6).
+     *
+     * Opcional para no tocar los cientos de sitios que construyen esto para un
+     * torneo largo, donde siempre hay ganador. Ausente se lee como `false`.
+     */
+    sinGanador?: boolean;
 }
 interface SetScore {
     gamesA: number;
@@ -1410,7 +1424,23 @@ type CriterioExpres =
 /** Empataba y no había forma de separarlas: lo decidió el organizador. */
  | 'manual'
 /** Empataba y nadie lo ha resuelto todavía. El puesto NO es deportivo. */
- | 'sin_resolver';
+ | 'sin_resolver'
+/**
+ * Empata, pero todavía le quedan partidos por jugar.
+ *
+ * ► NO ES UN EMPATE SIN RESOLVER, Y CONFUNDIRLOS ERA EL FALLO
+ *   Recién sorteado el grupo, las ocho parejas están a balance 0 y no se ha
+ *   enfrentado ninguna. Formalmente eso es un bloque empatado que el
+ *   reglamento no separa, así que la tabla salía con las ocho en rojo y
+ *   "empate sin resolver" antes de que se jugara un solo punto.
+ *
+ *   Es verdad y es inútil. Un empate solo es un PROBLEMA cuando ya no se
+ *   puede deshacer solo — es decir, cuando las implicadas jugaron todo lo
+ *   suyo y su balance ya no va a cambiar. Antes de eso el puesto es
+ *   provisional, que es otra cosa: no hay nada que resolver ni nada que
+ *   decidirle al organizador.
+ */
+ | 'provisional';
 interface FilaTablaExpres {
     pairId: string;
     posicion: number;

@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
       // única forma de llamar a esta función.
       const { data: grpMatches, error: gme } = await admin
         .from('matches')
-        .select('id, status, group_id, pair_a_id, pair_b_id, winner_pair_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
+        .select('id, status, group_id, pair_a_id, pair_b_id, winner_pair_id, formato, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
         .eq('category_id', category_id)
         .eq('stage', 'group');
       if (gme) return json({ error: 'group_matches_read_failed', detail: gme.message }, 500);
@@ -152,6 +152,9 @@ Deno.serve(async (req) => {
           pairBId: mm.pair_b_id,
           winnerPairId: mm.winner_pair_id ?? null,
           played: mm.status === 'finished',
+          // Un suma 6 no tiene ganador ni terminado. Sin esto, la validación
+          // lee los partidos de un exprés como "sin resultado".
+          sinGanador: mm.formato === 'suma_6',
           sets: (mm.match_sets ?? []).map((x: any) => ({
             gamesA: Number(x.games_a), gamesB: Number(x.games_b),
             isSuperTiebreak: Boolean(x.is_super_tiebreak ?? false),

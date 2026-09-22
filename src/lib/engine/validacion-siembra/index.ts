@@ -83,7 +83,19 @@ export function validarSiembra(entrada: EntradaValidacion): Validacion {
   // ── 4. Todos los grupos completos ───────────────────────────────────────
   // El botón ya lo comprueba, pero el botón es del cliente.
   for (const g of grupos) {
-    const sinJugar = g.matches.filter((m) => !m.played || m.winnerPairId == null);
+    // ► UN PARTIDO SIN GANADOR NO ES UN PARTIDO SIN JUGAR.
+    //
+    //   Esto era `!m.played || m.winnerPairId == null`, y en un exprés el
+    //   ganador es SIEMPRE null porque un suma 6 no tiene: los 20 partidos
+    //   de cada grupo, capturados y terminados, salían como "sin resultado" y
+    //   el cuadro no se podía armar nunca.
+    //
+    //   El ganador solo se exige donde el formato lo produce. Para el resto,
+    //   la coherencia ya la garantiza el constraint `matches_ganador_coherente`
+    //   de la migración 075, que es donde tiene que estar.
+    const sinJugar = g.matches.filter(
+      (m) => !m.played || (!m.sinGanador && m.winnerPairId == null),
+    );
     if (sinJugar.length > 0) {
       add({
         codigo: 'grupo_incompleto',

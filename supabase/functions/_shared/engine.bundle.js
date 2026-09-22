@@ -2059,7 +2059,9 @@ function validarSiembra(entrada) {
   const problemas = [];
   const add = (p) => problemas.push(p);
   for (const g2 of grupos) {
-    const sinJugar = g2.matches.filter((m) => !m.played || m.winnerPairId == null);
+    const sinJugar = g2.matches.filter(
+      (m) => !m.played || !m.sinGanador && m.winnerPairId == null
+    );
     if (sinJugar.length > 0) {
       add({
         codigo: "grupo_incompleto",
@@ -2352,6 +2354,13 @@ function computeTablaExpres(entrada) {
     const s = stats.get(id);
     return s.gamesFavor - s.gamesContra;
   };
+  const pendientesDe = new Map(pairIds.map((id) => [id, 0]));
+  for (const r of resultados) {
+    if (r.gamesA !== null && r.gamesB !== null) continue;
+    pendientesDe.set(r.pairAId, (pendientesDe.get(r.pairAId) ?? 0) + 1);
+    pendientesDe.set(r.pairBId, (pendientesDe.get(r.pairBId) ?? 0) + 1);
+  }
+  const terminoLoSuyo = (id) => (pendientesDe.get(id) ?? 0) === 0;
   const ordenadas = [...pairIds].sort((x, y) => balanceDe(y) - balanceDe(x) || (x < y ? -1 : 1));
   const bloques = agrupar(ordenadas, balanceDe);
   const filas = [];
@@ -2378,6 +2387,10 @@ function computeTablaExpres(entrada) {
       const manual = ordenDelOrganizador(sub, entrada?.ordenManual, pairIds);
       if (manual) {
         for (const id of manual) filas.push(fila(id, "manual", []));
+        continue;
+      }
+      if (!sub.every(terminoLoSuyo)) {
+        for (const id of sub) filas.push(fila(id, "provisional", []));
         continue;
       }
       const posicionInicial = filas.length + 1;

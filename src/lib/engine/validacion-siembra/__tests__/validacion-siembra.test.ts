@@ -174,3 +174,74 @@ describe('5 · empate sin resolver: AVISO, no bloqueo', () => {
     expect(r.puedeSembrar).toBe(true);
   });
 });
+
+// ── UN SUMA 6 NO TIENE GANADOR, Y ESO NO ES ESTAR SIN JUGAR ─────────────────
+//
+// El exprés tenía sus 40 partidos capturados y terminados, y esta validación
+// decía "el grupo A tiene 20 partidos sin resultado": miraba `winnerPairId`,
+// que en un suma 6 es null SIEMPRE. El cuadro no se podía armar nunca.
+describe('partidos sin ganador por diseño', () => {
+  const grupoSuma6 = (played: boolean) => ({
+    groupId: 'g1',
+    nombre: 'A',
+    pairIds: ['p1', 'p2'],
+    matches: [{
+      matchId: 'm1',
+      pairAId: 'p1',
+      pairBId: 'p2',
+      winnerPairId: null,
+      played,
+      sinGanador: true,
+      sets: [{ gamesA: 4, gamesB: 2, isSuperTiebreak: false, tiebreakA: null, tiebreakB: null }],
+    }],
+    filas: [
+      { pairId: 'p1', groupId: 'g1', position: 1, points: 0, setsWon: 0, setsLost: 0, gamesWon: 4, gamesLost: 2, clinchStatus: 'clinched' as const },
+      { pairId: 'p2', groupId: 'g1', position: 2, points: 0, setsWon: 0, setsLost: 0, gamesWon: 2, gamesLost: 4, clinchStatus: 'eliminated' as const },
+    ],
+  });
+
+  it('capturado y sin ganador NO cuenta como sin resultado', () => {
+    const v = validarSiembra({
+      grupos: [grupoSuma6(true)],
+      advancePerGroup: 1,
+      bestExtraQualifiers: 0,
+      nombres: {},
+    });
+    expect(v.bloqueantes.some((p) => p.codigo === 'grupo_incompleto')).toBe(false);
+  });
+
+  it('pero SIN capturar sigue bloqueando', () => {
+    const v = validarSiembra({
+      grupos: [grupoSuma6(false)],
+      advancePerGroup: 1,
+      bestExtraQualifiers: 0,
+      nombres: {},
+    });
+    expect(v.bloqueantes.some((p) => p.codigo === 'grupo_incompleto')).toBe(true);
+  });
+
+  // Y donde el formato SÍ da ganador, se sigue exigiendo: un partido
+  // terminado sin ganador ahí es un dato roto.
+  it('en un torneo largo, terminado sin ganador sigue siendo sin resultado', () => {
+    const g = grupoSuma6(true);
+    const v = validarSiembra({
+      grupos: [{ ...g, matches: [{ ...g.matches[0], sinGanador: false }] }],
+      advancePerGroup: 1,
+      bestExtraQualifiers: 0,
+      nombres: {},
+    });
+    expect(v.bloqueantes.some((p) => p.codigo === 'grupo_incompleto')).toBe(true);
+  });
+
+  it('sin el campo se lee como false: el comportamiento de siempre', () => {
+    const g = grupoSuma6(true);
+    const { sinGanador: _, ...sinCampo } = g.matches[0];
+    const v = validarSiembra({
+      grupos: [{ ...g, matches: [sinCampo] }],
+      advancePerGroup: 1,
+      bestExtraQualifiers: 0,
+      nombres: {},
+    });
+    expect(v.bloqueantes.some((p) => p.codigo === 'grupo_incompleto')).toBe(true);
+  });
+});

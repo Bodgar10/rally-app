@@ -52,11 +52,25 @@ export interface MatchResultInput {
   matchId: string;
   pairAId: string;
   pairBId: string;
-  /** null si el partido aún no se juega. */
+  /**
+   * null si el partido aún no se juega.
+   *
+   * ► O si el formato NO TIENE GANADOR. Ver `sinGanador`: en un suma 6 esto
+   *   es null incluso con el partido terminado, y confundir las dos cosas es
+   *   lo que hacía que un exprés con los 40 partidos capturados dijera que
+   *   tenía 40 sin resultado.
+   */
   winnerPairId: string | null;
   /** Sets capturados; vacío si no se ha jugado. */
   sets: SetScore[];
   played: boolean;
+  /**
+   * El formato no produce ganador (suma 6).
+   *
+   * Opcional para no tocar los cientos de sitios que construyen esto para un
+   * torneo largo, donde siempre hay ganador. Ausente se lee como `false`.
+   */
+  sinGanador?: boolean;
 }
 
 export interface SetScore {
