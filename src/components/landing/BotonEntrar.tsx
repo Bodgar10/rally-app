@@ -1,27 +1,42 @@
 /**
  * src/components/landing/BotonEntrar.tsx
  *
- * RALLY · El botón que lleva a entrar.
+ * RALLY · El botón que saca de la portada.
  *
- * ► TODOS VAN AL MISMO SITIO Y NINGUNO DICE LO MISMO
- *   La landing tiene cinco, repartidos por la página, y cada uno recoge la
- *   promesa de la sección que acaba de leerse: debajo de la tabla en vivo
- *   dice "Ver los torneos abiertos"; debajo de la ficha del rival, "Saber
- *   contra quién juego". El destino es siempre el login.
+ * ► TODOS HACEN LO MISMO Y NINGUNO DICE LO MISMO
+ *   La portada tiene siete, repartidos por la página, y cada uno recoge la
+ *   promesa de la sección que acaba de leerse: debajo de la tabla en vivo dice
+ *   "Entrar a mi grupo"; debajo de la ficha del rival, "Saber contra quién
+ *   juego".
  *
- *   El mismo texto cinco veces convierte el botón en decoración: el ojo
+ *   El mismo texto siete veces convierte el botón en decoración: el ojo
  *   aprende a saltárselo. Cambiando la frase, cada uno vuelve a ser una
  *   respuesta a lo que el visitante acaba de pensar.
  *
+ * ► EL DESTINO SE DECIDE AL PULSAR, NO AL PINTAR
+ *   Quien ya tiene sesión va al dashboard; quien no, al login. Se mira la
+ *   sesión EN EL TOQUE y no al montar la portada por dos razones:
+ *
+ *     · Son siete botones. Resolverlo al montar sería siete consultas —o un
+ *       contexto más— para un dato que solo importa cuando alguien pulsa.
+ *     · La portada no debe esperar a nadie para pintarse. Si la sesión se
+ *       resolviera antes, el primer render dependería de la red.
+ *
+ *   Y si esa consulta falla, se va al login: pedir una contraseña de más es
+ *   recuperable; mandar al dashboard a quien no tiene sesión es una pantalla
+ *   vacía y un rebote.
+ *
  * ► `replace` Y NO `push`
- *   Desde la portada, volver atrás tiene que salir de la app, no devolver a
- *   una portada que ya cumplió su función.
+ *   Desde la portada, atrás tiene que salir de la app, no devolver a una
+ *   portada que ya cumplió su función.
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { supabase } from '@/lib/supabase/client';
 import { color, font, fontSize, gradient, radius, space, touchTarget } from '@/lib/design-tokens';
 
 export default function BotonEntrar({
@@ -33,12 +48,25 @@ export default function BotonEntrar({
   variante?: 'oro' | 'borde';
 }) {
   const router = useRouter();
+  const [yendo, setYendo] = useState(false);
   const esOro = variante === 'oro';
+
+  async function entrar() {
+    if (yendo) return;
+    setYendo(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      router.replace(data.session ? '/(protected)/dashboard' : '/(auth)/login');
+    } catch {
+      // Ver la cabecera: ante la duda, al login.
+      router.replace('/(auth)/login');
+    }
+  }
 
   return (
     <View style={s.caja}>
       <Pressable
-        onPress={() => router.replace('/(auth)/login')}
+        onPress={() => void entrar()}
         accessibilityRole="button"
         accessibilityLabel={texto}
         style={({ pressed }) => [s.boton, !esOro && s.botonBorde, pressed && { opacity: 0.88 }]}
@@ -51,7 +79,9 @@ export default function BotonEntrar({
             style={s.fondo}
           />
         )}
-        <Text style={[s.texto, !esOro && s.textoBorde]}>{texto}</Text>
+        {yendo
+          ? <ActivityIndicator color={esOro ? color.onGold : color.goldBright} />
+          : <Text style={[s.texto, !esOro && s.textoBorde]}>{texto}</Text>}
       </Pressable>
       {pie ? <Text style={s.pie}>{pie}</Text> : null}
     </View>
