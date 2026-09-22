@@ -13,13 +13,24 @@
  *   Del login se encargan los botones. Es lo que pidió el producto y además es
  *   lo correcto: a nadie se le pide la contraseña antes de decirle qué es esto.
  *
- * ► CON SESIÓN TAMBIÉN SE VE LA PORTADA, Y EL BOTÓN CAMBIA DE DESTINO
- *   Se valoró mandar al dashboard a quien ya tiene sesión, y se descartó: la
- *   regla es "quien abre la web ve la portada", y una regla con excepciones
- *   invisibles es la que produce los "a mí no me sale eso".
+ * ► QUIEN YA ENTRÓ EN ESTE DISPOSITIVO VA A SU DASHBOARD
+ *   La portada es para quien todavía no sabe qué es esto. A quien ya tiene
+ *   sesión guardada, enseñársela es ponerle un folleto delante de sus torneos.
  *
- *   Lo que sí se respeta es no hacerle repetir el login: `BotonEntrar` mira la
- *   sesión al pulsarse y lleva al dashboard si la hay. Un toque, no dos.
+ *   ► Y SE COMPRUEBA DESPUÉS DE PINTAR, NO ANTES.
+ *     Esperar a `getSession()` para decidir qué montar devolvería el spinner
+ *     que esta pantalla existe para quitar, y se lo comería TODO EL MUNDO —
+ *     incluido el visitante nuevo, que es justo a quien la portada va dirigida
+ *     y el único que no tiene sesión que esperar.
+ *
+ *     Así que se monta la portada ya y, si aparece una sesión, se redirige.
+ *     El visitante ve la página al instante; quien tiene sesión ve un
+ *     parpadeo camino de donde iba de todas formas. El coste cae en quien
+ *     menos le importa.
+ *
+ *   `BotonEntrar` vuelve a mirar la sesión al pulsarse. Es redundante aquí
+ *   —quien ve la portada no tiene— pero no en `/landing`, que sí se puede
+ *   abrir con sesión a propósito.
  *
  * ► EN NATIVO NO HAY PORTADA
  *   A quien ya se descargó la app no hay que venderle la app. Ahí se mantiene
@@ -40,14 +51,24 @@ export default function Index() {
   const router = useRouter();
 
   useEffect(() => {
-    // En web no se redirige nada: la portada ya está montada debajo.
-    if (ES_WEB) return;
+    let vivo = true;
 
-    async function redirect() {
+    async function decidir() {
       const { data } = await supabase.auth.getSession();
-      router.replace(data.session ? '/(protected)/dashboard' : '/(auth)/login');
+      if (!vivo) return;
+
+      if (data.session) {
+        // Ya entró en este dispositivo: a sus torneos, no al folleto.
+        router.replace('/(protected)/dashboard');
+      } else if (!ES_WEB) {
+        // Sin sesión en la app instalada: al login. En web no se hace nada,
+        // porque la portada ya está montada debajo y es su sitio.
+        router.replace('/(auth)/login');
+      }
     }
-    redirect();
+
+    decidir();
+    return () => { vivo = false; };
   }, [router]);
 
   if (ES_WEB) return <Landing />;
