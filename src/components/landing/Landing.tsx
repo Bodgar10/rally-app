@@ -41,6 +41,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import Revelar, { ScrollDeLanding } from '@/components/landing/Revelar';
 import BotonEntrar from '@/components/landing/BotonEntrar';
+import Parrafo from '@/components/landing/Parrafo';
 import DemoTablaViva from '@/components/landing/DemoTablaViva';
 import DemoFichaRival from '@/components/landing/DemoFichaRival';
 import DemoAgenda from '@/components/landing/DemoAgenda';
@@ -90,11 +91,11 @@ export default function Landing() {
             </Revelar>
 
             <Revelar retraso={220}>
-              <Text style={s.bajada}>
-                Cuadros, ranking, marcadores en vivo y ficha de tus rivales. Todo
-                lo que tiene un circuito profesional, en el torneo del domingo de
-                tu club.
-              </Text>
+              <Parrafo>
+                {'Cuadros, *ranking*, *marcadores en vivo* y ficha de tus rivales. '
+                  + 'Todo lo que tiene un circuito profesional, '
+                  + '*en el torneo del domingo de tu club*.'}
+              </Parrafo>
             </Revelar>
 
             <Revelar retraso={320}>
@@ -111,9 +112,9 @@ export default function Landing() {
           <Seccion
             grande="Sabes cuándo entras."
             chico={
-              'Tu cancha está ocupada por otra categoría y nadie te avisa. Aquí '
-              + 'ves cómo va ese partido, juego a juego, y sabes si te da tiempo a '
-              + 'comer algo o si tienes que estar calentando.'
+              'Tu cancha está ocupada por otra categoría y nadie te avisa. '
+              + 'Aquí ves ese partido *juego a juego*: si te da tiempo a comer '
+              + 'algo o *tienes que estar calentando*.'
             }
           >
             <DemoEnVivo />
@@ -124,9 +125,9 @@ export default function Landing() {
           <Seccion
             grande="Y sabes cómo vas."
             chico={
-              'Cada marcador reordena tu grupo al momento. Cuando dos parejas '
-              + 'empatan, la tabla dice en qué se separan — sin discutirlo en la '
-              + 'cancha con una hoja arrugada.'
+              'Cada marcador *reordena tu grupo al momento*. Y cuando dos '
+              + 'parejas empatan, la tabla *dice en qué se separan* — sin '
+              + 'discutirlo con una hoja arrugada.'
             }
           >
             <DemoTablaViva />
@@ -137,11 +138,9 @@ export default function Landing() {
           <Seccion
             grande="Te dice que pasaste antes de que lo sepas."
             chico={
-              'La app calcula, partido a partido, si ya no te pueden sacar. '
-              + 'Muchas veces te enteras de que clasificaste mientras comes algo. '
-              + 'Y a partir de ahí deja de hablarte de la tabla: te habla de la '
-              + 'ronda. Cuartos, semifinales, la final — cada una se ve más '
-              + 'grande que la anterior.'
+              'La app calcula si *ya no te pueden sacar*. Te enteras de que '
+              + 'clasificaste *mientras comes algo*. Y de ahí en adelante deja '
+              + 'de hablarte de la tabla: *cuartos, semifinales, la final*.'
             }
           >
             <DemoFinal />
@@ -153,8 +152,8 @@ export default function Landing() {
             grande="Contra quién juegas, antes de salir."
             chico={
               'De qué lado juega cada uno y con qué mano. Parece poco hasta que '
-              + 'te toca un zurdo en el drive y lo entiendes en el tercer juego. '
-              + 'Es simétrico: ellos ven lo mismo de ti.'
+              + 'te toca *un zurdo en el drive* y lo entiendes en el tercer '
+              + 'juego. Es simétrico: *ellos ven lo mismo de ti*.'
             }
           >
             <DemoFichaRival />
@@ -165,9 +164,9 @@ export default function Landing() {
           <Seccion
             grande="Y si tú lo organizas, no haces nada."
             chico={
-              'Pones los inscritos y sale el sorteo, los grupos, las rondas de '
-              + 'cada pareja y quién juega a qué hora y en qué cancha. Tú anotas '
-              + 'marcadores. Lo demás ya está hecho.'
+              'Pones los inscritos y sale *el sorteo, los grupos, las rondas y '
+              + 'el horario de cada cancha*. Tú anotas marcadores. *Lo demás ya '
+              + 'está hecho*.'
             }
           >
             <DemoAgenda />
@@ -178,8 +177,8 @@ export default function Landing() {
           <Seccion
             grande="Todo cuenta."
             chico={
-              'Cada torneo reparte puntos según lo que es, como en el circuito. '
-              + 'Tu nivel se mide solo, partido a partido, y no depende de que '
+              'Cada torneo reparte puntos según lo que es, *como en el '
+              + 'circuito*. Tu nivel *se mide solo*, partido a partido, sin que '
               + 'nadie apunte nada en una libreta.'
             }
           >
@@ -213,10 +212,12 @@ export default function Landing() {
               </Text>
             </Revelar>
             <Revelar retraso={120}>
-              <Text style={s.cierreTexto}>
-                Busca un torneo cerca de ti, apúntate con tu pareja y olvídate del
-                resto hasta el domingo.
-              </Text>
+              <View style={s.cierreTexto}>
+                <Parrafo>
+                  {'Busca un torneo *cerca de ti*, apúntate con tu pareja y '
+                    + '*olvídate del resto* hasta el domingo.'}
+                </Parrafo>
+              </View>
             </Revelar>
             <Revelar retraso={220}>
               <BotonEntrar
@@ -255,7 +256,7 @@ function Seccion({
   return (
     <View style={s.seccion}>
       <Revelar><Text style={s.h2}>{grande}</Text></Revelar>
-      <Revelar retraso={120}><Text style={s.parrafo}>{chico}</Text></Revelar>
+      <Revelar retraso={120}><View style={s.parrafo}><Parrafo>{chico}</Parrafo></View></Revelar>
       <Revelar retraso={240}><View style={s.demo}>{children}</View></Revelar>
     </View>
   );
@@ -280,10 +281,6 @@ const s = StyleSheet.create({
     lineHeight: 47,
   },
   h1Oro: { color: color.goldBright },
-  bajada: {
-    fontFamily: font.body, fontSize: fontSize.h1Inline, color: color.muted,
-    lineHeight: 28, maxWidth: 460,
-  },
   ctaHero: { marginTop: space[4] },
 
   // ── Secciones ───────────────────────────────────────────────────
@@ -295,11 +292,8 @@ const s = StyleSheet.create({
     fontFamily: font.display, fontSize: fontSize.displayL, color: color.text,
     lineHeight: 44, maxWidth: 560,
   },
-  // Y el porqué, pequeño y gris, para quien se paró en la frase de arriba.
-  parrafo: {
-    fontFamily: font.body, fontSize: fontSize.caption, color: color.muted,
-    lineHeight: 21, maxWidth: 440, marginBottom: space[4],
-  },
+  // Solo el hueco: el texto lo pinta `Parrafo`, que decide tamaño y realces.
+  parrafo: { marginBottom: space[4] },
   demo: { gap: space[5] },
 
   // ── Tiers ───────────────────────────────────────────────────────
@@ -328,10 +322,7 @@ const s = StyleSheet.create({
     fontFamily: font.display, fontSize: fontSize.displayL, color: color.goldBright,
     lineHeight: 44,
   },
-  cierreTexto: {
-    fontFamily: font.body, fontSize: fontSize.caption, color: color.muted,
-    lineHeight: 21, maxWidth: 420, marginBottom: space[3],
-  },
+  cierreTexto: { marginBottom: space[3] },
 
   legal: {
     fontFamily: font.body, fontSize: fontSize.minAbsolute, color: color.muted,
