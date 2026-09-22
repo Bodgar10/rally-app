@@ -45,6 +45,7 @@ import Parrafo from '@/components/landing/Parrafo';
 import DemoTablaViva from '@/components/landing/DemoTablaViva';
 import DemoFichaRival from '@/components/landing/DemoFichaRival';
 import DemoAgenda from '@/components/landing/DemoAgenda';
+import DemoPanel from '@/components/landing/DemoPanel';
 import DemoEnVivo from '@/components/landing/DemoEnVivo';
 import DemoFinal from '@/components/landing/DemoFinal';
 import { TIER_OPCIONES, puntosDelCampeon } from '@/lib/tier-torneo';
@@ -169,7 +170,14 @@ export default function Landing() {
               + 'está hecho*.'
             }
           >
+            {/* Las filas entrando una a una: el trabajo que desaparece. */}
             <DemoAgenda />
+
+            {/* Y lo que hay dentro, por pestañas. La sección prometía cuatro
+                cosas y enseñaba una; quien organiza torneos no se cree eso
+                con una lista de cinco filas. */}
+            <DemoPanel />
+
             <BotonEntrar texto="Organizar mi torneo" variante="borde" />
           </Seccion>
 
