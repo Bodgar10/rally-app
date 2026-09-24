@@ -278,9 +278,56 @@ Deno.serve(async (req) => {
       return json({ error: 'sorteo_fallido', detail: re.message }, conflicto ? 409 : 500);
     }
 
+    // ── RESERVAR LAS HORAS DEL CUADRO ───────────────────────────────────────
+    //
+    // ► POR QUÉ AQUÍ Y NO AL ARMAR EL CUADRO
+    //   `planificarExpres` ya calculó la tarde ENTERA: los grupos y, detrás,
+    //   cuartos, semis y final. Esas horas existen desde el sorteo; lo único
+    //   que falta entonces son los partidos, que nacen ronda a ronda.
+    //
+    //   `match_schedule` es exactamente eso: un hueco reservado por (categoría,
+    //   etapa, posición) que la RPC del cuadro busca al crear cada ronda. Así
+    //   los cuartos, las semis y la final nacen con su hora sin que nadie
+    //   programe nada.
+    //
+    // ► Y NO SE USA `schedule-knockout`
+    //   Ese es el programador del torneo LARGO, donde el cuadro es el último
+    //   día y tiene la ventana para él solo. En un exprés los grupos ocupan
+    //   esa misma ventana hasta media tarde, así que coloca el cuadro a la
+    //   hora de apertura y lo cruza con la fase de grupos: probado, y salen
+    //   ocho jugadores con dos partidos a la vez.
+    //
+    // ► FUERA DE LA TRANSACCIÓN DEL SORTEO, A PROPÓSITO
+    //   Si esto falla, el torneo está sorteado y es válido: lo único que pasa
+    //   es que el cuadro nacerá sin hora y habrá que ponérsela. Meterlo dentro
+    //   obligaría a cambiar la firma de `sortear_expres` y haría que una
+    //   reserva fallida tirara un sorteo bueno.
+    const reservas: Record<string, unknown>[] = [];
+    for (const f of plan.franjas as Array<{ etapa: string; desde: string; partidos: number }>) {
+      if (f.etapa === 'group') continue;
+      for (let n = 0; n < f.partidos; n++) {
+        reservas.push({
+          tournament_id: torneo.id,
+          category_id: categoryId,
+          stage: f.etapa,
+          slot_index: n,
+          scheduled_at: aTimestamptz(ventana.dia, f.desde),
+          court_label: `Cancha ${(n % torneo.courts!) + 1}`,
+        });
+      }
+    }
+    let reservado = reservas.length;
+    if (reservas.length > 0) {
+      const { error: rse } = await admin
+        .from('match_schedule')
+        .upsert(reservas, { onConflict: 'category_id,stage,slot_index' });
+      if (rse) reservado = 0;   // el sorteo sigue siendo válido; se informa
+    }
+
     return json({
       ok: true,
       result,
+      cuadro_reservado: reservado,
       grupos: grupos.map((g) => ({ name: g.name, parejas: g.pair_ids.length })),
       partidos: partidos.length,
       empieza: plan.inicio,

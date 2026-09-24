@@ -128,37 +128,19 @@ export default function PanelExpresScreen() {
         throw new Error(cuerpo?.detail ?? cuerpo?.error ?? 'No se pudo armar el cuadro.');
       }
 
-      // ── Y SE LE PONE HORA Y CANCHA ─────────────────────────────────────
+      // ► AQUÍ NO SE LLAMA A `schedule-knockout`, Y ES DELIBERADO.
       //
-      //   `generate-bracket` crea los CRUCES, no el calendario: en un torneo
-      //   largo el organizador programa después, desde la pantalla de
-      //   Calendario. Un exprés no puede pedir eso — la promesa es que la
-      //   tarde sale sola, y dejar los cuartos en "Por definir" justo después
-      //   de armarlos es la mitad del trabajo.
+      //   Se probó y coloca el cuadro AL PRINCIPIO de la ventana del día —las
+      //   12:00— encima de la fase de grupos: ocho jugadores con dos partidos
+      //   a la vez. No es un fallo suyo. En un torneo largo el cuadro ES el
+      //   último día y su ventana está libre; en un exprés los grupos ocupan
+      //   esa misma ventana hasta las cinco de la tarde.
       //
-      //   Si esto falla, el cuadro YA está armado y es válido: se avisa pero
-      //   no se deshace nada. Un cruce sin hora se arregla desde Calendario;
-      //   un cuadro a medio crear, no.
-      const prog = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/schedule-knockout`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ tournamentId }),
-        },
-      );
-      if (!prog.ok) {
-        const d = await prog.json().catch(() => null);
-        setError(
-          'El cuadro quedó armado, pero no se le pudo poner hora y cancha: '
-          + (d?.detail ?? d?.error ?? `error ${prog.status}`)
-          + '. Puedes programarlo desde Calendario.',
-        );
-      }
-
+      //   Las horas buenas ya las calculó `planificarExpres` al crear el
+      //   torneo —grupos, y detrás cuartos, semis y final— y se reservan en
+      //   `match_schedule` al sortear. De ahí las toma la RPC que crea cada
+      //   ronda, así que el cuadro nace con su hora sin que nadie programe.
+      //
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo armar el cuadro.');
