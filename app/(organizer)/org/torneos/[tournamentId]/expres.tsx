@@ -46,6 +46,8 @@ import {
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { terminarTorneo } from '@/lib/terminar-torneo';
+import { fetchCierreDeTorneo } from '@/lib/cierre-de-torneo-datos';
+import type { CierreDeTorneo } from '@/lib/cierre-de-torneo';
 
 interface GrupoEnPantalla {
   groupId: string;
@@ -93,6 +95,11 @@ export default function PanelExpresScreen() {
   const [campeonPairId, setCampeonPairId] = useState<string | null>(null);
   /** `tournaments.status`. Decide si todavía queda algo que cerrar. */
   const [estadoTorneo, setEstadoTorneo] = useState<string | null>(null);
+  /**
+   * Si se puede cerrar el torneo y qué falta si no — la misma regla y el mismo
+   * texto que el panel del torneo largo. Ver `@/lib/cierre-de-torneo`.
+   */
+  const [cierre, setCierre] = useState<CierreDeTorneo | null>(null);
   const [terminando, setTerminando] = useState(false);
   const [confirmarFin, setConfirmarFin] = useState(false);
   /**
@@ -201,6 +208,11 @@ export default function PanelExpresScreen() {
         supabase.from('tournaments').select('status').eq('id', tournamentId).maybeSingle(),
       ]);
       setEstadoTorneo(torneoRes.data?.status ?? null);
+      setCierre(
+        torneoRes.data?.status === 'in_progress'
+          ? await fetchCierreDeTorneo(tournamentId, 'aqui')
+          : null,
+      );
       if (!cfgRes.data) {
         setError('Este torneo no tiene configuración de exprés.');
         return;
@@ -562,16 +574,23 @@ export default function PanelExpresScreen() {
                 ) : (
                   <>
                     <Text style={s.pista}>
-                      Falta un paso: al terminar el torneo se reparten los puntos
-                      de ranking y se recalculan los ratings de todos.
+                      {cierre?.instruccion
+                        ?? 'Falta un paso: al terminar el torneo se reparten los puntos '
+                          + 'de ranking y se recalculan los ratings de todos.'}
                     </Text>
+                    {/* BLOQUEADO SI QUEDA ALGO SIN CAPTURAR. Con un partido a
+                        medias el reparto de puntos sale mal y no se deshace. */}
                     <Pressable
                       onPress={() => setConfirmarFin(true)}
-                      style={s.boton}
+                      disabled={!!cierre && !cierre.listo}
+                      style={[s.boton, !!cierre && !cierre.listo && s.botonOff]}
                       accessibilityRole="button"
                       accessibilityLabel="Terminar torneo y repartir los puntos"
+                      accessibilityState={{ disabled: !!cierre && !cierre.listo }}
                     >
-                      <Text style={s.botonTexto}>Terminar torneo</Text>
+                      <Text style={s.botonTexto}>
+                        {cierre && !cierre.listo ? cierre.titular : 'Terminar torneo'}
+                      </Text>
                     </Pressable>
                   </>
                 )}

@@ -47,6 +47,8 @@ import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import { isPrioridadInscripcionOn } from '@/lib/feature-flags';
 import { terminarTorneo } from '@/lib/terminar-torneo';
+import { fetchCierreDeTorneo } from '@/lib/cierre-de-torneo-datos';
+import type { CierreDeTorneo } from '@/lib/cierre-de-torneo';
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,15 @@ export default function OrgTournamentScreen() {
   const router = useRouter();
 
   const [tournament, setTournament]   = useState<Tournament | null>(null);
+  /**
+   * Si se puede cerrar el torneo, y qué falta si no.
+   *
+   * `finish_tournament` no comprueba nada: cerrar con una final sin capturar
+   * puntúa a sus dos finalistas como semifinalistas, y eso queda escrito. En
+   * un torneo largo hay una final POR CATEGORÍA y un solo cierre para todas.
+   * Ver `@/lib/cierre-de-torneo`.
+   */
+  const [cierre, setCierre] = useState<CierreDeTorneo | null>(null);
   const [categories, setCategories]   = useState<Category[]>([]);
   /**
    * Cuántas categorías TERMINARON su fase de grupos, sobre las que la tienen.
@@ -195,6 +206,14 @@ export default function OrgTournamentScreen() {
     if (t) {
       const fila = t as unknown as Tournament & { organizer_id: string };
       setTournament(fila);
+
+      // Solo con el torneo en marcha: antes no hay nada que cerrar y la
+      // consulta traería partidos que todavía no existen.
+      setCierre(
+        fila.status === 'in_progress'
+          ? await fetchCierreDeTorneo(tournamentId, 'panel')
+          : null,
+      );
 
       // Connect activo = puede cobrar en línea. Mismo criterio que aplica
       // checkout-tournament antes de crear la sesión de pago.
@@ -757,6 +776,44 @@ export default function OrgTournamentScreen() {
           </>
         )}
 
+        {/* ── EL PASO QUE NADIE SABÍA QUE EXISTÍA ──────────────────────
+            Terminar el torneo vivía SOLO en la zona de riesgo, junto a
+            "Eliminar torneo": el último sitio donde alguien busca el final de
+            su domingo. El organizador cerraba la app y los jugadores se
+            quedaban sin puntos sin que nadie les dijera por qué.
+
+            Ahora se anuncia desde que el torneo está en marcha, FALTE O NO:
+            quien captura la primera de ocho finales tiene que saber ya que al
+            final de la tarde hay un paso más. Ver `@/lib/cierre-de-torneo`. */}
+        {enCurso && cierre && (
+          <>
+            <Text style={s.seccion}>SIGUIENTE PASO</Text>
+            {cierre.listo ? (
+              <Pressable
+                onPress={() => setFinishState({ status: 'confirming' })}
+                disabled={finishState.status === 'loading' || finishState.status === 'success'}
+                style={({ pressed }) => [s.btnSiguientePaso, pressed && { opacity: 0.85 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Terminar torneo y repartir los puntos"
+              >
+                <Text style={s.btnSiguientePasoTexto}>
+                  {finishState.status === 'success' ? 'Torneo terminado ✓' : 'Terminar torneo'}
+                </Text>
+                <Text style={s.btnSiguientePasoSub}>
+                  {cierre.titular}. {cierre.instruccion}
+                </Text>
+              </Pressable>
+            ) : (
+              /* No es un botón: todavía no hay nada que pulsar. Es el recordatorio
+                 de que el paso existe, con lo que falta por nombre. */
+              <View style={s.avisoCierre}>
+                <Text style={s.avisoCierreTitulo}>{cierre.titular}</Text>
+                <Text style={s.avisoCierreCuerpo}>{cierre.instruccion}</Text>
+              </View>
+            )}
+          </>
+        )}
+
         {/* ── Zona irreversible ────────────────────────────────── */}
         <Text style={s.seccion}>ZONA DE RIESGO</Text>
         <View style={s.grupo}>
@@ -787,20 +844,43 @@ export default function OrgTournamentScreen() {
                   </View>
                 </View>
               ) : (
-                <Pressable
-                  onPress={() => setFinishState({ status: 'confirming' })}
-                  disabled={finishState.status === 'loading' || finishState.status === 'success'}
-                  style={({ pressed }) => [s.btnPerfiladoPeligro, pressed && { opacity: 0.85 }]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Terminar torneo"
-                >
-                  {finishState.status === 'loading'
-                    ? <ActivityIndicator color={color.danger} />
-                    : <Text style={s.btnPerfiladoPeligroTexto}>
-                        {finishState.status === 'success' ? 'Torneo terminado ✓' : 'Terminar torneo'}
-                      </Text>
-                  }
-                </Pressable>
+                <>
+                  {/* BLOQUEADO MIENTRAS FALTE UNA FINAL.
+                      `finish_tournament` no comprueba nada y detrás corre el
+                      reparto de puntos CON LO QUE HAYA CAPTURADO: sin la final,
+                      sus dos finalistas se puntuarían como semifinalistas y eso
+                      queda escrito. Se dice qué falta, no solo que no se
+                      puede. */}
+                  <Pressable
+                    onPress={() => setFinishState({ status: 'confirming' })}
+                    disabled={
+                      finishState.status === 'loading'
+                      || finishState.status === 'success'
+                      || (!!cierre && !cierre.listo)
+                    }
+                    style={({ pressed }) => [
+                      s.btnPerfiladoPeligro,
+                      !!cierre && !cierre.listo && { opacity: 0.4 },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Terminar torneo"
+                    accessibilityState={{ disabled: !!cierre && !cierre.listo }}
+                  >
+                    {finishState.status === 'loading'
+                      ? <ActivityIndicator color={color.danger} />
+                      : <Text style={s.btnPerfiladoPeligroTexto}>
+                          {finishState.status === 'success' ? 'Torneo terminado ✓' : 'Terminar torneo'}
+                        </Text>
+                    }
+                  </Pressable>
+                  {!!cierre && !cierre.listo && (
+                    <Text style={s.avisoCierreCuerpo}>
+                      Todavía no: {cierre.titular.toLowerCase()}. Cerrar ahora
+                      repartiría los puntos sin ese resultado, y no se puede deshacer.
+                    </Text>
+                  )}
+                </>
               )}
 
               {finishState.status === 'error' && (
@@ -896,6 +976,18 @@ const s = StyleSheet.create({
   // Acción principal del estado, en oro macizo como btnDorado. Se separa de
   // btnDorado solo porque lleva subtítulo: necesita alinear a la izquierda y
   // padding propio en vez de centrar una línea única.
+  avisoCierre: {
+    padding: space[4], borderRadius: radius.lg,
+    borderWidth: 1, borderColor: color.goldMuted,
+    backgroundColor: 'rgba(212,175,55,0.06)', gap: space[1],
+  },
+  avisoCierreTitulo: {
+    color: color.goldBright, fontFamily: font.display, fontSize: fontSize.body,
+  },
+  avisoCierreCuerpo: {
+    color: color.muted, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18,
+  },
+
   btnSiguientePaso: {
     backgroundColor:   color.gold,
     borderWidth:       1,

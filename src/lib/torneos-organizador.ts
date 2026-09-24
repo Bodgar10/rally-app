@@ -61,6 +61,16 @@ export interface TorneoOrganizado {
    * categoría están mirando una pantalla que no se mueve.
    */
   partidosSinCapturar: number;
+  /**
+   * Se jugó todo y el torneo sigue abierto: falta CERRARLO.
+   *
+   * Es el paso que reparte los puntos de ranking, y vivía escondido en la zona
+   * de riesgo del panel. Sin este aviso el organizador acaba su domingo, cierra
+   * la app, y los jugadores se quedan sin puntos sin que nadie les diga por
+   * qué — el único pendiente del producto que no le duele a quien puede
+   * resolverlo. Ver `@/lib/cierre-de-torneo`.
+   */
+  faltaCerrar: boolean;
 }
 
 
@@ -80,8 +90,10 @@ export function estaVivo(status: string): boolean {
  *   1. Partidos jugados sin resultado — la tabla está congelada AHORA.
  *   2. Categorías sin cerrar con el torneo ya arrancado — se juega en unas y
  *      en otras ni siquiera hay grupos.
- *   3. Torneo en borrador — no lo ve nadie todavía.
- *   4. Categorías sin cerrar antes de empezar — es el trabajo normal, no una
+ *   3. Se jugó todo y falta CERRAR el torneo — los puntos de ranking no
+ *      existen hasta entonces, y nadie más puede desbloquearlo.
+ *   4. Torneo en borrador — no lo ve nadie todavía.
+ *   5. Categorías sin cerrar antes de empezar — es el trabajo normal, no una
  *      alarma: se dice sin urgencia.
  *
  * `null` = no hay nada pendiente, y entonces la tarjeta se calla en vez de
@@ -106,6 +118,12 @@ export function queAtender(t: TorneoOrganizado): AvisoDeTorneo | null {
         : `${t.categoriasAbiertas} categorías sin cerrar`,
       urge: true,
     };
+  }
+
+  // Ya se jugó todo. Urge porque hay gente esperando sus puntos y nadie más
+  // puede desbloquearlo.
+  if (t.faltaCerrar) {
+    return { texto: 'Falta cerrar el torneo y repartir los puntos', urge: true };
   }
 
   if (t.status === 'draft') {

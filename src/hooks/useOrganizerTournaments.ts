@@ -76,20 +76,27 @@ async function consultar(userId: string): Promise<TorneoOrganizado[]> {
   // El volumen está atado a los torneos VIVOS de UN organizador, que son uno o
   // dos: no es una consulta que crezca con el catálogo.
   const ahora = new Date().toISOString();
-  const [{ data: cats }, { data: partidos }] = await Promise.all([
+  const [{ data: cats }, { data: pendientes }, { data: finales }] = await Promise.all([
+    // TODAS las categorías, no solo las abiertas: para saber si falta cerrar el
+    // torneo hay que saber cuáles acaban en una final. Una fila por categoría de
+    // uno o dos torneos vivos — no es una consulta que crezca.
     supabase
       .from('categories')
-      .select('tournament_id')
-      .in('tournament_id', ids)
-      .eq('status', 'open'),
+      .select('id, tournament_id, status, format_type')
+      .in('tournament_id', ids),
+    // Los partidos sin terminar, CON su hora: de aquí salen los dos números.
+    // Antes se pedían solo los de hora pasada y por eso no había forma de saber
+    // si quedaba algo por jugar más tarde.
     supabase
       .from('matches')
-      .select('tournament_id')
+      .select('tournament_id, scheduled_at')
       .in('tournament_id', ids)
-      .neq('status', 'finished')
-      // Su hora ya pasó: se jugó (o se debió jugar) y nadie capturó el
-      // marcador. Un partido de mañana sin resultado no es un pendiente.
-      .lt('scheduled_at', ahora),
+      .neq('status', 'finished'),
+    supabase
+      .from('matches')
+      .select('tournament_id, category_id, winner_pair_id')
+      .in('tournament_id', ids)
+      .eq('stage', 'final'),
   ]);
 
   const contar = (rows: Array<{ tournament_id: string }> | null) => {
@@ -97,8 +104,27 @@ async function consultar(userId: string): Promise<TorneoOrganizado[]> {
     for (const r of rows ?? []) m.set(r.tournament_id, (m.get(r.tournament_id) ?? 0) + 1);
     return m;
   };
-  const abiertas = contar(cats);
-  const sinCapturar = contar(partidos);
+  const abiertas = contar((cats ?? []).filter((c) => c.status === 'open'));
+  // Su hora ya pasó: se jugó (o se debió jugar) y nadie capturó el marcador.
+  // Un partido de mañana sin resultado no es un pendiente.
+  const sinCapturar = contar(
+    (pendientes ?? []).filter((m) => m.scheduled_at != null && m.scheduled_at < ahora),
+  );
+  const porJugar = contar(pendientes);
+
+  // Las categorías cuya final falta: sin fila de final, o con la final sin
+  // ganador. Un round robin no tiene final que esperar.
+  const finalDecidida = new Set(
+    (finales ?? []).filter((f) => f.winner_pair_id != null).map((f) => f.category_id),
+  );
+  const sinFinal = contar(
+    (cats ?? [])
+      .filter((c) => c.format_type !== 'round_robin' && !finalDecidida.has(c.id))
+      .map((c) => ({ tournament_id: c.tournament_id })),
+  );
+  // Sin una sola categoría no hay torneo que cerrar: los tres contadores valen
+  // cero y sin esto un borrador recién arrancado pediría el cierre.
+  const conCategorias = contar(cats);
 
   return vivos
     .map((t): TorneoOrganizado => ({
@@ -109,6 +135,15 @@ async function consultar(userId: string): Promise<TorneoOrganizado[]> {
       fin: t.end_date,
       categoriasAbiertas: abiertas.get(t.id) ?? 0,
       partidosSinCapturar: sinCapturar.get(t.id) ?? 0,
+      // Se jugó TODO — ni un partido pendiente, ni una final sin ganador— y el
+      // torneo sigue en marcha. Misma regla que `@/lib/cierre-de-torneo`, que es
+      // la que decide el botón del panel.
+      faltaCerrar:
+        t.status === 'in_progress'
+        && (abiertas.get(t.id) ?? 0) === 0
+        && (porJugar.get(t.id) ?? 0) === 0
+        && (sinFinal.get(t.id) ?? 0) === 0
+        && (conCategorias.get(t.id) ?? 0) > 0,
     }))
     .sort(ordenarTorneos);
 }

@@ -14,6 +14,7 @@ const t = (over: Partial<TorneoOrganizado> = {}): TorneoOrganizado => ({
   fin: '2026-09-07',
   categoriasAbiertas: 0,
   partidosSinCapturar: 0,
+  faltaCerrar: false,
   ...over,
 });
 
@@ -68,6 +69,22 @@ describe('qué hay que atender', () => {
   it('sin pendientes, nada', () => {
     expect(queAtender(t({ status: 'in_progress' }))).toBeNull();
     expect(queAtender(t({ status: 'registration_open' }))).toBeNull();
+  });
+
+  // EL ÚNICO PENDIENTE QUE NO LE DOLÍA A NADIE QUE PUDIERA RESOLVERLO: el
+  // organizador cerraba la app y los jugadores se quedaban sin puntos.
+  it('se jugó todo y falta cerrar el torneo', () => {
+    const a = queAtender(t({ faltaCerrar: true }));
+    expect(a?.texto).toMatch(/cerrar el torneo/i);
+    expect(a?.texto).toMatch(/puntos/i);
+    expect(a?.urge).toBe(true);
+  });
+
+  // Un partido sin capturar bloquea el cierre de todas formas, y es lo que
+  // hay que hacer primero.
+  it('pero un partido sin resultado va antes', () => {
+    expect(queAtender(t({ faltaCerrar: true, partidosSinCapturar: 1 }))?.texto)
+      .toMatch(/sin resultado/i);
   });
 
   it('nunca usa vocabulario de motor ni español de España', () => {
