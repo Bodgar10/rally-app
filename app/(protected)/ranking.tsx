@@ -37,6 +37,11 @@ type RankRow = {
   points: number;
   position: number;
   is_me: boolean;
+  /**
+   * La fila se añadió aparte, no viene pegada a la anterior. Es lo que decide
+   * si `conCortes` pinta un corte — ver `separada` en `@/lib/tabla-de-ranking`.
+   */
+  separada?: boolean;
 };
 
 type MyRankSummary = {
@@ -319,6 +324,10 @@ export default function RankingScreen() {
           points: myRow.points ?? 0,
           position: myRow.position ?? 0,
           is_me: true,
+          // LA ÚNICA FILA DESPEGADA DE LA TABLA. El resto viene contiguo de la
+          // consulta; esta salta desde el final del top hasta su posición real,
+          // y es el único sitio donde hay gente en medio que no se ve.
+          separada: true,
         });
       }
 

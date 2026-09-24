@@ -124,3 +124,49 @@ describe('cómo se cuenta', () => {
     );
   });
 });
+
+// ───────────────────────────────────────────
+// Empates: un compañero de pareja no es un rival
+// ───────────────────────────────────────────
+//
+// EL BUG: la posición es un `rank()`, así que los dos de la pareja campeona son
+// 1.º y 1.º con los MISMOS puntos. Cogiendo la fila de al lado por índice, la
+// app le decía a uno "te falta 1 punto para alcanzar al 1.º" — su compañero,
+// con quien está empatado, en un puesto que ya es el suyo.
+
+describe('con puestos empatados', () => {
+  const fila = (player_id: string, position: number, points: number) =>
+    ({ player_id, position, points });
+
+  // Aldo y Bodgar, campeones, 660 los dos.
+  const tabla = [
+    fila('aldo', 1, 660), fila('bodgar', 1, 660),
+    fila('victor', 3, 450), fila('andres', 3, 450),
+    fila('bruno', 5, 300),
+  ];
+
+  it('no manda a perseguir al que comparte tu puesto', () => {
+    const p = proyectarRanking(tabla, 'bodgar');
+    expect(p?.posicion).toBe(1);
+    // Nadie por delante: es el primer puesto, empatado o no.
+    expect(p?.siguiente).toBeNull();
+  });
+
+  it('el de delante es el primero que está de verdad delante', () => {
+    const p = proyectarRanking(tabla, 'andres');
+    expect(p?.posicion).toBe(3);
+    expect(p?.siguiente?.posicion).toBe(1);
+    expect(p?.siguiente?.faltan).toBe(660 - 450 + 1);
+  });
+
+  it('y el que persigue, el primero que está de verdad detrás', () => {
+    const p = proyectarRanking(tabla, 'victor');
+    expect(p?.persigue?.posicion).toBe(5);
+    expect(p?.persigue?.a).toBe(450 - 300);
+  });
+
+  it('el último no persigue a nadie aunque esté empatado', () => {
+    const p = proyectarRanking(tabla, 'bruno');
+    expect(p?.persigue).toBeNull();
+  });
+});

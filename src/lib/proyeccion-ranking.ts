@@ -66,8 +66,19 @@ export function proyectarRanking(tabla: readonly FilaRanking[], playerId: string
   if (i === -1) return null;
 
   const yo = orden[i];
-  const arriba = i > 0 ? orden[i - 1] : null;
-  const abajo = i < orden.length - 1 ? orden[i + 1] : null;
+
+  // ► EL DE DELANTE ES EL PRIMERO QUE ESTÁ DE VERDAD DELANTE.
+  //
+  //   La posición es un `rank()`: los empatados comparten puesto. Los dos de
+  //   una pareja campeona son 1.º y 1.º con los MISMOS puntos, y coger la fila
+  //   de al lado por índice hacía que la app le dijera a uno "te falta 1 punto
+  //   para alcanzar al 1.º" — su compañero, con quien está empatado, en un
+  //   puesto que ya es el suyo.
+  //
+  //   Se salta a todo el que comparta puesto, arriba y abajo. Un empate no es
+  //   una distancia que recorrer.
+  const arriba = orden.slice(0, i).reverse().find((f) => f.position < yo.position) ?? null;
+  const abajo = orden.slice(i + 1).find((f) => f.position > yo.position) ?? null;
 
   // El hito más cercano que todavía NO ha alcanzado: el siguiente escalón.
   const hito = HITOS.filter((h) => yo.position > h.limite)

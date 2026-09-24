@@ -27,6 +27,22 @@ export interface FilaDeRanking {
   player_id: string;
   position: number;
   is_me: boolean;
+  /**
+   * Esta fila NO viene pegada a la anterior: se añadió aparte.
+   *
+   * ► SIN ESTO EL HUECO SE DEDUCÍA DE LOS NÚMEROS, Y DEJÓ DE PODERSE
+   *   La posición es un `rank()`: los empatados comparten puesto y el siguiente
+   *   salta. Los dos de la pareja campeona son 1.º y 1.º, y el que sigue es 3.º
+   *   — no porque falte nadie, sino porque hay dos primeros.
+   *
+   *   `3 - 1 - 1 = 1` le hacía escribir "1 jugador más" ENTRE DOS FILAS
+   *   CONSECUTIVAS. El hueco no es una propiedad de los números: es una
+   *   propiedad de cómo se armó la lista, y solo quien la arma lo sabe.
+   *
+   * La tabla llega contigua desde la base; la única fila despegada es la del
+   * jugador cuando no entra en el top y se le añade al final.
+   */
+  separada?: boolean;
 }
 
 export interface TrozoDeTabla<T> {
@@ -49,6 +65,9 @@ export interface TrozoDeTabla<T> {
 export function conCortes<T extends FilaDeRanking>(filas: readonly T[]): TrozoDeTabla<T>[] {
   return filas.map((fila, i) => {
     if (i === 0) return { fila, saltoAntes: 0 };
+    // Solo una fila DESPEGADA tiene hueco delante. Ver `separada`: con
+    // posiciones que empatan, restar los números inventa huecos que no existen.
+    if (!fila.separada) return { fila, saltoAntes: 0 };
     const anterior = filas[i - 1];
     // Posiciones no numeradas o desordenadas: no se inventa un salto.
     const hueco = fila.position - anterior.position - 1;
