@@ -46,6 +46,7 @@ import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-
 import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import { isPrioridadInscripcionOn } from '@/lib/feature-flags';
+import { terminarTorneo } from '@/lib/terminar-torneo';
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -291,27 +292,13 @@ export default function OrgTournamentScreen() {
   }
 
   // Finalizar torneo → Edge Function. No hace UPDATE directo: el guard de la
-  // migración 029 bloquea la transición cruda a 'finished'.
+  // migración 029 bloquea la transición cruda a 'finished'. Ver
+  // `@/lib/terminar-torneo`, que es la misma llamada que hace el exprés al
+  // acabar la final.
   const handleFinishConfirm = async () => {
     setFinishState({ status: 'loading' });
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Sesión expirada');
-
-      const res = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/finish-tournament`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ tournament_id: tournamentId }),
-        },
-      );
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.message ?? json.error ?? `Error ${res.status}`);
+      await terminarTorneo(tournamentId);
       setFinishState({ status: 'success' });
       await load();
     } catch (e: unknown) {

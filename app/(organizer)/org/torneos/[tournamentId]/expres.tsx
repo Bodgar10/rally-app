@@ -45,6 +45,7 @@ import {
 } from '@/lib/engine/expres';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { terminarTorneo } from '@/lib/terminar-torneo';
 
 interface GrupoEnPantalla {
   groupId: string;
@@ -80,6 +81,20 @@ export default function PanelExpresScreen() {
    */
   const [cuadroSinHora, setCuadroSinHora] = useState(false);
   const [armando, setArmando] = useState(false);
+  /**
+   * LA FINAL YA TIENE GANADOR. Es el id de la pareja campeona.
+   *
+   * EL HUECO: se jugó la final, los 7 partidos quedaron capturados y esta
+   * pantalla no decía nada. El torneo seguía 'in_progress' y el paso que
+   * reparte los puntos de ranking —terminar el torneo— estaba en el panel,
+   * dentro de la ZONA DE RIESGO, que es el último sitio donde alguien busca
+   * el final feliz de su domingo.
+   */
+  const [campeonPairId, setCampeonPairId] = useState<string | null>(null);
+  /** `tournaments.status`. Decide si todavía queda algo que cerrar. */
+  const [estadoTorneo, setEstadoTorneo] = useState<string | null>(null);
+  const [terminando, setTerminando] = useState(false);
+  const [confirmarFin, setConfirmarFin] = useState(false);
   /**
    * Qué fase se está mirando.
    *
@@ -154,15 +169,38 @@ export default function PanelExpresScreen() {
     [parejas],
   );
 
+  /**
+   * Cerrar el torneo desde aquí, que es donde está el organizador.
+   *
+   * Es la MISMA llamada que el botón del panel —ver `@/lib/terminar-torneo`—,
+   * no un atajo distinto: reparte los puntos de ranking y recalcula los
+   * ratings. Por eso pregunta antes, aunque el sitio sea alegre.
+   */
+  async function cerrarTorneo() {
+    setError(null);
+    setTerminando(true);
+    try {
+      await terminarTorneo(tournamentId);
+      setConfirmarFin(false);
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo terminar el torneo.');
+    } finally {
+      setTerminando(false);
+    }
+  }
+
   const cargar = useCallback(async () => {
     if (!tournamentId) return;
     setCargando(true);
     setError(null);
     try {
-      const [cfgRes, catRes] = await Promise.all([
+      const [cfgRes, catRes, torneoRes] = await Promise.all([
         supabase.from('expres_config').select('cupo, sorteado_at').eq('tournament_id', tournamentId).maybeSingle(),
         supabase.from('categories').select('id').eq('tournament_id', tournamentId).limit(1).maybeSingle(),
+        supabase.from('tournaments').select('status').eq('id', tournamentId).maybeSingle(),
       ]);
+      setEstadoTorneo(torneoRes.data?.status ?? null);
       if (!cfgRes.data) {
         setError('Este torneo no tiene configuración de exprés.');
         return;
@@ -193,7 +231,7 @@ export default function PanelExpresScreen() {
       // partido de grupo sin capturar, y que el cuadro no exista ya.
       const { data: todos } = await supabase
         .from('matches')
-        .select('id, stage, status, scheduled_at, court_label')
+        .select('id, stage, status, scheduled_at, court_label, winner_pair_id')
         .eq('tournament_id', tournamentId);
       const deGrupo = (todos ?? []).filter((m) => m.stage === 'group');
       setFaltanGrupo(deGrupo.filter((m) => m.status !== 'finished').length);
@@ -201,6 +239,11 @@ export default function PanelExpresScreen() {
       setHayCuadro(delCuadro.length > 0);
       setCuadroSinHora(
         delCuadro.length > 0 && delCuadro.some((m) => !m.scheduled_at || !m.court_label),
+      );
+      // El campeón sale de la final capturada y de nada más. Sin final jugada
+      // no hay campeón y esta pantalla no lo adelanta.
+      setCampeonPairId(
+        delCuadro.find((m) => m.stage === 'final')?.winner_pair_id ?? null,
       );
 
       const ids = gs.map((g) => g.id);
@@ -470,6 +513,71 @@ export default function PanelExpresScreen() {
             cómo va, después qué toca. */}
         {fase === 'eliminatorias' && categoryId && (
           <>
+            {/* ── SE ACABÓ ──────────────────────────────────────
+                Se jugó la final y esta pantalla se quedaba callada: "los 7
+                partidos están capturados" y nada más. El paso que reparte los
+                puntos vive en el panel, dentro de la ZONA DE RIESGO — el
+                último sitio donde alguien busca el final de su domingo.
+
+                El campeón se dice en cuanto la final tiene ganador, sin
+                esperar al cierre: ya es verdad. Y el cierre se ofrece aquí,
+                que es donde está el organizador cuando acaba. */}
+            {campeonPairId && (
+              <Card>
+                <SectionLabel title={estadoTorneo === 'finished' ? 'Torneo terminado' : 'Campeón'} />
+                <Text style={s.campeon}>{nombre(campeonPairId)} 🏆</Text>
+
+                {estadoTorneo === 'finished' ? (
+                  <Text style={s.pista}>
+                    Los puntos de ranking ya están repartidos y los ratings
+                    recalculados. No queda nada por hacer.
+                  </Text>
+                ) : confirmarFin ? (
+                  <>
+                    <Text style={s.texto}>¿Terminar el torneo?</Text>
+                    <Text style={s.pista}>
+                      Se reparten los puntos de ranking de todos los jugadores y
+                      se recalculan sus ratings. No se puede deshacer.
+                    </Text>
+                    <View style={s.filaBotones}>
+                      <Pressable
+                        onPress={() => setConfirmarFin(false)}
+                        style={[s.boton, s.botonSecundario]}
+                        accessibilityRole="button"
+                      >
+                        <Text style={s.botonSecundarioTexto}>Cancelar</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={cerrarTorneo}
+                        disabled={terminando}
+                        style={[s.boton, terminando && s.botonOff]}
+                        accessibilityRole="button"
+                      >
+                        {terminando
+                          ? <ActivityIndicator color={color.bg} />
+                          : <Text style={s.botonTexto}>Sí, terminar</Text>}
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={s.pista}>
+                      Falta un paso: al terminar el torneo se reparten los puntos
+                      de ranking y se recalculan los ratings de todos.
+                    </Text>
+                    <Pressable
+                      onPress={() => setConfirmarFin(true)}
+                      style={s.boton}
+                      accessibilityRole="button"
+                      accessibilityLabel="Terminar torneo y repartir los puntos"
+                    >
+                      <Text style={s.botonTexto}>Terminar torneo</Text>
+                    </Pressable>
+                  </>
+                )}
+              </Card>
+            )}
+
             <LiveBracket categoryId={categoryId} />
             <PartidosYCaptura
               tournamentId={tournamentId}
@@ -495,6 +603,16 @@ const s = StyleSheet.create({
   },
   texto: { color: color.text, fontFamily: font.body, fontSize: fontSize.body, lineHeight: 20 },
   pista: { color: color.muted, fontFamily: font.body, fontSize: fontSize.caption, lineHeight: 18, marginTop: space[1] },
+
+  campeon: {
+    color: color.goldBright, fontFamily: font.display, fontSize: fontSize.h1Inline,
+    marginBottom: space[1],
+  },
+  filaBotones: { flexDirection: 'row', gap: space[2], marginTop: space[2] },
+  botonSecundario: { backgroundColor: 'transparent', borderWidth: 1, borderColor: color.line },
+  botonSecundarioTexto: {
+    color: color.muted, fontFamily: font.display, fontSize: fontSize.body,
+  },
 
   boton: {
     minHeight: touchTarget, alignItems: 'center', justifyContent: 'center',
