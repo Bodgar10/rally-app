@@ -340,6 +340,20 @@ export default function PanelExpresScreen() {
         <BotonVolver texto="Volver" />
         <Text style={s.h1}>Torneo exprés</Text>
 
+        {/* ► LAS PESTAÑAS VAN ARRIBA, PEGADAS AL TÍTULO.
+            Estaban debajo de las tablas, o sea después de dieciséis filas y
+            dos párrafos: para cambiar de fase había que bajar por todo el
+            contenido de la fase en la que ya estabas. Un selector que hay que
+            buscar scrolleando no se usa — y además leerlo después invierte el
+            orden real, porque lo primero que se decide es QUÉ se mira. */}
+        {hayCuadro && (
+          <SelectorPestanas
+            pestanas={pestanasDeFase(true, true)}
+            activa={fase}
+            onCambiar={(id) => setFase(id as FaseTorneo)}
+          />
+        )}
+
         {cargando && <ActivityIndicator color={color.gold} />}
 
         {error && (
@@ -413,15 +427,6 @@ export default function PanelExpresScreen() {
             </Card>
           );
         })}
-
-        {/* Las dos fases, cuando hay dos. Ver `pestanasDeFase`. */}
-        {hayCuadro && (
-          <SelectorPestanas
-            pestanas={pestanasDeFase(true, true)}
-            activa={fase}
-            onCambiar={(id) => setFase(id as FaseTorneo)}
-          />
-        )}
 
         {/* ── ARMAR EL CUADRO ──────────────────────────────────────────
             Faltaba por completo: un exprés podía jugar sus 40 partidos de
