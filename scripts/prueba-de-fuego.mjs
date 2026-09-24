@@ -50,8 +50,19 @@
  *   no duplica nada.
  *
  * Uso:
- *   node scripts/prueba-de-fuego.mjs --dry     enseña el plan, no escribe
+ *   node scripts/prueba-de-fuego.mjs --dry      enseña el plan, no escribe
  *   node scripts/prueba-de-fuego.mjs
+ *   node scripts/prueba-de-fuego.mjs --borrar   deshace lo sembrado
+ *
+ * ► `--borrar` VIVE AQUÍ Y NO EN OTRO SCRIPT
+ *   Mismo criterio que `qa-config.mjs`: quien limpia tiene que saber
+ *   exactamente qué creó quien sembró. Con los nombres escritos dos veces,
+ *   cambiar uno deja basura en la base.
+ *
+ *   NO BORRA LOS JUGADORES. Las filas de `pairs` se van en cascada con sus
+ *   torneos, pero las cuentas `pf_NNN@rally.test` se quedan: borrar usuarios es
+ *   de otra categoría de riesgo —tocan `auth`— y reutilizarlas es justo lo que
+ *   hace que volver a sembrar sea instantáneo. Se dicen al terminar.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -163,12 +174,47 @@ const morir = (msg) => { console.error(`\n  ✕ ${msg}\n`); process.exit(1); };
 
 // ── Principal ───────────────────────────────────────────────────────────────
 
+async function borrar(supa) {
+  console.log('\n  BORRANDO lo de la prueba de fuego\n');
+
+  for (const nombre of [NOMBRE_LARGO, NOMBRE_EXPRES]) {
+    const { data: t } = await supa
+      .from('tournaments').select('id, status').eq('name', nombre).maybeSingle();
+    if (!t) { console.log(`    ${nombre}: no estaba`); continue; }
+    // Categorías, parejas, partidos, ventanas y config del exprés se van en
+    // cascada con el torneo: sus claves lo declaran ON DELETE CASCADE.
+    const { error } = await supa.from('tournaments').delete().eq('id', t.id);
+    if (error) morir(`Borrando ${nombre}: ${error.message}`);
+    console.log(`    ${nombre}: borrado (estaba en '${t.status}')`);
+  }
+
+  const { data: org } = await supa
+    .from('organizers').select('id').eq('name', ORGANIZADOR_B).maybeSingle();
+  if (org) {
+    await supa.from('organizer_members').delete().eq('organizer_id', org.id);
+    const { error } = await supa.from('organizers').delete().eq('id', org.id);
+    if (error) morir(`Borrando ${ORGANIZADOR_B}: ${error.message}`);
+    console.log(`    ${ORGANIZADOR_B}: borrado`);
+  } else {
+    console.log(`    ${ORGANIZADOR_B}: no estaba`);
+  }
+
+  const { count } = await supa
+    .from('users').select('id', { count: 'exact', head: true }).like('email', 'pf\\_%@rally.test');
+  console.log(`
+  Listo. Quedan ${count ?? 0} cuentas pf_NNN@rally.test, a propósito:
+  volver a sembrar con ellas es instantáneo. Si estorban, se borran aparte.
+`);
+}
+
 async function main() {
   const dry = process.argv.includes('--dry');
   const env = leerEnv();
   const supa = createClient(env.EXPO_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  if (process.argv.includes('--borrar')) { await borrar(supa); return; }
 
   const totalQA = REPARTO.largoQuinta.pairs * 2 + REPARTO.largoCuarta.pairs * 2
                 + REPARTO.expresNuevo.pairs * 2;
