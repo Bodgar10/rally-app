@@ -300,3 +300,80 @@ export function fusionarConElPlan<T extends PartidoFusionable>(
 
   return salida;
 }
+
+// ───────────────────────────────────────────
+// Quién se sabe ya, aunque el partido no exista
+// ───────────────────────────────────────────
+
+/**
+ * EL GANADOR DE UN CUARTO ES UN SEMIFINALISTA DESDE QUE SE CAPTURA.
+ *
+ * EL BUG: en el exprés terminó el primer cuarto —ganaron Aldo / Bodgar, con su
+ *   copa y todo en la tarjeta— y la semifinal de al lado seguía diciendo "Se
+ *   define en la ronda anterior". Ya estaba definida la mitad.
+ *
+ *   La fila de esa semifinal no existe todavía: el cuadro se materializa ronda
+ *   a ronda, cuando se sabe QUIÉNES son los dos. Eso está bien y no se cambia
+ *   —un partido a medias en la base se confundiría con un bye y el motor lo
+ *   avanzaría solo—. Lo que estaba mal es que la PANTALLA se callara un dato
+ *   que ya es cierto.
+ *
+ * CADA LADO POR SEPARADO. Media verdad conocida se dice; no se espera a tener
+ * la otra mitad. Es justo lo que se mira en un cuadro a media tarde.
+ *
+ * NO SE INVENTA NADA: solo se lee el resultado de la ronda anterior. Sin
+ * ganador ahí, aquí no hay nombre y la celda sigue diciendo de dónde saldrá.
+ */
+export interface CruceResoluble {
+  pairAId: string | null;
+  pairBId: string | null;
+  pairAName: string | null;
+  pairBName: string | null;
+  winnerPairId: string | null;
+}
+
+/**
+ * Quién sale de un partido de la ronda anterior: el ganador, o el perdedor si
+ * lo que se está pintando es el 3.er lugar.
+ *
+ * Un BYE tiene ganador sin haberse jugado —la pareja que está sin rival— y por
+ * eso cuenta como ganador; pero no deja perdedor, porque no jugó nadie contra
+ * ella.
+ */
+export function saleDe(
+  m: CruceResoluble | undefined,
+  quiero: 'ganador' | 'perdedor',
+): string | null {
+  if (!m) return null;
+  const ganador = m.winnerPairId
+    ?? (m.pairAId && !m.pairBId ? m.pairAId : null)
+    ?? (m.pairBId && !m.pairAId ? m.pairBId : null);
+  if (!ganador) return null;
+  if (quiero === 'ganador') {
+    return ganador === m.pairAId ? m.pairAName : m.pairBName;
+  }
+  if (!m.pairAId || !m.pairBId) return null;
+  return ganador === m.pairAId ? m.pairBName : m.pairAName;
+}
+
+/**
+ * Una ronda EN ORDEN DE CUADRO.
+ *
+ * Los partidos se piden `order by id`, que dentro de una ronda no significa
+ * nada. Las etiquetas —'quarter-00-01', 'semi-01'— sí: llevan el número con
+ * cero delante justo para que el orden lexicográfico sea el numérico (ver
+ * `etiquetaDeRonda`). Emparejar por posición con el orden equivocado pone al
+ * ganador de un cuarto en el lado de la semifinal que no le toca.
+ *
+ * LAS CELDAS DEL PLAN VAN AL FINAL, y no donde las dejaría su etiqueta vacía.
+ * `fusionarConElPlan` rellena los slots que sobran —los del final de la ronda—
+ * y ordenarlas por etiqueta las mandaba delante, desplazando a los partidos de
+ * verdad. Entre ellas se respeta el orden en que llegaron, que es el de
+ * `slot_index`.
+ */
+export function ordenarRonda<T extends { roundLabel: string | null }>(partidos: T[]): T[] {
+  const reales = partidos.filter((p) => p.roundLabel !== null);
+  const delPlan = partidos.filter((p) => p.roundLabel === null);
+  reales.sort((a, b) => (a.roundLabel ?? '').localeCompare(b.roundLabel ?? ''));
+  return [...reales, ...delPlan];
+}

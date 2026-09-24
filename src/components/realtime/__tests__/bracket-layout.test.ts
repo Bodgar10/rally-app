@@ -11,6 +11,9 @@ import {
   columnasDelCuadro,
   type PartidoFusionable,
   type SlotPlanificado,
+  saleDe,
+  ordenarRonda,
+  type CruceResoluble,
 } from '../bracket-layout';
 
 const p = (stage: EtapaCuadro, a: string | null = 'a', b: string | null = 'b'): PartidoDeCuadro =>
@@ -273,5 +276,81 @@ describe('columnasDelCuadro con el tamaño del cuadro conocido', () => {
   it('sin tamaño se comporta como antes', () => {
     const c = columnasDelCuadro({ quarter: p('quarter', 4) });
     expect(c.map((x) => x.etapa)).toEqual(['quarter', 'semi', 'final']);
+  });
+});
+
+// ───────────────────────────────────────────
+// Quién se sabe ya, aunque el partido no exista
+// ───────────────────────────────────────────
+//
+// EL BUG: terminó el primer cuarto del exprés —ganaron Aldo / Bodgar, con su
+// copa en la tarjeta— y la semifinal seguía diciendo "Se define en la ronda
+// anterior". Ya estaba definida la mitad.
+
+describe('quién sale de un partido de la ronda anterior', () => {
+  const cruce = (over: Partial<CruceResoluble> = {}): CruceResoluble => ({
+    pairAId: 'a', pairBId: 'b',
+    pairAName: 'Aldo / Bodgar', pairBName: 'Carlos / Daniel',
+    winnerPairId: null,
+    ...over,
+  });
+
+  it('sin resultado no hay nadie: la celda sigue diciendo de dónde saldrá', () => {
+    expect(saleDe(cruce(), 'ganador')).toBeNull();
+  });
+
+  it('con el partido jugado, el ganador por su nombre', () => {
+    expect(saleDe(cruce({ winnerPairId: 'a' }), 'ganador')).toBe('Aldo / Bodgar');
+    expect(saleDe(cruce({ winnerPairId: 'b' }), 'ganador')).toBe('Carlos / Daniel');
+  });
+
+  it('un partido que no existe todavía no dice nada', () => {
+    expect(saleDe(undefined, 'ganador')).toBeNull();
+  });
+
+  // Un bye se gana sin jugar: la pareja que está sin rival pasa.
+  it('el bye pasa aunque no tenga resultado', () => {
+    expect(saleDe(cruce({ pairBId: null, pairBName: null }), 'ganador')).toBe('Aldo / Bodgar');
+  });
+
+  it('pero un bye no deja perdedor: no jugó nadie contra ella', () => {
+    expect(saleDe(cruce({ pairBId: null, pairBName: null, winnerPairId: 'a' }), 'perdedor')).toBeNull();
+  });
+
+  it('el 3.er lugar sale de los perdedores', () => {
+    expect(saleDe(cruce({ winnerPairId: 'a' }), 'perdedor')).toBe('Carlos / Daniel');
+  });
+});
+
+describe('una ronda en orden de cuadro', () => {
+  const m = (roundLabel: string | null, id: string) => ({ roundLabel, id });
+
+  // 'order by id' dentro de una ronda no significa nada; la etiqueta sí.
+  it('manda la etiqueta, no el orden en que llegaron', () => {
+    const r = ordenarRonda([
+      m('quarter-04-05', 'z'), m('quarter-00-01', 'a'), m('quarter-06-07', 'm'), m('quarter-02-03', 'b'),
+    ]);
+    expect(r.map((x) => x.roundLabel)).toEqual([
+      'quarter-00-01', 'quarter-02-03', 'quarter-04-05', 'quarter-06-07',
+    ]);
+  });
+
+  // Las celdas del plan rellenan los slots que SOBRAN al final de la ronda.
+  // Ordenarlas por su etiqueta vacía las mandaba delante de los partidos de
+  // verdad, y ahí el emparejamiento con la ronda anterior salía corrido.
+  it('las celdas del plan van detrás de los partidos reales', () => {
+    const r = ordenarRonda([m(null, 'plan:semi:1'), m('semi-01', 'real'), m(null, 'plan:semi:2')]);
+    expect(r.map((x) => x.id)).toEqual(['real', 'plan:semi:1', 'plan:semi:2']);
+  });
+
+  it('entre celdas del plan se respeta el orden en que llegaron', () => {
+    const r = ordenarRonda([m(null, 'slot-0'), m(null, 'slot-1')]);
+    expect(r.map((x) => x.id)).toEqual(['slot-0', 'slot-1']);
+  });
+
+  it('no muta la lista que recibe', () => {
+    const original = [m('semi-02', 'b'), m('semi-01', 'a')];
+    ordenarRonda(original);
+    expect(original.map((x) => x.id)).toEqual(['b', 'a']);
   });
 });

@@ -33,6 +33,8 @@ import {
   fusionarConElPlan,
   estaPendiente,
   textoPendiente,
+  saleDe,
+  ordenarRonda,
   type EtapaCuadro,
 } from './bracket-layout';
 
@@ -423,33 +425,6 @@ function CeldaFutura({
  * `null` mientras no haya ganador. Un bye cuenta: si solo hay una pareja
  * apuntada, esa pasa aunque nadie haya capturado nada.
  */
-function saleDe(m: BracketMatch | undefined, quiero: 'ganador' | 'perdedor'): string | null {
-  if (!m) return null;
-  const ganador = m.winnerPairId
-    ?? (m.pairAId && !m.pairBId ? m.pairAId : null)
-    ?? (m.pairBId && !m.pairAId ? m.pairBId : null);
-  if (!ganador) return null;
-  if (quiero === 'ganador') {
-    return ganador === m.pairAId ? m.pairAName : m.pairBName;
-  }
-  // El perdedor solo existe si jugaron los dos: un bye no deja perdedor.
-  if (!m.pairAId || !m.pairBId) return null;
-  return ganador === m.pairAId ? m.pairBName : m.pairAName;
-}
-
-/**
- * La ronda anterior ORDENADA POR SU ETIQUETA, no por id.
- *
- * `fetchBracketMatches` pide `order by id`, que dentro de una ronda no
- * significa nada. Las etiquetas —'semi-01', 'quarter-00-01'— sí: llevan el
- * número con cero delante justo para que el orden lexicográfico sea el
- * numérico (ver `etiquetaDeRonda`). Emparejar por posición con el orden
- * equivocado pondría al ganador de una semifinal en el lado de la otra.
- */
-function porEtiqueta(partidos: BracketMatch[]): BracketMatch[] {
-  return [...partidos].sort((a, b) => (a.roundLabel ?? '').localeCompare(b.roundLabel ?? ''));
-}
-
 /** De qué ronda sale quien juega la siguiente. */
 const ORIGEN_DE_LA_RONDA: Partial<Record<EtapaCuadro, string>> = {
   round_of_16: 'Ganador de R32',
@@ -500,11 +475,23 @@ function MatchCard({
   currentUserId,
   primeraRonda = false,
   onCapturar,
+  ladoA = null,
+  ladoB = null,
 }: {
   primeraRonda?: boolean;
   match: BracketMatch;
   currentUserId?: string;
   onCapturar?: (match: BracketMatch) => void;
+  /**
+   * Quien YA SE SABE que juega este cruce, aunque la fila todavia no lo tenga.
+   *
+   * Un cruce sin parejas puede tener media verdad conocida: si su cuarto ya se
+   * jugo, el semifinalista existe aunque la semifinal no se haya materializado.
+   * Sale de `saleDe` sobre la ronda anterior — aqui no se deduce nada, solo se
+   * pinta lo que llega.
+   */
+  ladoA?: string | null;
+  ladoB?: string | null;
 }) {
   const isLive = match.status === 'in_progress';
   const isDone = match.status === 'finished';
@@ -546,11 +533,11 @@ function MatchCard({
             fontFamily: font.body,
             fontSize: 11,
             fontWeight: pairAWon ? '600' : '400',
-            color: pairAWon ? color.goldBright : isPending && !match.pairAId ? color.muted : color.text,
+            color: pairAWon ? color.goldBright : isPending && !match.pairAId && !ladoA ? color.muted : color.text,
           }}
           numberOfLines={2}
         >
-          {match.pairAName ?? pendiente}
+          {match.pairAName ?? ladoA ?? pendiente}
           {pairAWon ? ' 🏆' : ''}
         </Text>
       </View>
@@ -567,11 +554,11 @@ function MatchCard({
             fontFamily: font.body,
             fontSize: 11,
             fontWeight: pairBWon ? '600' : '400',
-            color: pairBWon ? color.goldBright : isPending && !match.pairBId ? color.muted : color.text,
+            color: pairBWon ? color.goldBright : isPending && !match.pairBId && !ladoB ? color.muted : color.text,
           }}
           numberOfLines={2}
         >
-          {match.pairBName ?? pendiente}
+          {match.pairBName ?? ladoB ?? pendiente}
           {pairBWon ? ' 🏆' : ''}
         </Text>
       </View>
@@ -831,9 +818,14 @@ export default function LiveBracket({
            * perdedores de semifinales, así que se busca su ronda por nombre.
            */
           const previa = stage === 'third_place'
-            ? porEtiqueta(columnas.find((c) => c.etapa === 'semi')?.partidos ?? [])
-            : porEtiqueta(col > 0 ? columnas[col - 1].partidos : []);
+            ? ordenarRonda(columnas.find((c) => c.etapa === 'semi')?.partidos ?? [])
+            : ordenarRonda(col > 0 ? columnas[col - 1].partidos : []);
           const quiero = stage === 'third_place' ? 'perdedor' as const : 'ganador' as const;
+
+          // LA COLUMNA TAMBIÉN VA EN ORDEN DE CUADRO, no en el que devuelva la
+          // consulta. Sin esto el cuarto 1 podía pintarse el último y su
+          // ganador aparecía en la semifinal que no le tocaba.
+          const enOrden = ordenarRonda(partidos);
 
           return (
           <View key={stage} style={{ alignItems: 'center' }}>
@@ -854,13 +846,18 @@ export default function LiveBracket({
 
             {/* Tarjetas de la ronda, y los huecos de las que faltan */}
             <View style={{ gap: 12 }}>
-              {partidos.map((m) => (
+              {enOrden.map((m, i) => (
                 <MatchCard
                   key={m.id}
                   match={m}
                   currentUserId={currentUserId}
                   primeraRonda={stage === primeraEtapa}
                   onCapturar={onCapturar}
+                  // Un cruce sale de dos partidos consecutivos de la ronda
+                  // anterior: el 2i y el 2i+1. Si uno ya se jugó, ese lado
+                  // deja de ser "se define en la ronda anterior".
+                  ladoA={saleDe(previa[i * 2], quiero)}
+                  ladoB={saleDe(previa[i * 2 + 1], quiero)}
                 />
               ))}
               {Array.from({ length: huecos }, (_, i) => {
@@ -868,7 +865,7 @@ export default function LiveBracket({
                 // que el primer hueco es el slot que sigue al último real. Con
                 // la ronda entera sin materializar —lo normal, porque se crea
                 // de golpe— esto es 0, 1, 2…
-                const indiceEnLaRonda = partidos.length + i;
+                const indiceEnLaRonda = enOrden.length + i;
 
                 // ¿Este cruce es un pase directo? Solo la PRIMERA ronda tiene
                 // byes: se ganan en los grupos, no dentro del cuadro.
