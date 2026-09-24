@@ -548,23 +548,29 @@ export default function DashboardScreen() {
             — qué me toca, dónde estoy, cómo me fue. */}
         {jugadorOcupado && <BandaDeRanking />}
 
+        {/* ── SIN TORNEO VIVO, LO QUE TOCA ES APUNTARSE A OTRO ────
+             Con el torneo terminado el dashboard se queda sin ninguna
+             pregunta que contestar, y los torneos abiertos estaban al final
+             de la pantalla, detrás de los resultados, del acceso al grupo y
+             de las secciones de juez y organizador. Para llegar a lo único
+             que le queda por hacer había que pasar por todo lo que ya hizo.
+
+             Con torneo vivo se quedan donde estaban: ahí lo urgente es el
+             suyo, y esto sería una invitación a mirar otra cosa. */}
+        {!jugadorOcupado && user && <TorneosParaTi userId={user.id} />}
+
         {/* ── MIS RESULTADOS ──────────────────────────────────────
              Debajo de la situación y del próximo partido, que es el orden en
              que se preguntan las cosas: ¿sigo dentro? → ¿cuándo juego? → ¿cómo
              me fue? Y para quien acaba de quedar fuera es lo único que queda
              por mirar, así que va justo detrás de la frase que se lo dice.
 
-             El componente no pinta nada si todavía no ha jugado: una tarjeta
-             que dice "aún no hay resultados" ocupa el sitio de lo que sí
-             importa antes de empezar. Por eso la etiqueta va dentro. */}
-        {pairIds.length > 0 && (
-          <>
-            <View style={styles.sectionLabel}>
-              <Text style={styles.sectionLabelText}>MIS RESULTADOS</Text>
-            </View>
-            <MisResultados pairIds={pairIds} />
-          </>
-        )}
+             El componente no pinta nada si todavía no ha jugado, ni con el
+             torneo ya terminado: ahí esto deja de contestar nada y se
+             convierte en un archivo que tapa los torneos nuevos. La etiqueta
+             va DENTRO por eso mismo — antes vivía aquí y se quedaba sola
+             sobre el hueco. */}
+        {pairIds.length > 0 && <MisResultados pairIds={pairIds} />}
 
         {/* ── VER MI GRUPO ────────────────────────────────────────
              La tabla completa de su grupo no era alcanzable desde el
@@ -607,7 +613,7 @@ export default function DashboardScreen() {
              Ahora salen aquí, ordenados por lo que decide si puede ir: su
              zona, su división y el tier, en ese orden. Ver
              `@/lib/torneos-para-ti`, que lo explica y tiene tests. */}
-        {user && <TorneosParaTi userId={user.id} />}
+        {jugadorOcupado && user && <TorneosParaTi userId={user.id} />}
 
         <Pressable
           style={({ pressed }) => [styles.quickCard, { marginTop: space[4] }, pressed && { opacity: 0.85 }]}

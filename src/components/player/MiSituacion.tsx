@@ -283,7 +283,7 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
   const [{ data: cat }, { data: partidos }, { data: gruposCat }, { count: parejasEnCategoria }] = await Promise.all([
     supabase
       .from('categories')
-      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name, tier, modo )')
+      .select('display_name, tournament_id, advance_per_group, best_extra_qualifiers, tournaments:tournament_id ( name, tier, modo, status )')
       .eq('id', categoryId)
       .maybeSingle(),
     // `match_sets` para el motor: sin los games no puede resolver los empates,
@@ -314,6 +314,22 @@ async function fetchSituacion(pairIds: string[]): Promise<SituacionResuelta | nu
    */
   if ((cat as unknown as { tournaments?: { modo?: string | null } | null } | null)
         ?.tournaments?.modo === 'expres') {
+    return null;
+  }
+
+  /**
+   * ► CON EL TORNEO TERMINADO YA NO HAY SITUACIÓN QUE CONTAR.
+   *
+   *   Esta tarjeta contesta "¿sigo dentro?", y cerrado el torneo esa pregunta
+   *   no existe: pasó todo. Seguía pintándose con el resultado congelado y,
+   *   detrás, el acceso a su grupo — dos bloques de algo que ya terminó por
+   *   delante de los torneos a los que sí puede apuntarse.
+   *
+   *   Lo que hizo no se pierde: está en el palmarés y en la tabla de su
+   *   categoría, que no se borra.
+   */
+  if ((cat as unknown as { tournaments?: { status?: string | null } | null } | null)
+        ?.tournaments?.status === 'finished') {
     return null;
   }
 

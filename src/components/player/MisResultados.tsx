@@ -25,6 +25,15 @@
  *   no sabría de cuál son esos marcadores.
  *
  *   El historial completo vive en Perfil, en el palmarés. Ver `@/lib/palmares`.
+ *
+ * ► Y SE VA ENTERA CUANDO EL TORNEO TERMINA
+ *   Mientras el torneo está vivo esto contesta "¿cómo voy?" y va pegado a la
+ *   situación. Cerrado el torneo ya no contesta nada: es un archivo, y un
+ *   archivo encima del dashboard es lo que le impide al jugador ver que hay
+ *   otros torneos a los que apuntarse — que es lo único que le queda por hacer.
+ *
+ *   Sus marcadores no se pierden: están en el palmarés y en la tabla de su
+ *   categoría, que no se borra.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -34,6 +43,7 @@ import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, pairChannel, combineUnsubs } from '@/lib/realtime/channels';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { textoDeBalance } from '@/lib/expres-texto';
+import { SectionLabel } from '@/components/ui';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 interface Jugado {
@@ -102,7 +112,7 @@ async function fetchJugados(
     .from('matches')
     .select(
       `id, stage, status, formato, tournament_id, pair_a_id, pair_b_id, winner_pair_id, scheduled_at,
-       tournaments:tournament_id ( name ),
+       tournaments:tournament_id ( name, status ),
        match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`,
     )
     .eq('status', 'finished')
@@ -117,7 +127,7 @@ async function fetchJugados(
   const todas = (data ?? []) as unknown as Array<{
     id: string; stage: string; formato: string | null;
     tournament_id: string;
-    tournaments: { name: string } | null;
+    tournaments: { name: string; status: string } | null;
     pair_a_id: string | null; pair_b_id: string | null;
     winner_pair_id: string | null;
     match_sets: Parameters<typeof marcadorDe>[0];
@@ -128,6 +138,11 @@ async function fetchJugados(
   const ultimo = todas[0]?.tournament_id;
   const filas = todas.filter((r) => r.tournament_id === ultimo);
   const nombreDelTorneo = filas[0]?.tournaments?.name ?? null;
+
+  // TERMINADO: esta sección no tiene nada que contestar. Ver la cabecera.
+  if (filas[0]?.tournaments?.status === 'finished') {
+    return { torneo: null, jugados: [] };
+  }
 
   const mios = new Set(pairIds);
   const rivales = await fetchParejasPublicas(
@@ -211,6 +226,10 @@ export default function MisResultados({ pairIds }: { pairIds: string[] }) {
 
   return (
     <View style={{ gap: space[2] }}>
+      {/* LA ETIQUETA VA AQUÍ DENTRO, no en el dashboard: esta sección se apaga
+          sola —sin partidos, o con el torneo ya terminado— y una etiqueta
+          "MIS RESULTADOS" sobre un hueco es peor que no tener la sección. */}
+      <SectionLabel title="Mis resultados" />
       {/* DE QUÉ TORNEO SON. Antes esto mezclaba todos los torneos de su vida y
           el nombre sobraba; ahora que es uno solo, sin nombrarlo un jugador
           con dos torneos seguidos no sabe de cuál son estos marcadores. */}
