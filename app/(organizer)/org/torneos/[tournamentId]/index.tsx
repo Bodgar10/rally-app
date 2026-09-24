@@ -47,7 +47,7 @@ import { webContentColumnAncha, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import { isPrioridadInscripcionOn } from '@/lib/feature-flags';
 import { terminarTorneo } from '@/lib/terminar-torneo';
-import { fetchCierreDeTorneo } from '@/lib/cierre-de-torneo-datos';
+import { fetchCierreDeTorneo, faltanRepartirPuntos } from '@/lib/cierre-de-torneo-datos';
 import type { CierreDeTorneo } from '@/lib/cierre-de-torneo';
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
@@ -124,6 +124,11 @@ export default function OrgTournamentScreen() {
    * Ver `@/lib/cierre-de-torneo`.
    */
   const [cierre, setCierre] = useState<CierreDeTorneo | null>(null);
+  /**
+   * Cerrado y sin una sola fila de puntos. No es hipotético: así acabó el
+   * primer torneo que se cerró de verdad. Ver `faltanRepartirPuntos`.
+   */
+  const [sinPuntos, setSinPuntos] = useState(false);
   const [categories, setCategories]   = useState<Category[]>([]);
   /**
    * Cuántas categorías TERMINARON su fase de grupos, sobre las que la tienen.
@@ -214,6 +219,7 @@ export default function OrgTournamentScreen() {
           ? await fetchCierreDeTorneo(tournamentId, 'panel')
           : null,
       );
+      setSinPuntos(await faltanRepartirPuntos(tournamentId, fila.status));
 
       // Connect activo = puede cobrar en línea. Mismo criterio que aplica
       // checkout-tournament antes de crear la sesión de pago.
@@ -785,6 +791,40 @@ export default function OrgTournamentScreen() {
             Ahora se anuncia desde que el torneo está en marcha, FALTE O NO:
             quien captura la primera de ocho finales tiene que saber ya que al
             final de la tarde hay un paso más. Ver `@/lib/cierre-de-torneo`. */}
+        {/* CERRADO A MEDIAS. El estado cambió y los puntos no se escribieron.
+            Sin este camino la única salida era tocar la base a mano: el botón
+            de terminar cuelga de `enCurso`, y el torneo ya no lo está.
+            Reintentar es seguro — las tres piezas del cierre son idempotentes. */}
+        {!enCurso && sinPuntos && (
+          <>
+            <Text style={s.seccion}>SIGUIENTE PASO</Text>
+            <Pressable
+              onPress={handleFinishConfirm}
+              disabled={finishState.status === 'loading'}
+              style={({ pressed }) => [s.btnSiguientePaso, pressed && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Repartir los puntos de ranking"
+            >
+              {finishState.status === 'loading' ? (
+                <ActivityIndicator color={color.gold} />
+              ) : (
+                <>
+                  <Text style={s.btnSiguientePasoTexto}>Repartir los puntos de ranking</Text>
+                  <Text style={s.btnSiguientePasoSub}>
+                    El torneo está cerrado, pero nadie tiene todavía los puntos de
+                    este torneo. Se puede reintentar sin riesgo: no duplica nada.
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            {finishState.status === 'error' && (
+              <View style={s.errorBox}>
+                <Text style={s.errorTexto}>{finishState.message}</Text>
+              </View>
+            )}
+          </>
+        )}
+
         {enCurso && cierre && (
           <>
             <Text style={s.seccion}>SIGUIENTE PASO</Text>
