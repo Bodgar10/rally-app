@@ -46,7 +46,7 @@ import {
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import { terminarTorneo } from '@/lib/terminar-torneo';
-import { fetchCierreDeTorneo } from '@/lib/cierre-de-torneo-datos';
+import { fetchCierreDeTorneo, faltanRepartirPuntos } from '@/lib/cierre-de-torneo-datos';
 import type { CierreDeTorneo } from '@/lib/cierre-de-torneo';
 
 interface GrupoEnPantalla {
@@ -100,6 +100,11 @@ export default function PanelExpresScreen() {
    * texto que el panel del torneo largo. Ver `@/lib/cierre-de-torneo`.
    */
   const [cierre, setCierre] = useState<CierreDeTorneo | null>(null);
+  /**
+   * Cerrado y sin puntos escritos. Es un estado real, no hipotético: así acabó
+   * el primer torneo que se cerró. Ver `faltanRepartirPuntos`.
+   */
+  const [sinPuntos, setSinPuntos] = useState(false);
   const [terminando, setTerminando] = useState(false);
   const [confirmarFin, setConfirmarFin] = useState(false);
   /**
@@ -213,6 +218,7 @@ export default function PanelExpresScreen() {
           ? await fetchCierreDeTorneo(tournamentId, 'aqui')
           : null,
       );
+      setSinPuntos(await faltanRepartirPuntos(tournamentId, torneoRes.data?.status ?? null));
       if (!cfgRes.data) {
         setError('Este torneo no tiene configuración de exprés.');
         return;
@@ -539,11 +545,36 @@ export default function PanelExpresScreen() {
                 <SectionLabel title={estadoTorneo === 'finished' ? 'Torneo terminado' : 'Campeón'} />
                 <Text style={s.campeon}>{nombre(campeonPairId)} 🏆</Text>
 
-                {estadoTorneo === 'finished' ? (
+                {estadoTorneo === 'finished' && !sinPuntos ? (
                   <Text style={s.pista}>
                     Los puntos de ranking ya están repartidos y los ratings
                     recalculados. No queda nada por hacer.
                   </Text>
+                ) : estadoTorneo === 'finished' && sinPuntos ? (
+                  /* CERRADO A MEDIAS. El estado cambió pero los puntos no se
+                     escribieron. Se puede reintentar tal cual: las tres piezas
+                     del cierre son idempotentes. */
+                  <>
+                    <Text style={s.texto}>
+                      El torneo está cerrado, pero los puntos de ranking no se
+                      repartieron.
+                    </Text>
+                    <Text style={s.pista}>
+                      Nadie tiene todavía los puntos de este torneo. Se puede
+                      reintentar sin riesgo: no duplica nada.
+                    </Text>
+                    <Pressable
+                      onPress={cerrarTorneo}
+                      disabled={terminando}
+                      style={[s.boton, terminando && s.botonOff]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Repartir los puntos de ranking"
+                    >
+                      {terminando
+                        ? <ActivityIndicator color={color.bg} />
+                        : <Text style={s.botonTexto}>Repartir los puntos de ranking</Text>}
+                    </Pressable>
+                  </>
                 ) : confirmarFin ? (
                   <>
                     <Text style={s.texto}>¿Terminar el torneo?</Text>

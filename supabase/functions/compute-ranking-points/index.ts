@@ -48,7 +48,23 @@ Deno.serve(async (req) => {
       if (!ures?.user?.id) return json({ error: 'unauthenticated' }, 401);
       actor = ures.user.id; // la RPC valida que sea admin|owner
     }
-    if (!actor && !cronOk) return json({ error: 'no_actor' }, 400);
+    // SIN ACTOR NO SE PUEDE ESCRIBIR, NI SIQUIERA CON EL SECRETO DE CRON.
+    //
+    // `apply_tournament_ranking_points` autoriza contra `p_actor` —admin u
+    // owner— porque `auth.uid()` es NULL vía service_role. El secreto
+    // autentica la LLAMADA; no pone a nadie a nombre de quien escribir.
+    //
+    // Esto se cortaba solo cuando NO había secreto, y por eso el camino de
+    // `finish-tournament` —que manda el secreto y no mandaba actor— llegaba
+    // hasta el final y moría en la RPC como 'apply_failed', un mensaje que no
+    // decía nada de lo que pasaba. Ahora se corta aquí y se dice.
+    if (!actor) {
+      return json({
+        error: 'no_actor',
+        detail: 'Falta actor_id: los puntos se escriben a nombre de un admin o del '
+          + 'owner del organizador, y el secreto de cron no sustituye a eso.',
+      }, 400);
+    }
 
     // Reglas: override por torneo si existe, si no la global
     const { data: ruleRows } = await admin
@@ -170,7 +186,12 @@ Deno.serve(async (req) => {
     const { data: result, error } = await admin.rpc('apply_tournament_ranking_points', {
       p_actor: actor, p_tournament_id: tournament_id, p_ledger: ledgerArr,
     });
-    if (error) return json({ error: 'apply_failed', detail: error.message }, 400);
+    if (error) {
+      // Se logea ADEMÁS de devolverse: el cuerpo de esta respuesta viaja dentro
+      // de la de `finish-tournament`, y ahí es donde estuvo escondido meses.
+      console.error('apply_tournament_ranking_points falló', error.message);
+      return json({ error: 'apply_failed', detail: error.message }, 400);
+    }
     return json({ ok: true, players: ledgerArr.length, result });
   } catch (e) {
     return json({ error: 'unhandled', detail: String(e) }, 500);

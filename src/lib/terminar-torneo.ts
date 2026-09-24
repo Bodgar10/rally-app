@@ -39,8 +39,31 @@ export async function terminarTorneo(tournamentId: string): Promise<void> {
     },
   );
 
-  const cuerpo = await res.json().catch(() => ({} as Record<string, string>));
+  const cuerpo = await res.json().catch(() => ({} as Record<string, unknown>));
   if (!res.ok) {
-    throw new Error(cuerpo.message ?? cuerpo.error ?? `Error ${res.status}`);
+    throw new Error(
+      (cuerpo.message as string) ?? (cuerpo.error as string) ?? `Error ${res.status}`,
+    );
+  }
+
+  // ► UN 2xx NO BASTA, Y ESA FUE LA LECCIÓN CARA.
+  //   El cierre son tres pasos: cambiar el estado, repartir los puntos de
+  //   ranking y recalcular los ratings. Durante meses el segundo devolvió 400
+  //   —le faltaba el actor a nombre de quien escribir— y la función seguía
+  //   contestando `ok: true` con el fallo escondido dentro. El organizador leía
+  //   "Torneo terminado ✓" y los jugadores no tenían puntos.
+  //
+  //   Ahora la función manda 207 con `ok: false` cuando los puntos no se
+  //   escribieron, y 207 es 2xx: `res.ok` no lo ve. Se mira el cuerpo.
+  //
+  //   Se lanza aunque el torneo SÍ haya quedado cerrado, porque cerrado sin
+  //   puntos no es haber terminado. Volver a pulsar reintenta: las tres piezas
+  //   son idempotentes.
+  if (cuerpo.ok !== true) {
+    throw new Error(
+      (cuerpo.detail as string)
+      ?? 'El torneo quedó cerrado, pero los puntos de ranking no se repartieron. '
+        + 'Vuelve a pulsar para reintentarlo.',
+    );
   }
 }

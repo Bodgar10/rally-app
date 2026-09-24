@@ -48,3 +48,39 @@ export async function fetchCierreDeTorneo(
 
   return cierreDeTorneo(categorias, donde);
 }
+
+/**
+ * EL TORNEO ESTÁ CERRADO Y NADIE TIENE PUNTOS.
+ *
+ * ► NO ES HIPOTÉTICO: ASÍ ACABÓ EL PRIMER TORNEO QUE SE CERRÓ
+ *   `finish-tournament` cambia el estado y después dispara el reparto de
+ *   puntos. Ese segundo paso devolvía 400 —llamaba a la RPC sin el actor a
+ *   nombre de quien escribir— y la función seguía contestando `ok: true` con el
+ *   fallo escondido dentro. El torneo quedó 'finished' con cero puntos y el
+ *   organizador leyó "Torneo terminado ✓".
+ *
+ * ► POR QUÉ SE COMPRUEBA EN VEZ DE CONFIAR
+ *   El cierre son tres pasos y solo el primero es atómico. Cualquiera de los
+ *   otros dos puede fallar por su cuenta —una función caída, un timeout— y
+ *   dejar el mismo agujero. Preguntarle a la base si los puntos están escritos
+ *   es la única respuesta que no depende de que nada haya ido bien.
+ *
+ * ► Y SE PUEDE REINTENTAR
+ *   Las tres piezas son idempotentes: volver a llamar a `terminarTorneo` sobre
+ *   un torneo ya cerrado vuelve a disparar el reparto. Por eso esto no es un
+ *   diagnóstico, es un botón.
+ */
+export async function faltanRepartirPuntos(
+  tournamentId: string,
+  status: string | null,
+): Promise<boolean> {
+  if (status !== 'finished') return false;
+  const { count, error } = await supabase
+    .from('tournament_ranking_points')
+    .select('player_id', { count: 'exact', head: true })
+    .eq('tournament_id', tournamentId);
+  // Sin respuesta no se afirma nada: ofrecer un reintento por un fallo de red
+  // sería inventar un problema que quizá no existe.
+  if (error) return false;
+  return (count ?? 0) === 0;
+}
