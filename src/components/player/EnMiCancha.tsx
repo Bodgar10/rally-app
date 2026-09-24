@@ -40,7 +40,8 @@ import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { horaDeTorneo } from '@/lib/fechas';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import {
-  estadoDeCancha, fraseDeRetraso, fraseDeCola, fraseDeTurno,
+  estadoDeCancha, fraseDeRetraso, fraseDeCola,
+  hayCanchaQueVigilar, colaQueSePinta,
   type PartidoEnCancha, type PartidoDeCola,
 } from '@/lib/cancha-ahora';
 
@@ -466,9 +467,16 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
   // tarjeta vacía: ocuparía el sitio de lo que sí importa.
   if (!vista) return null;
 
+  // NO QUEDA NADA POR DELANTE: la tarjeta no tiene pregunta que contestar.
+  // Se pintaba igual, con "tu cancha está libre" y debajo los cinco partidos
+  // de la tarde ya acabados — medio scroll de historial para no decir nada.
+  // Ver `hayCanchaQueVigilar`.
+  if (!hayCanchaQueVigilar(vista)) return null;
+
   const retraso = fraseDeRetraso(vista.miRetraso);
   const cola = fraseDeCola(vista.partidosAntes, !!vista.ocupante);
-  const turno = fraseDeTurno(vista.partidosAntes, !!vista.ocupante);
+  // De la cola de antes, lo vivo y un solo terminado. Ver `colaQueSePinta`.
+  const antes = colaQueSePinta(vista.antes);
 
   return (
     <View
@@ -568,16 +576,16 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
           partidos por delante o ser el siguiente es la diferencia entre ir
           saliendo de casa y sentarse otra vez — y es lo que decide si se mueve
           del sillón, así que va en la línea más visible después del ocupante. */}
-      {!vista.ocupanteEsMio && (cola || turno) && (
+      {!vista.ocupanteEsMio && cola && (
         <Text
           style={{
             fontFamily: font.display,
             fontSize: fontSize.body,
-            color: turno ? color.live : color.champagne,
+            color: color.champagne,
             marginTop: space[1],
           }}
         >
-          {turno ?? cola}
+          {cola}
         </Text>
       )}
 
@@ -616,11 +624,13 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
 
       {/* LA COLA COMPLETA, NO SOLO EL CONTADOR.
           "Falta 1 partido antes del tuyo" no dice quiénes juegan ni cómo van
-          — es justo lo que faltaba en el caso real. Terminados incluidos: el
-          de las 14:00 ya se sabe, y verlo ayuda a leer el de las 15:00.
+          — es justo lo que faltaba en el caso real. Del historial se queda
+          UNO: el último terminado, que es el que acaba de liberar la cancha y
+          explica por qué el de ahora entró tarde. Los de más atrás eran el
+          scroll que hacía ilegible la tarjeta — ver `colaQueSePinta`.
           Vacía si mi partido es el primero de la cancha: no hay nada que
           pintar y no se pinta la sección. */}
-      {vista.antes.length > 0 && (
+      {antes.length > 0 && (
         <View style={{ marginTop: space[2] }}>
           <Text
             style={{
@@ -632,7 +642,7 @@ export default function EnMiCancha({ pairIds }: { pairIds: string[] }) {
             Antes del tuyo en esta cancha
           </Text>
           <View style={{ gap: 0 }}>
-            {vista.antes.map((p, i) => (
+            {antes.map((p, i) => (
               <View
                 key={p.id}
                 style={i > 0 ? { borderTopWidth: 1, borderTopColor: color.lineSoft } : undefined}

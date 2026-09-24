@@ -361,7 +361,8 @@ export function estadoDeCancha(args: {
  * o tres partidos son esperas distintas.
  *
  * `null` cuando soy el siguiente: "faltan 0 partidos" es una forma rara de dar
- * una buena noticia, y ese caso lo dice mejor `fraseDeTurno`.
+ * una buena noticia. Sin nada por delante la tarjeta entera se calla — ver
+ * `hayCanchaQueVigilar`.
  */
 export function fraseDeCola(partidosAntes: number, hayOcupante = false): string | null {
   if (partidosAntes <= 0) return null;
@@ -375,17 +376,50 @@ export function fraseDeCola(partidosAntes: number, hayOcupante = false): string 
 }
 
 /**
- * El turno, para el caso bueno: eres el siguiente en entrar.
+ * ¿Hay CANCHA QUE VIGILAR, o esta tarjeta no tiene nada que decir?
  *
- * Se separa de `fraseDeCola` porque no es la misma información — una dice
- * cuánto esperas, la otra que no esperas nada— y porque es la única que hace
- * levantarse del sillón.
+ * EL BUG: la última pareja de la tarde veía "Tu cancha está libre ahora
+ *   mismo", debajo "eres el siguiente en entrar", y debajo los CINCO partidos
+ *   de la tarde con su resultado final. Media pantalla de historial para decir
+ *   que no hay nada esperando. El resultado de cada uno ya está en su grupo, y
+ *   la hora de entrada ya la da "Mi próximo partido".
+ *
+ * LA PREGUNTA QUE CONTESTA LA TARJETA es ¿me va a tocar tarde? — y esa
+ *   pregunta solo tiene respuesta mientras quede ALGO por delante. En cuanto
+ *   la cancha se vacía, la respuesta es "entras a tu hora", que es justo lo
+ *   que el jugador ya da por hecho: no hace falta una tarjeta para decirlo.
+ *
+ * DOS CASOS Y SOLO DOS:
+ *   · queda algo por delante — lo que se está jugando, o lo que todavía no ha
+ *     empezado. Es la espera, y es de lo que va la tarjeta.
+ *   · el que está en la cancha soy yo — no es una espera, pero confirmar
+ *     "es tu partido el que se juega aquí" es lo que quita la duda de haberse
+ *     equivocado de pista.
+ *
+ * Los partidos YA TERMINADOS no cuentan, y ese era el fallo: llenaban la
+ * tarjeta sin ser nada que esperar.
  */
-export function fraseDeTurno(partidosAntes: number, hayOcupante: boolean): string | null {
-  if (partidosAntes > 0) return null;
-  return hayOcupante
-    ? 'Eres el siguiente: entras cuando acabe este partido.'
-    : 'Tu cancha está libre: eres el siguiente en entrar.';
+export function hayCanchaQueVigilar(
+  { partidosAntes, ocupanteEsMio }: { partidosAntes: number; ocupanteEsMio: boolean },
+): boolean {
+  return ocupanteEsMio || partidosAntes > 0;
+}
+
+/**
+ * De la cola de antes, lo que de verdad se pinta.
+ *
+ * `colaDetallada` trae TODOS los de antes, terminados incluidos, y eso está
+ * bien como dato — pero pintarlo entero convierte la tarjeta en el historial
+ * de la tarde. A las siete de la tarde eso son ocho partidos acabados y una
+ * pantalla de scroll para llegar a lo único vivo.
+ *
+ * SE QUEDA TODO LO QUE FALTA POR JUGAR Y UN SOLO TERMINADO: el último. Ese sí
+ * hace falta — es el que acaba de liberar la cancha, y verlo es lo que explica
+ * por qué el de ahora entró tarde. Los de antes ya no explican nada.
+ */
+export function colaQueSePinta(cola: readonly PartidoDeCola[]): PartidoDeCola[] {
+  const ultimoTerminado = cola.reduce((i, p, n) => (p.finished ? n : i), -1);
+  return cola.filter((p, n) => !p.finished || n === ultimoTerminado);
 }
 
 /**

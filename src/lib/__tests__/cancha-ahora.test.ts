@@ -9,8 +9,9 @@
 // rompe la regla ingenua de "el que empezó hace menos de una hora".
 
 import {
-  estadoDeCancha, fraseDeRetraso, fraseDeCola, fraseDeTurno,
-  type PartidoEnCancha,
+  estadoDeCancha, fraseDeRetraso, fraseDeCola,
+  hayCanchaQueVigilar, colaQueSePinta,
+  type PartidoEnCancha, type PartidoDeCola,
 } from '@/lib/cancha-ahora';
 
 const T = (hhmm: string) => `2026-09-05T${hhmm}:00-06:00`;
@@ -253,16 +254,61 @@ describe('cómo se dice la cola', () => {
     expect(fraseDeCola(3, true)).toBe('Faltan 3 partidos antes del tuyo.');
   });
 
-  // "Faltan 0 partidos" es una forma rara de dar una buena noticia.
-  it('sin cola no hay frase de cola: la da fraseDeTurno', () => {
+  // "Faltan 0 partidos" es una forma rara de dar una buena noticia — y sin
+  // nada por delante la tarjeta entera se calla.
+  it('sin cola no hay frase de cola', () => {
     expect(fraseDeCola(0)).toBeNull();
-    expect(fraseDeTurno(0, true)).toMatch(/siguiente/i);
-    expect(fraseDeTurno(0, true)).toMatch(/cuando acabe/i);
-    expect(fraseDeTurno(0, false)).toMatch(/libre/i);
+  });
+});
+
+// ─────────────────────────────────────────
+// Cuándo la tarjeta tiene algo que decir
+// ─────────────────────────────────────────
+//
+// EL BUG: la última pareja de la tarde veía "Tu cancha está libre ahora mismo",
+// "eres el siguiente en entrar" y debajo los CINCO partidos de la tarde con su
+// resultado final. Medio scroll de historial para decir que no hay nada
+// esperando.
+
+describe('cuándo hay cancha que vigilar', () => {
+  it('no, si ya acabó todo lo de delante', () => {
+    expect(hayCanchaQueVigilar({ partidosAntes: 0, ocupanteEsMio: false })).toBe(false);
   });
 
-  it('con cola no se anuncia turno', () => {
-    expect(fraseDeTurno(2, true)).toBeNull();
+  it('sí, mientras quede algo por delante', () => {
+    expect(hayCanchaQueVigilar({ partidosAntes: 1, ocupanteEsMio: false })).toBe(true);
+  });
+
+  // No es una espera, pero confirma que no se equivocó de pista.
+  it('sí, si el que está en la cancha soy yo', () => {
+    expect(hayCanchaQueVigilar({ partidosAntes: 0, ocupanteEsMio: true })).toBe(true);
+  });
+});
+
+describe('de la cola de antes, lo que se pinta', () => {
+  const p = (id: string, finished: boolean): PartidoDeCola => ({
+    id, categoria: '5.ª Varonil', etapa: 'Fase de grupos',
+    parejaA: 'A', parejaB: 'B', scheduledAt: T('12:00'),
+    finished, enJuego: false, marcador: [],
+  });
+
+  it('todo lo que falta por jugar, y un solo terminado: el último', () => {
+    const r = colaQueSePinta([p('1', true), p('2', true), p('3', true), p('4', false), p('5', false)]);
+    expect(r.map((x) => x.id)).toEqual(['3', '4', '5']);
+  });
+
+  it('con un solo terminado no quita nada', () => {
+    const r = colaQueSePinta([p('1', true), p('2', false)]);
+    expect(r.map((x) => x.id)).toEqual(['1', '2']);
+  });
+
+  it('un terminado entre dos pendientes sigue siendo el último terminado', () => {
+    const r = colaQueSePinta([p('1', true), p('2', false), p('3', true), p('4', false)]);
+    expect(r.map((x) => x.id)).toEqual(['2', '3', '4']);
+  });
+
+  it('cola vacía', () => {
+    expect(colaQueSePinta([])).toEqual([]);
   });
 });
 
