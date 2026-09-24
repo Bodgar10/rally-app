@@ -31,6 +31,7 @@ import {
   computeTablaExpres, computeClinchExpres, CLASIFICAN_POR_GRUPO, type ResultadoSuma6,
 } from '@/lib/engine/expres';
 import { situacionExpres, type SituacionExpres } from '@/lib/situacion-expres';
+import { subscribeToTable, categoryChannel } from '@/lib/realtime/channels';
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 const TINTE: Record<SituacionExpres['tono'], string> = {
@@ -54,8 +55,12 @@ export default function MiSituacionExpres({ pairIds }: { pairIds: string[] }) {
   const [ctx, setCtx] = useState<Contexto | null>(null);
   const [cargando, setCargando] = useState(true);
 
+  // `setCargando(true)` NO va aquí: con la suscripción de abajo esto se
+  // vuelve a llamar en cada evento del cuadro, y volver al spinner cada vez
+  // haría parpadear la tarjeta mientras el jugador la está leyendo. El estado
+  // arranca en `true` y se apaga tras la primera carga, que es lo único que
+  // hay que contarle.
   const cargar = useCallback(async () => {
-    setCargando(true);
     try {
       if (pairIds.length === 0) { setCtx(null); return; }
 
@@ -85,6 +90,29 @@ export default function MiSituacionExpres({ pairIds }: { pairIds: string[] }) {
       } | null;
       // No es un exprés: esta tarjeta no es la suya.
       if (c?.tournaments?.modo !== 'expres') { setCtx(null); return; }
+
+      // ► LA FASE DE GRUPOS DEJA DE SER LA PREGUNTA EN CUANTO ARRANCA EL CUADRO.
+      //
+      //   EL BUG: ganó su cuarto, y el teléfono decía "Ya estás en cuartos ·
+      //   Terminaste la fase de grupos dentro" con la tarjeta de abajo
+      //   anunciándole las SEMIFINALES. Las dos ciertas por separado y
+      //   contradiciéndose juntas: "estás en cuartos" en presente, cuando los
+      //   cuartos ya los jugó.
+      //
+      //   Esta tarjeta contesta "¿paso de grupos?", y esa pregunta la contesta
+      //   mejor el propio cuadro desde que él está dentro de él: su partido de
+      //   cuartos, su semifinal, o la tarjeta de "ya estás en la siguiente".
+      //
+      //   Si NO clasificó no tiene partidos de cuadro y la tarjeta sigue: ahí
+      //   "Fuera de cuartos" es la única respuesta que hay, y es la suya.
+      const { data: suCuadro } = await supabase
+        .from('matches')
+        .select('id')
+        .eq('category_id', categoryId)
+        .neq('stage', 'group')
+        .or(`pair_a_id.in.(${pairIds.join(',')}),pair_b_id.in.(${pairIds.join(',')})`)
+        .limit(1);
+      if ((suCuadro ?? []).length > 0) { setCtx(null); return; }
 
       const partidos = ms ?? [];
       const { data: sets } = partidos.length
@@ -131,6 +159,22 @@ export default function MiSituacionExpres({ pairIds }: { pairIds: string[] }) {
   }, [pairIds]);
 
   useEffect(() => { void cargar(); }, [cargar]);
+
+  // EL RELEVO, SIN RECARGAR. En cuanto se arma el cuadro y él aparece dentro,
+  // esta tarjeta se apaga y la del cuadro toma el sitio — igual que hace
+  // `YaEstasEnLaSiguiente` cuando nace el partido de verdad. Sin esto, el
+  // jugador que está mirando la pantalla cuando el organizador arma el cuadro
+  // se queda con la tarjeta vieja hasta que recargue.
+  const categoryIdActual = ctx?.categoryId ?? null;
+  useEffect(() => {
+    if (!categoryIdActual) return;
+    return subscribeToTable<Record<string, unknown>>({
+      channelName: `${categoryChannel(categoryIdActual)}:situacion-expres`,
+      table: 'matches',
+      filter: `category_id=eq.${categoryIdActual}`,
+      onData: () => void cargar(),
+    });
+  }, [categoryIdActual, cargar]);
 
   if (cargando) return <ActivityIndicator color={color.gold} />;
   if (!ctx) return null;
