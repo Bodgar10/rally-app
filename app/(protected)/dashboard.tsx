@@ -60,6 +60,7 @@ import TorneosParaTi from '@/components/player/TorneosParaTi';
 import MisResultados from '@/components/player/MisResultados';
 import YaEstasEnLaSiguiente from '@/components/player/YaEstasEnLaSiguiente';
 import EresCampeon from '@/components/player/EresCampeon';
+import BandaDeRanking from '@/components/player/BandaDeRanking';
 import EnMiCancha from '@/components/player/EnMiCancha';
 import { porQueNoHayPartido } from '@/lib/situacion-jugador';
 import { bloquesDelDashboard, type ResumenDePartidos } from '@/lib/dashboard-jugador';
@@ -283,11 +284,14 @@ export default function DashboardScreen() {
    * `jugadorOcupado` = tiene cancha que vigilar o próximo partido que enseñar.
    * Es justo lo que `bloquesDelDashboard` ya decidió, así que no se recalcula.
    */
+  /** Tiene cancha que vigilar o próximo partido que enseñar. */
+  const jugadorOcupado = bloques.proximoPartido || bloques.enMiCancha;
+
   const { juezArriba, organizadorArriba } = ordenDelDashboard({
     esJuez,
     juezUrge: algoQueCapturar(torneosArbitrados),
     esOrganizador,
-    jugadorOcupado: bloques.proximoPartido || bloques.enMiCancha,
+    jugadorOcupado,
   });
 
   const seccionJuez = esJuez
@@ -363,6 +367,18 @@ export default function DashboardScreen() {
              `MyNextMatch` vuelve a tener algo que decir. Ver
              `SIGUE_SIENDO_NOTICIA` en `@/lib/campeon`. */}
         {pairIds.length > 0 && <EresCampeon pairIds={pairIds} />}
+
+        {/* ── DÓNDE ESTOY EN LA RED ───────────────────────────────
+             SUBE CUANDO NO HAY NADA QUE PASE HOY. Con torneo vivo va más
+             abajo: arriba manda la cancha y el próximo partido, que es lo que
+             cambia en las próximas dos horas.
+
+             Sin torneo vivo el dashboard se queda mudo —ni cancha, ni partido,
+             ni situación— y la posición en la red es lo único que le da
+             sentido a volver a abrir la app. Mismo criterio que
+             `ordenDelDashboard` usa con el juez y el organizador: el sitio lo
+             decide qué tiene algo que decir, no qué es. */}
+        {!jugadorOcupado && <BandaDeRanking />}
 
         {/* ── LO QUE ARBITRA Y LO QUE ORGANIZA, arriba ────────────
              Cada una sube por su cuenta. Ver `ordenDelDashboard`. */}
@@ -526,6 +542,11 @@ export default function DashboardScreen() {
              cuanto nace el partido de verdad, que es cuando MyNextMatch toma
              el relevo — el helper devuelve null desde ese instante. */}
         {pairIds.length > 0 && <YaEstasEnLaSiguiente pairIds={pairIds} />}
+
+        {/* Y con torneo vivo, la banda va AQUÍ: después de lo que pasa hoy y
+            antes del historial, que es el orden en que se preguntan las cosas
+            — qué me toca, dónde estoy, cómo me fue. */}
+        {jugadorOcupado && <BandaDeRanking />}
 
         {/* ── MIS RESULTADOS ──────────────────────────────────────
              Debajo de la situación y del próximo partido, que es el orden en

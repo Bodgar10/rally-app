@@ -13,6 +13,18 @@
  * resultado que se captura mientras la app está abierta tiene que aparecer sin
  * que nadie recargue. Es literalmente el caso de uso — el jugador sale de la
  * cancha y mira el teléfono.
+ *
+ * ► SOLO EL TORNEO DEL QUE VIENES
+ *   Esto traía TODOS sus partidos terminados, de todos los torneos, sin tope.
+ *   Con uno jugado son ocho tarjetas; con cinco, cuarenta, y el dashboard se
+ *   convierte en un archivo. Y un archivo no es lo que contesta "¿cómo me
+ *   fue?" el domingo por la tarde.
+ *
+ *   El dashboard habla del presente: se queda con el torneo MÁS RECIENTE en el
+ *   que jugó, y lo nombra — sin el nombre, un jugador con dos torneos seguidos
+ *   no sabría de cuál son esos marcadores.
+ *
+ *   El historial completo vive en Perfil, en el palmarés. Ver `@/lib/palmares`.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -26,6 +38,8 @@ import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 
 interface Jugado {
   id: string;
+  /** Para quedarse solo con los del último torneo. */
+  tournamentId: string;
   rival: string;
   marcador: string | null;
   ganado: boolean;
@@ -79,13 +93,16 @@ function marcadorDe(sets: Array<{
     .join(' ');
 }
 
-async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
-  if (pairIds.length === 0) return [];
+async function fetchJugados(
+  pairIds: string[],
+): Promise<{ torneo: string | null; jugados: Jugado[] }> {
+  if (pairIds.length === 0) return { torneo: null, jugados: [] };
 
   const { data, error } = await supabase
     .from('matches')
     .select(
-      `id, stage, status, formato, pair_a_id, pair_b_id, winner_pair_id, scheduled_at,
+      `id, stage, status, formato, tournament_id, pair_a_id, pair_b_id, winner_pair_id, scheduled_at,
+       tournaments:tournament_id ( name ),
        match_sets ( set_number, games_a, games_b, is_super_tiebreak, tiebreak_a, tiebreak_b )`,
     )
     .eq('status', 'finished')
@@ -94,15 +111,23 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
 
   if (error) {
     console.warn('[MisResultados]', error.message);
-    return [];
+    return { torneo: null, jugados: [] };
   }
 
-  const filas = (data ?? []) as unknown as Array<{
+  const todas = (data ?? []) as unknown as Array<{
     id: string; stage: string; formato: string | null;
+    tournament_id: string;
+    tournaments: { name: string } | null;
     pair_a_id: string | null; pair_b_id: string | null;
     winner_pair_id: string | null;
     match_sets: Parameters<typeof marcadorDe>[0];
   }>;
+
+  // EL TORNEO MÁS RECIENTE, y solo ese. La consulta viene ordenada por hora
+  // descendente, así que el torneo del primer partido es el último que jugó.
+  const ultimo = todas[0]?.tournament_id;
+  const filas = todas.filter((r) => r.tournament_id === ultimo);
+  const nombreDelTorneo = filas[0]?.tournaments?.name ?? null;
 
   const mios = new Set(pairIds);
   const rivales = await fetchParejasPublicas(
@@ -110,7 +135,7 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
       .filter((x): x is string => !!x),
   );
 
-  return filas.map((r) => {
+  const jugados = filas.map((r) => {
     const soyA = !!r.pair_a_id && mios.has(r.pair_a_id);
     const rivalId = soyA ? r.pair_b_id : r.pair_a_id;
     const miPar = soyA ? r.pair_a_id : r.pair_b_id;
@@ -123,6 +148,7 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
 
     return {
       id: r.id,
+      tournamentId: r.tournament_id,
       rival: rivalId ? nombreDePareja(rivales.get(rivalId)) : '—',
       marcador: marcadorDe(r.match_sets ?? [], soyA),
       // En un suma 6 nunca hay ganador, así que `ganado` se queda en false y
@@ -133,14 +159,20 @@ async function fetchJugados(pairIds: string[]): Promise<Jugado[]> {
       saldo,
     };
   });
+
+  return { torneo: nombreDelTorneo, jugados };
 }
 
 export default function MisResultados({ pairIds }: { pairIds: string[] }) {
   const [jugados, setJugados] = useState<Jugado[]>([]);
+  /** El nombre del torneo al que pertenecen estos resultados. */
+  const [torneo, setTorneo] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
 
   const cargar = useCallback(async () => {
-    setJugados(await fetchJugados(pairIds));
+    const r = await fetchJugados(pairIds);
+    setJugados(r.jugados);
+    setTorneo(r.torneo);
     setCargando(false);
   }, [pairIds]);
 
@@ -179,6 +211,20 @@ export default function MisResultados({ pairIds }: { pairIds: string[] }) {
 
   return (
     <View style={{ gap: space[2] }}>
+      {/* DE QUÉ TORNEO SON. Antes esto mezclaba todos los torneos de su vida y
+          el nombre sobraba; ahora que es uno solo, sin nombrarlo un jugador
+          con dos torneos seguidos no sabe de cuál son estos marcadores. */}
+      {torneo && (
+        <Text
+          style={{
+            fontFamily: font.body, fontSize: fontSize.caption, color: color.muted,
+            marginTop: -space[1],
+          }}
+          numberOfLines={1}
+        >
+          {torneo}
+        </Text>
+      )}
       {jugados.map((j) => (
         <View
           key={j.id}

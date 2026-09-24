@@ -20,6 +20,7 @@ import { TuNivel }                             from '@/components/player/TuNivel
 import { textoDeJugador, type PerfilDeJuego }  from '@/lib/lado-y-mano';
 import { CancellationFlow }                      from '@/components/perfil/CancellationFlow';
 import { Button, Card, Avatar, SectionLabel }   from '@/components/ui';
+import Palmares from '@/components/player/Palmares';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 
@@ -112,6 +113,16 @@ export default function PerfilScreen() {
             )}
           </View>
         </View>
+
+        {/* ── PALMARÉS ─────────────────────────────────────────────────
+             Va ANTES de la suscripción porque es lo suyo: lo que ha hecho
+             jugando. Se apaga solo si no ha jugado ningún torneo, así que a
+             una cuenta nueva no le ocupa sitio.
+
+             Aquí es donde aterriza el trofeo cuando el dashboard lo suelta —
+             `EresCampeon` se apaga en cuanto hay otro torneo del que hablar, y
+             hasta ahora eso no llevaba a ninguna parte. */}
+        <Palmares />
 
         {/* Suscripción */}
         <SectionLabel title="Suscripción" />
