@@ -51,6 +51,7 @@ import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
 import { clasificarSet, estadoDeSet, validateParcial, validateScore, type ScoreConfig } from '@/lib/engine/score';
+import { setsDeEntrada } from '@/lib/engine/expres/formato';
 // La conversión formulario -> payload vive fuera para poder probarla: el fallo
 // del set vacío que llegaba como 0-0 era de conversión, no de pantalla.
 import { aMotor, capturado, payloadDeSets } from '@/lib/captura-sets';
@@ -146,8 +147,23 @@ export default function ScoreCapture({
   onSuccess,
 }: ScoreCaptureProps) {
   const corrigiendo = !!setsIniciales && setsIniciales.length > 0;
+  /**
+   * CUÁNTOS SETS SE TECLEAN DE ENTRADA, y es el marcador del torneo quien lo
+   * dice, no un 2 fijo.
+   *
+   * EL BUG: en el cuadro de un exprés un cuarto es UN SET. La pantalla pintaba
+   * dos casillas y un botón "+ Tercer set"; el juez tecleaba el 6-4 que cerraba
+   * el partido y el botón de guardar seguía apagado, pidiendo un segundo set que
+   * nadie iba a jugar. Ver `scoreConfigDeFormato`.
+   *
+   * Dos es el mínimo de una serie al mejor de 3 — nadie gana sin jugar dos— y
+   * es el número de toda la vida; con `bestOf: 1` el mínimo es uno.
+   */
+  const setsMinimos = setsDeEntrada(scoreConfig);
   const [sets, setSets] = useState<SetScore[]>(() =>
-    corrigiendo ? aFormulario(setsIniciales!) : [emptySet(), emptySet()],
+    corrigiendo
+      ? aFormulario(setsIniciales!)
+      : Array.from({ length: setsMinimos }, emptySet),
   );
   const [submitting, setSubmitting] = useState(false);
   const [errorServidor, setErrorServidor] = useState<string | null>(null);
@@ -284,11 +300,11 @@ export default function ScoreCapture({
   }
 
   function addSet() {
-    if (sets.length < 3) setSets((prev) => [...prev, emptySet()]);
+    if (sets.length < scoreConfig.bestOf) setSets((prev) => [...prev, emptySet()]);
   }
 
   function removeLastSet() {
-    if (sets.length > 2) setSets((prev) => prev.slice(0, -1));
+    if (sets.length > setsMinimos) setSets((prev) => prev.slice(0, -1));
   }
 
   // ───────────────────────────────────────────
@@ -413,7 +429,7 @@ export default function ScoreCapture({
 
       {/* Agregar / quitar tercer set */}
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        {sets.length < 3 && (
+        {sets.length < scoreConfig.bestOf && (
           <Pressable
             onPress={addSet}
             style={estilos.botonSecundario}
@@ -423,7 +439,7 @@ export default function ScoreCapture({
             <Text style={estilos.botonSecundarioTexto}>+ Tercer set</Text>
           </Pressable>
         )}
-        {sets.length > 2 && (
+        {sets.length > setsMinimos && (
           <Pressable
             onPress={removeLastSet}
             style={estilos.botonSecundario}

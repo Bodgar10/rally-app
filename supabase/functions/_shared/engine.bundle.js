@@ -2940,6 +2940,27 @@ function exigirEntero2(v, campo, minimo) {
   return v;
 }
 
+// src/lib/engine/expres/formato.ts
+function esFormatoDeCuadro(f) {
+  return f === "set_oro" || f === "set_star_point" || f === "dos_sets_oro";
+}
+function scoreConfigDeFormato(formato, base = DEFAULT_SCORE_CONFIG) {
+  switch (formato) {
+    case "set_oro":
+    case "set_star_point":
+      return { ...base, bestOf: 1, deciderFormat: "full" };
+    case "dos_sets_oro":
+      return { ...base, bestOf: 3 };
+    case "suma_6":
+      throw new Error(
+        "scoreConfigDeFormato: un suma 6 no se valida con sets. No tiene ganador y su motor es validarMarcadorSuma6."
+      );
+  }
+}
+function setsDeEntrada(cfg) {
+  return Math.min(2, cfg.bestOf);
+}
+
 // src/lib/engine/expres/index.ts
 function generarFixtureExpres(entrada) {
   const pairIds = exigirParejas2(entrada?.pairIds);
@@ -3047,4 +3068,4 @@ function exigirPartidos(valor, grupoMasPequeno) {
   return k;
 }
 
-export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, selectQualifiers, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoDeCuadro, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };

@@ -7,6 +7,8 @@ import {
   computeStandings,
   computeClinch,
   planAvance,
+  scoreConfigDeFormato,
+  esFormatoDeCuadro,
 } from '../_shared/engine.bundle.js';
 
 // CORS mínimo
@@ -110,7 +112,7 @@ Deno.serve(async (req) => {
     // 1) Cargar partido + grupo
     const { data: match, error: me } = await admin
       .from('matches')
-      .select('id, tournament_id, category_id, group_id, pair_a_id, pair_b_id, stage')
+      .select('id, tournament_id, category_id, group_id, pair_a_id, pair_b_id, stage, formato')
       // maybeSingle y no single: con `single()` la ausencia de filas ES un error
       // (PGRST116), así que un partido inexistente caía en 'match_read_failed'
       // (500, "reintenta") en vez de en su 404. El juez reintentaría para
@@ -161,11 +163,25 @@ Deno.serve(async (req) => {
         detail: 'el torneo juega súper muerte y tercer_set_puntos no está definido.',
       }, 500);
     }
-    const scoreCfg = {
+    const baseTorneo = {
       ...DEFAULT_SCORE_CONFIG,
       deciderFormat: (cfgTorneo.tercer_set_formato === 'super_muerte' ? 'super' : 'full') as 'super' | 'full',
       superTiebreakTarget: cfgTorneo.tercer_set_puntos ?? DEFAULT_SCORE_CONFIG.superTiebreakTarget,
     };
+
+    // EN UN EXPRÉS EL FORMATO ES DE LA ETAPA, NO DEL TORNEO.
+    //
+    // Un cuarto de exprés es UN SET: se juega, lo gana quien lo gane y a la
+    // siguiente ronda. Con la regla del torneo largo —mejor de 3— el 6-4 que
+    // cerraba el partido se rechazaba con 'Falta el segundo set', y el juez no
+    // tenía forma de guardar un resultado correcto.
+    //
+    // `matches.formato` lo dice para cada partido y lo rellena el trigger de la
+    // migración 088 desde `expres_etapa`. En un torneo largo la columna viene
+    // vacía y manda la del torneo, que es la que siempre mandó.
+    const scoreCfg = match.formato && esFormatoDeCuadro(match.formato)
+      ? scoreConfigDeFormato(match.formato, baseTorneo)
+      : baseTorneo;
 
     const huecos = sets.filter(setSinNumeros).length;
     if (huecos > 0) {

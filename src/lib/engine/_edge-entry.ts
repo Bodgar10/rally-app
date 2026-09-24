@@ -119,6 +119,11 @@ export { computeTablaExpres } from './expres/tabla';
 export { computeClinchExpres } from './expres/clinch';
 export { prepararCapturaExpres, partidosPendientes } from './expres/captura';
 export { planificarExpres, MINUTOS_ESTANDAR } from './expres/plan';
+// Cómo se juega cada partido del cuadro exprés. Lo consume `match-result`:
+// un cuarto es UN set, y validarlo con la regla del torneo largo (mejor de 3)
+// rechazaba el 6-4 que lo cerraba.
+export { scoreConfigDeFormato, esFormatoDeCuadro, setsDeEntrada } from './expres/formato';
+export type { FormatoPartido, FormatoDeCuadro } from './expres/formato';
 export { validarMarcadorSuma6, esMarcadorSuma6, MARCADORES_SUMA6, GAMES_POR_PARTIDO } from './expres/suma6';
 export {
   PARTIDOS_POR_PAREJA, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, GRUPO_MINIMO,

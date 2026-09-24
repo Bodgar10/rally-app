@@ -19,7 +19,7 @@ describe('etapasDelExpres', () => {
     { stage: 'group',   formato: 'suma_6',   minutos: 30 },
     { stage: 'quarter', formato: 'set_oro',  minutos: 40 },
     { stage: 'semi',    formato: 'set_oro',  minutos: 40 },
-    { stage: 'final',   formato: 'dos_sets', minutos: 60 },
+    { stage: 'final',   formato: 'dos_sets_oro', minutos: 60 },
   ];
 
   it('devuelve las cuatro etapas en el orden en que se juegan', () => {

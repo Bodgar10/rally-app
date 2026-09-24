@@ -65,6 +65,7 @@ import { type ResultadoSuma6 } from '@/lib/engine/expres';
 import { agendaExpres, coincide } from '@/lib/agenda-expres';
 import ScoreCapture from '@/components/judge/ScoreCapture';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import { scoreConfigDeFormato, esFormatoDeCuadro } from '@/lib/engine/expres/formato';
 import type { ScoreConfig } from '@/lib/engine/score';
 import type { FaseTorneo } from '@/lib/fase-torneo';
 import { textoDeBalance } from '@/lib/expres-texto';
@@ -90,6 +91,16 @@ export interface PartidoExpresFila {
   }>;
   /** Solo en el cuadro: en un suma 6 es siempre null. */
   ganadorId: string | null;
+  /**
+   * CÓMO SE JUEGA ESTE PARTIDO: `matches.formato`, que el trigger de la
+   * migración 088 copia de `expres_etapa`.
+   *
+   * En un exprés el formato es de la ETAPA, no del torneo: cuartos y semis a
+   * un set, y la final como la eligió el organizador. Por eso viaja en la fila
+   * y no en un estado suelto de la pantalla — dos partidos abiertos a la vez
+   * en la misma lista pueden jugarse distinto.
+   */
+  formato: string;
 }
 
 /** "18:30" en hora de México. Null se pinta vacío, no como "Invalid Date". */
@@ -129,8 +140,15 @@ export default function PartidosYCaptura({
    *   que decide si un buscador sirve en español — ver `coincide`.
    */
   const [busqueda, setBusqueda] = useState('');
-  /** Cómo juega este torneo el set decisivo. Solo hace falta en el cuadro. */
-  const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
+  /**
+   * La BASE del marcador de este torneo: a cuántos puntos va la súper muerte
+   * si algún partido llega a set decisivo.
+   *
+   * No es la regla de ningún partido por sí sola. La regla de cada uno sale de
+   * su `formato` —un cuarto es un set, la final puede ser dos— y se compone
+   * aquí abajo con `scoreConfigDeFormato`.
+   */
+  const [baseDelTorneo, setBaseDelTorneo] = useState<ScoreConfig | null>(null);
 
   const nombre = useCallback(
     (pairId: string) => nombreDePareja(parejas.get(pairId)),
@@ -144,7 +162,7 @@ export default function PartidosYCaptura({
       // la consulta, y `faseDeStage` ya dice cuál es cuál.
       const consulta = supabase
         .from('matches')
-        .select('id, stage, group_id, round_label, scheduled_at, court_label, '
+        .select('id, stage, formato, group_id, round_label, scheduled_at, court_label, '
           + 'pair_a_id, pair_b_id, winner_pair_id, match_sets(set_number, games_a, games_b, '
           + 'is_super_tiebreak, tiebreak_a, tiebreak_b)')
         .eq('tournament_id', tournamentId);
@@ -161,12 +179,12 @@ export default function PartidosYCaptura({
           .eq('id', tournamentId)
           .maybeSingle();
         try {
-          setScoreConfig(scoreConfigDelTorneo(t as never, 'expres/cuadro'));
+          setBaseDelTorneo(scoreConfigDelTorneo(t as never, 'expres/cuadro'));
         } catch {
           // Un exprés nace con 'super_muerte' a 10 escrito explícitamente, así
           // que esto no debería pasar; si pasa, la captura se apaga sola en
           // vez de validar con una regla inventada.
-          setScoreConfig(null);
+          setBaseDelTorneo(null);
         }
       }
 
@@ -175,7 +193,8 @@ export default function PartidosYCaptura({
         is_super_tiebreak: boolean | null; tiebreak_a: number | null; tiebreak_b: number | null;
       };
       const filas = (ms ?? []) as unknown as Array<{
-        id: string; stage: string; group_id: string | null; round_label: string | null;
+        id: string; stage: string; formato: string | null;
+        group_id: string | null; round_label: string | null;
         scheduled_at: string | null; court_label: string | null;
         pair_a_id: string | null; pair_b_id: string | null;
         winner_pair_id: string | null;
@@ -213,6 +232,7 @@ export default function PartidosYCaptura({
           gamesB: uno?.games_b ?? null,
           sets,
           ganadorId: m.winner_pair_id,
+          formato: m.formato ?? '',
         };
       }));
     } catch (e) {
@@ -263,13 +283,24 @@ export default function PartidosYCaptura({
   //   Cuartos y semis van a set de oro y la final a dos sets: formatos con
   //   ganador. `ScoreCapture` y `match-result` son exactamente eso, y
   //   `expres-resultado` rechazaría estos partidos por no ser suma 6.
+  //
+  //   PERO CADA UNO CON SU FORMATO. Antes se pasaba la configuración del
+  //   torneo a los tres, o sea mejor de 3 con súper muerte, y en un cuarto
+  //   —que es UN SET— el 6-4 que lo cerraba dejaba el botón apagado pidiendo
+  //   un segundo set que nadie iba a jugar. Ver `scoreConfigDeFormato`.
   if (abierto && esCuadro) {
-    if (!scoreConfig) {
+    const config = baseDelTorneo && esFormatoDeCuadro(abierto.formato)
+      ? scoreConfigDeFormato(abierto.formato, baseDelTorneo)
+      : null;
+    if (!config) {
       return (
         <View style={s.error}>
           <Text style={s.errorTexto}>
-            Falta saber cómo juega este torneo el set decisivo. Revísalo en
-            Formato antes de capturar el cuadro.
+            {esFormatoDeCuadro(abierto.formato)
+              ? 'Falta saber cómo juega este torneo el set decisivo. Revísalo en '
+                + 'Formato antes de capturar el cuadro.'
+              : 'Este partido no tiene formato guardado, así que no se sabe si es a '
+                + 'un set o a dos. Revisa el formato de la etapa antes de capturar.'}
           </Text>
         </View>
       );
@@ -289,7 +320,7 @@ export default function PartidosYCaptura({
           ...x, is_super_tiebreak: x.is_super_tiebreak ?? false,
         }))}
         ganadorInicial={abierto.ganadorId}
-        scoreConfig={scoreConfig}
+        scoreConfig={config}
         onSuccess={() => { setAbierto(null); void cargar(); onCambio?.(); }}
       />
     );

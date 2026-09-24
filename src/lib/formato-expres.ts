@@ -23,12 +23,21 @@
  */
 
 import { GAMES_POR_PARTIDO } from '@/lib/engine/expres/suma6';
+import type { FormatoPartido } from '@/lib/engine/expres/formato';
 import { PARTIDOS_POR_PAREJA, CLASIFICAN_POR_GRUPO } from '@/lib/engine/expres/reglas';
 
 /** `expres_etapa.stage`. */
 export type EtapaExpres = 'group' | 'quarter' | 'semi' | 'final';
-/** `expres_etapa.formato`. */
-export type FormatoEtapa = 'suma_6' | 'set_oro' | 'dos_sets';
+/**
+ * `expres_etapa.formato`.
+ *
+ * SON LOS VALORES DE LA BASE, NO UNOS PARECIDOS. Aquí decía `'dos_sets'` y en
+ * la columna se guarda `'dos_sets_oro'` o `'set_star_point'`: la final nunca
+ * encontraba su texto y el `?? COMO[PORDEFECTO]` de más abajo la tapaba
+ * pintándola como "un set". El organizador leía que la final era a un set
+ * cuando la había configurado a dos.
+ */
+export type FormatoEtapa = FormatoPartido;
 
 export interface LineaDeEtapa {
   etapa:  EtapaExpres;
@@ -55,9 +64,10 @@ const TITULO: Record<EtapaExpres, string> = {
  * es un resultado normal y no un empate que haya que resolver.
  */
 const COMO: Record<FormatoEtapa, string> = {
-  suma_6:   `${GAMES_POR_PARTIDO} games, sin ganador: los dos marcadores van a la tabla`,
-  set_oro:  'Un set. Gana quien lo gane',
-  dos_sets: 'Dos sets, y súper muerte si hace falta',
+  suma_6:         `${GAMES_POR_PARTIDO} games, sin ganador: los dos marcadores van a la tabla`,
+  set_oro:        'Un set a punto de oro. Gana quien lo gane',
+  set_star_point: 'Un set con star point. Gana quien lo gane',
+  dos_sets_oro:   'Dos sets a punto de oro, y súper muerte si hace falta',
 };
 
 export function comoSeJuega(formato: FormatoEtapa): string {
