@@ -34,6 +34,9 @@ import { Card, SectionLabel } from '@/components/ui';
 import BotonVolver from '@/components/ui/BotonVolver';
 import TablaExpresGrupo from '@/components/expres/TablaExpresGrupo';
 import PartidosYCaptura from '@/components/expres/PartidosYCaptura';
+import SelectorPestanas from '@/components/ui/SelectorPestanas';
+import LiveBracket from '@/components/realtime/LiveBracket';
+import { pestanasDeFase, faseInicial, type FaseTorneo } from '@/lib/fase-torneo';
 import DecisionDeEmpate from '@/components/expres/DecisionDeEmpate';
 import { fetchParejasPublicas, nombreDePareja, type ParejaPublica } from '@/lib/parejas-publicas';
 import {
@@ -68,7 +71,24 @@ export default function PanelExpresScreen() {
   const [faltanGrupo, setFaltanGrupo] = useState<number | null>(null);
   /** Ya existe el cuadro: entonces no hay nada que armar. */
   const [hayCuadro, setHayCuadro] = useState(false);
+  /**
+   * El cuadro existe pero le falta hora o cancha.
+   *
+   * Pasa cuando se armó con una versión que no programaba, y también cuando
+   * el programado falla después de armar — que se permite a propósito: un
+   * cruce sin hora se arregla, un cuadro a medio crear no.
+   */
+  const [cuadroSinHora, setCuadroSinHora] = useState(false);
   const [armando, setArmando] = useState(false);
+  /**
+   * Qué fase se está mirando.
+   *
+   * Mismas pestañas que un torneo largo, y por el mismo motivo: con el cuadro
+   * armado, esta pantalla tenía las dos tablas de grupo, los 40 partidos y
+   * nada del cuadro. `pestanasDeFase` devuelve vacío mientras solo hay una
+   * fase, así que antes de armar el cuadro no aparece ningún selector.
+   */
+  const [fase, setFase] = useState<FaseTorneo>('grupos');
 
   /**
    * Armar el cuadro con los que clasificaron.
@@ -107,6 +127,38 @@ export default function PanelExpresScreen() {
       if (!res.ok) {
         throw new Error(cuerpo?.detail ?? cuerpo?.error ?? 'No se pudo armar el cuadro.');
       }
+
+      // ── Y SE LE PONE HORA Y CANCHA ─────────────────────────────────────
+      //
+      //   `generate-bracket` crea los CRUCES, no el calendario: en un torneo
+      //   largo el organizador programa después, desde la pantalla de
+      //   Calendario. Un exprés no puede pedir eso — la promesa es que la
+      //   tarde sale sola, y dejar los cuartos en "Por definir" justo después
+      //   de armarlos es la mitad del trabajo.
+      //
+      //   Si esto falla, el cuadro YA está armado y es válido: se avisa pero
+      //   no se deshace nada. Un cruce sin hora se arregla desde Calendario;
+      //   un cuadro a medio crear, no.
+      const prog = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/schedule-knockout`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ tournamentId }),
+        },
+      );
+      if (!prog.ok) {
+        const d = await prog.json().catch(() => null);
+        setError(
+          'El cuadro quedó armado, pero no se le pudo poner hora y cancha: '
+          + (d?.detail ?? d?.error ?? `error ${prog.status}`)
+          + '. Puedes programarlo desde Calendario.',
+        );
+      }
+
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo armar el cuadro.');
@@ -159,11 +211,15 @@ export default function PanelExpresScreen() {
       // partido de grupo sin capturar, y que el cuadro no exista ya.
       const { data: todos } = await supabase
         .from('matches')
-        .select('id, stage, status')
+        .select('id, stage, status, scheduled_at, court_label')
         .eq('tournament_id', tournamentId);
       const deGrupo = (todos ?? []).filter((m) => m.stage === 'group');
       setFaltanGrupo(deGrupo.filter((m) => m.status !== 'finished').length);
-      setHayCuadro((todos ?? []).some((m) => m.stage !== 'group'));
+      const delCuadro = (todos ?? []).filter((m) => m.stage !== 'group');
+      setHayCuadro(delCuadro.length > 0);
+      setCuadroSinHora(
+        delCuadro.length > 0 && delCuadro.some((m) => !m.scheduled_at || !m.court_label),
+      );
 
       const ids = gs.map((g) => g.id);
       const [standingsRes, partidosRes] = await Promise.all([
@@ -340,7 +396,7 @@ export default function PanelExpresScreen() {
 
             Va DEBAJO de las tablas: la primera pregunta al abrir es cómo va
             el grupo; la segunda, qué toca ahora. */}
-        {grupos.map((g) => {
+        {fase === 'grupos' && grupos.map((g) => {
           const empate = g.tabla.empatesSinResolver.find((e) => e.decideClasificacion);
           return (
             <Card key={g.groupId}>
@@ -357,6 +413,15 @@ export default function PanelExpresScreen() {
             </Card>
           );
         })}
+
+        {/* Las dos fases, cuando hay dos. Ver `pestanasDeFase`. */}
+        {hayCuadro && (
+          <SelectorPestanas
+            pestanas={pestanasDeFase(true, true)}
+            activa={fase}
+            onCambiar={(id) => setFase(id as FaseTorneo)}
+          />
+        )}
 
         {/* ── ARMAR EL CUADRO ──────────────────────────────────────────
             Faltaba por completo: un exprés podía jugar sus 40 partidos de
@@ -402,21 +467,29 @@ export default function PanelExpresScreen() {
           </Card>
         )}
 
-        {/* Ya existe: el cuadro se mira en su pantalla, no aquí. */}
-        {hayCuadro && (
-          <Card>
-            <Text style={s.texto}>El cuadro ya está armado</Text>
-            <Text style={s.pista}>
-              Los cruces de cuartos, semis y final se ven en el calendario del
-              torneo.
-            </Text>
-          </Card>
-        )}
-
         {/* Al guardar un marcador cambian la tabla y el clinch, así que se
             recarga esta pantalla entera en vez de recalcularlo aquí. */}
-        {grupos.length > 0 && (
-          <PartidosYCaptura tournamentId={tournamentId} onCambio={() => void cargar()} />
+        {fase === 'grupos' && grupos.length > 0 && (
+          <PartidosYCaptura
+            tournamentId={tournamentId}
+            fase="grupos"
+            onCambio={() => void cargar()}
+          />
+        )}
+
+        {/* ── ELIMINATORIAS ────────────────────────────────────────────
+            El cuadro arriba —para ver los cruces de un vistazo— y debajo sus
+            partidos con la captura. El mismo orden que en grupos: primero
+            cómo va, después qué toca. */}
+        {fase === 'eliminatorias' && categoryId && (
+          <>
+            <LiveBracket categoryId={categoryId} />
+            <PartidosYCaptura
+              tournamentId={tournamentId}
+              fase="eliminatorias"
+              onCambio={() => void cargar()}
+            />
+          </>
         )}
       </ScrollView>
     </SafeAreaView>

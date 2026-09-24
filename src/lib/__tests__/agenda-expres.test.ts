@@ -153,3 +153,25 @@ describe('normalizar', () => {
     expect(normalizar('  Ruiz  ')).toBe('ruiz');
   });
 });
+
+describe('cabeceras del cuadro', () => {
+  // En el cuadro no hay grupo. "Grupo · Cuartos de final" inventaría uno.
+  it('sin grupo, la cabecera es la ronda sola', () => {
+    const a = agendaExpres([p('x', '', 'Cuartos de final', '17:00')]);
+    expect(a.porJugar[0].cabecera).toBe('Cuartos de final');
+  });
+
+  it('con grupo sigue diciendo los dos', () => {
+    const a = agendaExpres([p('x', 'A', 'Ronda 1', '12:00')]);
+    expect(a.porJugar[0].cabecera).toBe('Grupo A · Ronda 1');
+  });
+
+  it('cuartos y semis son dos secciones', () => {
+    const a = agendaExpres([
+      p('q1', '', 'Cuartos de final', '17:00'),
+      p('q2', '', 'Cuartos de final', '17:00'),
+      p('s1', '', 'Semifinales', '17:30'),
+    ]);
+    expect(a.porJugar.map((x) => x.cabecera)).toEqual(['Cuartos de final', 'Semifinales']);
+  });
+});

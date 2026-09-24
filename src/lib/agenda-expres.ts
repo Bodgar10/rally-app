@@ -71,7 +71,11 @@ export function agendaExpres<T extends PartidoAgenda>(
   const agrupar = (lista: T[]): SeccionAgenda<T>[] => {
     const secciones: SeccionAgenda<T>[] = [];
     for (const p of lista) {
-      const cabecera = `Grupo ${p.grupo} · ${p.ronda}`.trim();
+      // En el cuadro no hay grupo: la cabecera es la ronda sola ("Cuartos de
+      // final"). Poner "Grupo · Cuartos" sería inventar un grupo que no existe.
+      const cabecera = p.grupo
+        ? `Grupo ${p.grupo} · ${p.ronda}`.trim()
+        : p.ronda.trim();
       const ultima = secciones[secciones.length - 1];
       if (ultima && ultima.cabecera === cabecera) ultima.partidos.push(p);
       else secciones.push({ cabecera, partidos: [p] });

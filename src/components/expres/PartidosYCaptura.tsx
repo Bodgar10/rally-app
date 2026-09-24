@@ -35,6 +35,16 @@
  *   y meterlo detrás de un filtro cambiaría un problema de scroll por uno
  *   peor. El orden lo decide `@/lib/agenda-expres`, con tests.
  *
+ * ► DOS FASES, DOS CAPTURAS, Y NO ES UNA INCONSISTENCIA
+ *   La fase de grupos de un exprés se juega a suma 6: dos casillas que suman
+ *   seis y ningún ganador. El cuadro NO: cuartos y semis van a set de oro y la
+ *   final a dos sets, que son formatos normales con ganador.
+ *
+ *   Así que el cuadro se captura por el camino de siempre —`ScoreCapture` y
+ *   `match-result`— y no por el del exprés. De hecho `expres-resultado`
+ *   rechaza cualquier partido que no sea suma 6, y hace bien: son dos cosas
+ *   distintas que casualmente ocurren en el mismo torneo.
+ *
  * ► SE RECARGA ENTERO AL GUARDAR
  *   Un marcador cambia la tabla del grupo, el clinch de las ocho parejas y a
  *   veces quién va a cuartos. Recalcular eso a mano en el cliente es
@@ -53,11 +63,17 @@ import ScoreCaptureExpres from '@/components/expres/ScoreCaptureExpres';
 import { fetchParejasPublicas, nombreDePareja, type ParejaPublica } from '@/lib/parejas-publicas';
 import { type ResultadoSuma6 } from '@/lib/engine/expres';
 import { agendaExpres, coincide } from '@/lib/agenda-expres';
+import ScoreCapture from '@/components/judge/ScoreCapture';
+import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import type { ScoreConfig } from '@/lib/engine/score';
+import type { FaseTorneo } from '@/lib/fase-torneo';
 import { textoDeBalance } from '@/lib/expres-texto';
 import { color, font, fontSize, radius, space, touchTarget } from '@/lib/design-tokens';
 
 export interface PartidoExpresFila {
   id: string;
+  /** 'group' | 'quarter' | 'semi' | 'final'. */
+  stage: string;
   groupId: string;
   grupo: string;
   ronda: string;
@@ -67,6 +83,13 @@ export interface PartidoExpresFila {
   pairBId: string;
   gamesA: number | null;
   gamesB: number | null;
+  /** Todos los sets, ordenados. En un suma 6 es uno solo. */
+  sets: Array<{
+    set_number: number; games_a: number; games_b: number;
+    is_super_tiebreak: boolean | null; tiebreak_a: number | null; tiebreak_b: number | null;
+  }>;
+  /** Solo en el cuadro: en un suma 6 es siempre null. */
+  ganadorId: string | null;
 }
 
 /** "18:30" en hora de México. Null se pinta vacío, no como "Invalid Date". */
@@ -81,12 +104,15 @@ function horaLocal(iso: string | null): string {
 }
 
 export default function PartidosYCaptura({
-  tournamentId, onCambio,
+  tournamentId, fase = 'grupos', onCambio,
 }: {
   tournamentId: string;
+  /** Qué partidos enseña. Decide también CÓMO se capturan. */
+  fase?: FaseTorneo;
   /** Se guardó un marcador: el padre recarga sus tablas. */
   onCambio?: () => void;
 }) {
+  const esCuadro = fase === 'eliminatorias';
   const [partidos, setPartidos] = useState<PartidoExpresFila[]>([]);
   const [parejas, setParejas] = useState<Map<string, ParejaPublica>>(new Map());
   const [abierto, setAbierto] = useState<PartidoExpresFila | null>(null);
@@ -103,6 +129,8 @@ export default function PartidosYCaptura({
    *   que decide si un buscador sirve en español — ver `coincide`.
    */
   const [busqueda, setBusqueda] = useState('');
+  /** Cómo juega este torneo el set decisivo. Solo hace falta en el cuadro. */
+  const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
 
   const nombre = useCallback(
     (pairId: string) => nombreDePareja(parejas.get(pairId)),
@@ -112,45 +140,81 @@ export default function PartidosYCaptura({
   const cargar = useCallback(async () => {
     setError(null);
     try {
-      const { data: ms } = await supabase
+      // `stage = 'group'` o lo contrario: la fase es la única diferencia de
+      // la consulta, y `faseDeStage` ya dice cuál es cuál.
+      const consulta = supabase
         .from('matches')
-        .select('id, group_id, round_label, scheduled_at, court_label, pair_a_id, pair_b_id')
-        .eq('tournament_id', tournamentId)
-        .eq('stage', 'group')
-        .order('scheduled_at');
+        .select('id, stage, group_id, round_label, scheduled_at, court_label, '
+          + 'pair_a_id, pair_b_id, winner_pair_id, match_sets(set_number, games_a, games_b, '
+          + 'is_super_tiebreak, tiebreak_a, tiebreak_b)')
+        .eq('tournament_id', tournamentId);
+      const { data: ms } = await (esCuadro
+        ? consulta.neq('stage', 'group')
+        : consulta.eq('stage', 'group')
+      ).order('scheduled_at');
 
-      const filas = (ms ?? []) as Array<{
-        id: string; group_id: string | null; round_label: string | null;
+      // El cuadro necesita saber cómo juega este torneo el set decisivo.
+      if (esCuadro) {
+        const { data: t } = await supabase
+          .from('tournaments')
+          .select('tercer_set_formato, tercer_set_puntos')
+          .eq('id', tournamentId)
+          .maybeSingle();
+        try {
+          setScoreConfig(scoreConfigDelTorneo(t as never, 'expres/cuadro'));
+        } catch {
+          // Un exprés nace con 'super_muerte' a 10 escrito explícitamente, así
+          // que esto no debería pasar; si pasa, la captura se apaga sola en
+          // vez de validar con una regla inventada.
+          setScoreConfig(null);
+        }
+      }
+
+      type SetFila = {
+        set_number: number; games_a: number; games_b: number;
+        is_super_tiebreak: boolean | null; tiebreak_a: number | null; tiebreak_b: number | null;
+      };
+      const filas = (ms ?? []) as unknown as Array<{
+        id: string; stage: string; group_id: string | null; round_label: string | null;
         scheduled_at: string | null; court_label: string | null;
         pair_a_id: string | null; pair_b_id: string | null;
+        winner_pair_id: string | null;
+        match_sets: SetFila[] | null;
       }>;
       if (filas.length === 0) { setPartidos([]); return; }
 
       const idsGrupo = [...new Set(filas.map((m) => m.group_id).filter(Boolean))] as string[];
-      const [{ data: gs }, { data: sets }] = await Promise.all([
-        supabase.from('groups').select('id, name').in('id', idsGrupo),
-        supabase.from('match_sets').select('match_id, games_a, games_b')
-          .in('match_id', filas.map((m) => m.id)).eq('set_number', 1),
-      ]);
+      const { data: gs } = idsGrupo.length
+        ? await supabase.from('groups').select('id, name').in('id', idsGrupo)
+        : { data: [] as { id: string; name: string }[] };
 
       const nombreGrupo = new Map((gs ?? []).map((g) => [g.id, g.name]));
-      const games = new Map((sets ?? []).map((x) => [x.match_id, { a: x.games_a, b: x.games_b }]));
 
       setParejas(await fetchParejasPublicas(
         filas.flatMap((m) => [m.pair_a_id, m.pair_b_id]).filter(Boolean) as string[],
       ));
-      setPartidos(filas.map((m) => ({
-        id: m.id,
-        groupId: m.group_id!,
-        grupo: nombreGrupo.get(m.group_id!) ?? '?',
-        ronda: m.round_label ?? '',
-        hora: horaLocal(m.scheduled_at),
-        cancha: m.court_label ?? '',
-        pairAId: m.pair_a_id!,
-        pairBId: m.pair_b_id!,
-        gamesA: games.get(m.id)?.a ?? null,
-        gamesB: games.get(m.id)?.b ?? null,
-      })));
+      setPartidos(filas.map((m) => {
+        const sets = (m.match_sets ?? []).slice().sort((a, b) => a.set_number - b.set_number);
+        // En un suma 6 el marcador ES el set 1. En el cuadro hay varios, y lo
+        // que resume la fila son los sets ganados por cada lado.
+        const uno = sets.find((x) => x.set_number === 1);
+        return {
+          id: m.id,
+          stage: m.stage,
+          groupId: m.group_id ?? '',
+          // En el cuadro no hay grupo: la cabecera es la ronda.
+          grupo: m.group_id ? (nombreGrupo.get(m.group_id) ?? '?') : '',
+          ronda: m.round_label ?? '',
+          hora: horaLocal(m.scheduled_at),
+          cancha: m.court_label ?? '',
+          pairAId: m.pair_a_id!,
+          pairBId: m.pair_b_id!,
+          gamesA: uno?.games_a ?? null,
+          gamesB: uno?.games_b ?? null,
+          sets,
+          ganadorId: m.winner_pair_id,
+        };
+      }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron cargar los partidos.');
     } finally {
@@ -162,7 +226,7 @@ export default function PartidosYCaptura({
 
   /** El grupo del partido abierto: el motor recalcula su tabla entera. */
   const contexto = useMemo(() => {
-    if (!abierto) return null;
+    if (!abierto || esCuadro) return null;
     const delGrupo = partidos.filter((p) => p.groupId === abierto.groupId);
     return {
       resultados: delGrupo.map((p) => ({
@@ -193,6 +257,42 @@ export default function PartidosYCaptura({
     setAbierto(null);
     await cargar();
     onCambio?.();
+  }
+
+  // ► EL CUADRO SE CAPTURA POR EL CAMINO NORMAL.
+  //   Cuartos y semis van a set de oro y la final a dos sets: formatos con
+  //   ganador. `ScoreCapture` y `match-result` son exactamente eso, y
+  //   `expres-resultado` rechazaría estos partidos por no ser suma 6.
+  if (abierto && esCuadro) {
+    if (!scoreConfig) {
+      return (
+        <View style={s.error}>
+          <Text style={s.errorTexto}>
+            Falta saber cómo juega este torneo el set decisivo. Revísalo en
+            Formato antes de capturar el cuadro.
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <ScoreCapture
+        matchId={abierto.id}
+        pairAId={abierto.pairAId}
+        pairBId={abierto.pairBId}
+        pairAName={nombre(abierto.pairAId)}
+        pairBName={nombre(abierto.pairBId)}
+        // `SetGuardado` usa los nombres de la columna tal cual, así que las
+        // filas van derechas sin traducir.
+        // Null se lee como "no fue súper muerte", que es lo que significa una
+        // columna vacía aquí.
+        setsIniciales={abierto.sets.map((x) => ({
+          ...x, is_super_tiebreak: x.is_super_tiebreak ?? false,
+        }))}
+        ganadorInicial={abierto.ganadorId}
+        scoreConfig={scoreConfig}
+        onSuccess={() => { setAbierto(null); void cargar(); onCambio?.(); }}
+      />
+    );
   }
 
   if (abierto && contexto) {
