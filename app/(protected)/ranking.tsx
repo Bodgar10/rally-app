@@ -27,7 +27,7 @@ import { supabase } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/database.types';
 import ProyeccionDeRanking from '@/components/player/ProyeccionDeRanking';
 import { conCortes, textoDelSalto } from '@/lib/tabla-de-ranking';
-import { ETIQUETA_DIVISION } from '@/lib/divisiones';
+import { ETIQUETA_DIVISION, DIVISIONES_DESC } from '@/lib/divisiones';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────
 
@@ -131,55 +131,81 @@ export default function RankingScreen() {
     });
   }, []);
 
-  // Cargar divisiones disponibles para este jugador en la temporada actual.
+  // Las divisiones que se pueden mirar esta temporada.
+  //
+  // ► ANTES SALÍAN DE LAS FILAS DEL PROPIO JUGADOR, y esa era la trampa: sin
+  //   puntos no había ni una fila, así que no había ni una pestaña, y la
+  //   pantalla entera se reducía a "Todavía no tienes puntos de ranking". Un
+  //   jugador que acaba de entrar a la app no podía ver el ranking de nadie.
+  //
+  //   Y es justo al revés de lo que hace falta: el ranking de la red es lo
+  //   ÚNICO interesante para quien todavía no está dentro. Es lo que le enseña
+  //   contra quién jugaría y qué hace falta para entrar.
+  //
+  // ► LAS PESTAÑAS SON LAS DE LA RED, EN ORDEN DE DIVISIÓN
+  //   No en orden de puntos del jugador: el orden de un selector no puede
+  //   cambiar según quién mira, porque entonces nadie aprende dónde está su
+  //   pestaña. `DIVISIONES_DESC` va de primera a séptima, como se nombran.
+  //
+  //   Solo las que tienen a alguien: una pestaña de una división donde nadie
+  //   ha jugado todavía es una promesa de tabla vacía.
   //
   // `loading` arranca en `true` y este es el único efecto que corre siempre
   // (no depende de tener ya una división elegida), así que es quien tiene
   // que apagarlo — y lo hace en el `finally`, sin importar si encontró
-  // divisiones, si no encontró ninguna, o si la consulta falló. Antes solo
-  // se apagaba dentro de `loadRanking`, que nunca llega a ejecutarse si no
-  // hay ninguna división: por eso el spinner se quedaba para siempre en
-  // cuentas sin filas de ranking (que hoy es TODA la base).
+  // divisiones, si no encontró ninguna, o si la consulta falló.
   useEffect(() => {
     if (!userId) return;
     (async () => {
       try {
-        const { data, error: err } = await supabase
-          .from('ranking_public')
-          .select('division')
-          .eq('player_id', userId)
-          .eq('season', seasonSeleccionada)
-          .order('points', { ascending: false });
+        const [todas, mias] = await Promise.all([
+          // TODA la temporada, de cualquiera. Una columna corta y acotada a la
+          // temporada; se deduplica aquí porque PostgREST no hace DISTINCT.
+          supabase
+            .from('ranking_public')
+            .select('division')
+            .eq('season', seasonSeleccionada)
+            .limit(5000),
+          // Las suyas, solo para elegir en cuál abrir.
+          supabase
+            .from('ranking_public')
+            .select('division')
+            .eq('player_id', userId)
+            .eq('season', seasonSeleccionada)
+            .order('points', { ascending: false })
+            .limit(1),
+        ]);
 
-        if (err) {
+        if (todas.error) {
           setError('No se pudo cargar el ranking. Intenta de nuevo.');
           return;
         }
 
-        // Deduplica divisiones del jugador y construye opciones.
         // `division` llega nullable por ser columna de vista: las filas sin
         // división no representan ninguna opción y se descartan.
-        const seen = new Set<Division>();
-        const opts: DivisionOption[] = [];
-        (data ?? []).forEach((row) => {
-          if (row.division && !seen.has(row.division)) {
-            seen.add(row.division);
-            opts.push({ label: labelForDivision(row.division), value: row.division });
-          }
-        });
+        const conGente = new Set<Division>();
+        (todas.data ?? []).forEach((row) => { if (row.division) conGente.add(row.division); });
+
+        const opts: DivisionOption[] = DIVISIONES_DESC
+          .filter((d) => conGente.has(d))
+          .map((d) => ({ label: labelForDivision(d), value: d }));
 
         setDivisions(opts);
         if (opts.length > 0) {
-          // Si la división ya elegida sigue existiendo en esta temporada,
-          // no la pisamos (respeta la elección del usuario). Si no —
-          // primera carga, o la temporada cambió y ya no aplica— cae a la
-          // de más puntos.
+          // Si la división ya elegida sigue existiendo, no la pisamos: es la
+          // pestaña que el usuario tocó. Si no —primera carga, o la temporada
+          // cambió— se abre en LA SUYA, la de más puntos; y si no tiene
+          // ninguna, en la primera de la lista.
           const sigueValida = selectedDivision && opts.some((o) => o.value === selectedDivision);
-          if (!sigueValida) setSelectedDivision(opts[0].value);
+          if (!sigueValida) {
+            const mia = (mias.data ?? [])[0]?.division;
+            setSelectedDivision(
+              mia && opts.some((o) => o.value === mia) ? mia : opts[0].value,
+            );
+          }
         } else {
-          // Sin ninguna fila: no hay división que elegir. `loadRanking`
-          // nunca corre para este caso (su guard de arriba lo evita), así
-          // que hay que limpiar el estado de ranking a mano.
+          // Nadie tiene puntos todavía en toda la red. `loadRanking` no corre
+          // (su guard lo evita), así que se limpia a mano.
           setSelectedDivision(null);
           setSummary(null);
           setLeaderboard([]);
@@ -376,7 +402,7 @@ export default function RankingScreen() {
               letterSpacing: 0.4,
             }}
           >
-            Mi Ranking
+            Ranking
           </Text>
         </View>
 
@@ -866,22 +892,23 @@ function ChampionRowItem({ champion }: { champion: ChampionRow }) {
 }
 
 /**
- * Estado vacío cuando el jugador no tiene ninguna fila en ranking_public.
+ * Estado vacío cuando NADIE tiene ranking esta temporada.
  *
- * DECÍA "Juega tu primer torneo para aparecer aquí", y se lo encontraba gente
- * que YA había jugado — incluido un campeón recién coronado que llega desde el
- * botón de su propia tarjeta. Leer que te falta jugar tu primer torneo el día
- * que ganaste uno no es un detalle de redacción: es la app contradiciendo lo
- * que el jugador acaba de vivir.
+ * ► AHORA SIGNIFICA OTRA COSA, Y POR ESO CAMBIA LA COPIA
+ *   Antes salía cuando el JUGADOR no tenía filas, que es casi todo el mundo, y
+ *   por eso esta tarjeta se comía la pantalla entera: sin puntos propios no
+ *   había pestañas ni tabla. Las pestañas ya no dependen de él —son las de la
+ *   red— así que llegar aquí solo puede significar una cosa: no hay una sola
+ *   fila de ranking en toda la temporada.
  *
- * EL MOTIVO REAL NO ERA ESE. `ranking_points` se escribe cuando el organizador
- * CIERRA el torneo, y eso puede tardar días después de la final. Hasta
- * entonces no hay nada que enseñar aunque hayas jugado — y aunque hayas
- * ganado.
+ *   El que sí jugó pero todavía no tiene puntos ya no ve esto: ve la tabla de
+ *   su división con una nota encima (`EmptyRanking`).
  *
- * La copia nueva es cierta en los dos casos: el que no ha jugado nunca y el
- * que jugó y espera a que le cierren el torneo. Y no promete una fecha, porque
- * no la sabemos: depende de una persona.
+ * ► Y NO SE PROMETE UNA FECHA
+ *   `ranking_points` se escribe cuando el organizador CIERRA el torneo, y eso
+ *   puede tardar días después de la final. No lo sabemos: depende de una
+ *   persona. Lo mismo que le dijimos a la versión anterior de esta tarjeta,
+ *   cuando decía "Juega tu primer torneo" a un campeón recién coronado.
  */
 function NoRankingEmpty() {
   return (
@@ -908,7 +935,7 @@ function NoRankingEmpty() {
           textAlign: 'center',
         }}
       >
-        Todavía no tienes puntos de ranking
+        Todavía no hay ranking
       </Text>
       <Text
         style={{
@@ -919,8 +946,8 @@ function NoRankingEmpty() {
           lineHeight: 20,
         }}
       >
-        Los puntos se suman cuando el organizador cierra el torneo. Si ya jugaste
-        alguno, aparecerán aquí en cuanto lo cierre.
+        Nadie tiene puntos esta temporada todavía. Se suman cuando un
+        organizador cierra su primer torneo — el tuyo o el de cualquiera.
       </Text>
     </View>
   );
@@ -938,33 +965,30 @@ function EmptyRanking() {
         marginHorizontal: space[4],
         marginTop: space[4],
         backgroundColor: color.surface,
-        borderRadius: radius.xl2,
+        borderRadius: radius.lg,
         borderWidth: 1,
         borderColor: color.lineSoft,
-        padding: space[5],
-        alignItems: 'center',
-        gap: 10,
+        paddingHorizontal: space[4],
+        paddingVertical: space[3],
+        gap: 4,
       }}
     >
-      <Text style={{ fontSize: 32 }}>🎾</Text>
       <Text
         style={{
           fontFamily: font.display,
           fontWeight: '500',
-          fontSize: 17,
-          color: color.text,
-          textAlign: 'center',
+          fontSize: 14,
+          color: color.champagne,
         }}
       >
-        Aún sin ranking en esta categoría
+        Todavía no estás en esta tabla
       </Text>
       <Text
         style={{
           fontFamily: font.body,
-          fontSize: 13,
+          fontSize: 12.5,
           color: color.muted,
-          textAlign: 'center',
-          lineHeight: 20,
+          lineHeight: 19,
         }}
       >
         Tu posición se calcula con los torneos ya cerrados. Si jugaste uno y
