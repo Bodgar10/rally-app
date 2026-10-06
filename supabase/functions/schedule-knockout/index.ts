@@ -21,6 +21,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   programarEliminatorias,
+  canchasDeSede,
   type CategoriaCuadro,
   type Calendario,
 } from '../_shared/engine.bundle.js';
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
 
     const { data: torneo } = await admin
       .from('tournaments')
-      .select('id, organizer_id, courts, match_minutes, tercer_lugar')
+      .select('id, organizer_id, courts, match_minutes, tercer_lugar, venue_id')
       .eq('id', tournamentId)
       .maybeSingle();
     if (!torneo) return json({ error: 'tournament_not_found' }, 404);
@@ -210,10 +211,54 @@ Deno.serve(async (req) => {
     }
 
     // ─────────────────── 5. El motor decide ───────────────────
+    //
+    // EL CUADRO SE JUEGA EN LA SEDE DEL TORNEO, Y SOLO AHÍ.
+    //
+    // Mundo Pádel reparte los grupos entre Narvarte y Alberca Olímpica, y juega
+    // todo el cuadro en Alberca — que es la sede del torneo, la del cartel. Las
+    // demás sucursales prestan canchas para la fase de grupos y nada más.
+    //
+    // No hace falta preguntarlo: `tournaments.venue_id` ya lo dice. Derivarlo
+    // así evita el estado imposible de una sede de eliminatorias sin ni una
+    // cancha en el torneo.
+    //
+    // Sin canchas capturadas manda `courts`, que es como funcionó siempre.
+    const { data: filasCanchas } = await admin
+      .from('tournament_courts')
+      .select('nombre, orden, venue_id')
+      .eq('tournament_id', tournamentId)
+      .order('orden');
+
+    const todas = ((filasCanchas ?? []) as Array<{
+      nombre: string; orden: number; venue_id: string | null;
+    }>).map((f) => ({ nombre: f.nombre, orden: f.orden, venueId: f.venue_id }));
+
+    const sedePrincipal = (torneo.venue_id as string | null) ?? null;
+    const delCuadro = todas.length > 0
+      ? canchasDeSede(todas, sedePrincipal, sedePrincipal)
+      : [];
+
+    if (todas.length > 0 && delCuadro.length === 0) {
+      return json({
+        error: 'sin_canchas_en_la_sede',
+        message:
+          'Ninguna cancha del torneo está en su sede. El cuadro se juega ahí, así que ' +
+          'no hay dónde programarlo: revisa la sede de las canchas o la del torneo.',
+      }, 400);
+    }
+
+    /**
+     * El nombre de la cancha del cuadro, 1-based sobre las de la sede.
+     *
+     * Cae a `Cancha N` sin canchas capturadas: es lo que decía antes.
+     */
+    const etiquetaCuadro = (carril: number): string =>
+      delCuadro[carril - 1]?.nombre ?? `Cancha ${carril}`;
+
     let plan: Calendario;
     try {
       plan = programarEliminatorias({
-        canchas: torneo.courts as number,
+        canchas: delCuadro.length > 0 ? delCuadro.length : (torneo.courts as number),
         desde: aHHMM(ventana.desde),
         hasta: aHHMM(ventana.hasta),
         categorias,
@@ -279,7 +324,7 @@ Deno.serve(async (req) => {
       stage: p.etapa,
       slot_index: p.indiceEnRonda,
       scheduled_at: aTimestamptz(ventana.dia, p.inicio),
-      court_label: `Cancha ${p.cancha}`,
+      court_label: etiquetaCuadro(p.cancha),
     }));
 
     const { error: insErr } = await admin.from('match_schedule').insert(filasPlan);
@@ -366,7 +411,7 @@ Deno.serve(async (req) => {
           .from('matches')
           .update({
             scheduled_at: aTimestamptz(ventana.dia, p.inicio),
-            court_label: `Cancha ${p.cancha}`,
+            court_label: etiquetaCuadro(p.cancha),
           })
           .eq('id', filas[i].id);
         if (error) {

@@ -27,6 +27,8 @@ import {
   generarBloques,
   bloqueDeGrupo,
   programarGrupos,
+  sedesDelTorneo,
+  nombreDeCancha,
   type Bloque,
   type GrupoAProgramar,
   type CalendarioGrupos,
@@ -137,7 +139,7 @@ Deno.serve(async (req) => {
 
     const { data: torneo } = await admin
       .from('tournaments')
-      .select('id, organizer_id, courts, match_minutes')
+      .select('id, organizer_id, courts, match_minutes, venue_id')
       .eq('id', tournamentId)
       .maybeSingle();
     if (!torneo) return json({ error: 'tournament_not_found' }, 404);
@@ -173,8 +175,65 @@ Deno.serve(async (req) => {
     }
 
     // ─────────────────── 3. La retícula ───────────────────
-    let bloques: Bloque[];
+    //
+    // LAS CANCHAS, CON SU SEDE. Mundo Pádel juega los grupos repartidos entre
+    // Narvarte y Alberca Olímpica. Sin esto el motor trataría las cinco canchas
+    // como si estuvieran juntas y programaría un grupo a caballo entre dos
+    // sucursales a diez kilómetros.
+    //
+    // Sin filas —un torneo anterior a la 091— se pasa `undefined` y manda
+    // `canchas`, que es el comportamiento de siempre.
+    // Se declara aqui porque `etiqueta`, mas abajo, escribe en el.
     const avisos: string[] = [];
+
+    const { data: filasCanchas } = await admin
+      .from('tournament_courts')
+      .select('nombre, orden, venue_id, venues:venue_id ( name )')
+      .eq('tournament_id', tournamentId)
+      .order('orden');
+
+    const canchas = ((filasCanchas ?? []) as Array<{
+      nombre: string; orden: number; venue_id: string | null;
+      venues: { name: string } | null;
+    }>).map((f) => ({ nombre: f.nombre, orden: f.orden, venueId: f.venue_id }));
+
+    const nombresDeSede: Record<string, string> = {};
+    for (const f of (filasCanchas ?? []) as Array<{ venue_id: string | null; venues: { name: string } | null }>) {
+      if (f.venue_id && f.venues?.name) nombresDeSede[f.venue_id] = f.venues.name;
+    }
+
+    const sedePrincipal = (torneo.venue_id as string | null) ?? null;
+    const sedes = canchas.length > 0
+      ? sedesDelTorneo(canchas, sedePrincipal, nombresDeSede)
+      : undefined;
+
+    /**
+     * Lo que el jugador lee en su partido.
+     *
+     * EL NOMBRE QUE ESCRIBIÓ EL ORGANIZADOR, TAL CUAL. No se le antepone la
+     * sede: `tournament_courts` ya exige nombres únicos en el torneo, así que
+     * si hay dos sucursales el organizador las habrá llamado 'Narvarte 1' y
+     * 'Alberca 1' — y 'Narvarte · Narvarte 1' sobra.
+     *
+     * Sin canchas capturadas, o con un carril que esa sede no tiene, cae a
+     * `Cancha N`: es lo que decía antes y sigue siendo legible. Un carril
+     * fuera de rango es un fallo de planificación, y se avisa aparte en vez de
+     * dejar el partido sin cancha.
+     */
+    const etiqueta = (bloqueId: string, carril: number): string => {
+      if (canchas.length === 0) return `Cancha ${carril}`;
+      const sedeId = bloqueId.includes(':') ? bloqueId.split(':')[0] : null;
+      const nombre = nombreDeCancha(canchas, sedeId, sedePrincipal, carril);
+      if (nombre === null) {
+        avisos.push(
+          `El partido del bloque ${bloqueId} pedía el carril ${carril} y esa sede no lo tiene.`,
+        );
+        return `Cancha ${carril}`;
+      }
+      return nombre;
+    };
+
+    let bloques: Bloque[];
     try {
       const reticula = generarBloques({
         ventanas: (ventanas as FilaVentana[]).map((v) => ({
@@ -182,6 +241,7 @@ Deno.serve(async (req) => {
         })),
         canchas: torneo.courts as number,
         minutosPorPartido: torneo.match_minutes as number,
+        sedes,
       });
       bloques = reticula.bloques;
       avisos.push(...reticula.avisos);
@@ -333,7 +393,7 @@ Deno.serve(async (req) => {
       const res = await Promise.all(tanda.map((p) =>
         admin
           .from('matches')
-          .update({ scheduled_at: aTimestamptz(p.inicio), court_label: `Cancha ${p.cancha}` })
+          .update({ scheduled_at: aTimestamptz(p.inicio), court_label: etiqueta(p.bloqueId, p.cancha) })
           .eq('id', p.matchId)
           .then((r) => ({ id: p.matchId, error: r.error }))
       ));

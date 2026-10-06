@@ -273,11 +273,30 @@ serve(async (req) => {
   }
 
   // 7) Repartir POR BLOQUE, respetando los tamaños del plan.
+  //
+  // Y RESPETANDO LA SEDE. Con dos sucursales, los restos que se juntan sin
+  // mirar dónde mandan a una pareja de Narvarte a jugar a Alberca Olímpica, a
+  // diez kilómetros. Eso no se negocia por WhatsApp: no se presentan.
+  //
+  // La sede va dentro del id del bloque (`narvarte:2026-11-07-09:00`), así que
+  // no hace falta consultarla: se lee del propio id. Un torneo de una sola sede
+  // guarda el id corto y esto devuelve null para todos — el reparto de siempre.
+  const sedeDeBloque = (bloqueId: string | null): string | null => {
+    if (!bloqueId) return null;
+    const i = bloqueId.indexOf(":");
+    return i === -1 ? null : bloqueId.slice(0, i);
+  };
+
   const buckets = repartirPorBloque(
     validPairs,
     (p) => bloquePorPareja.get(p.id) ?? null,
     plan.groupSizes,
+    sedeDeBloque,
   );
+
+  // Un grupo que cruza sucursales es un aviso para el organizador: alguien va a
+  // tener que viajar y mejor que lo sepa él antes que la pareja el sábado.
+  const cruzan = buckets.filter((b) => b.cruzaSede).length;
 
   // 8) ENGINE: fixtures por grupo. Fixture = { round, pairAId, pairBId } (verificado 0.A).
   const groupNames = "ABCDEFGHIJKLMNOP".split("");
@@ -364,6 +383,11 @@ serve(async (req) => {
       parejas_sin_bloque: sinBloque,
       // La consulta de elecciones falló y se repartió a ciegas.
       sin_datos: eleccionesErr ? (eleccionesErr.message ?? "error") : null,
+      // Grupos que juntan parejas de SUCURSALES distintas. Los restos se
+      // agotan dentro de cada sede primero, pero los tamaños de grupo no son
+      // negociables: a veces no queda otra. Alguien va a tener que viajar y es
+      // mejor que el organizador lo sepa ahora que la pareja el sábado.
+      grupos_entre_sedes: cruzan,
     },
   });
 });
