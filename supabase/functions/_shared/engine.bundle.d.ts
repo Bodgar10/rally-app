@@ -1035,6 +1035,74 @@ sedeDeBloque?: (bloqueId: string | null) => string | null): GrupoRepartido<T>[];
  */
 declare function bloqueDeGrupo(elecciones: (string | null)[]): string | null;
 
+/**
+ * Las canchas de un torneo, agrupadas por sede.
+ *
+ * ► LA PIEZA QUE LE FALTABA AL RESTO
+ *   `generarBloques` ya sabe trabajar por sede y `repartirPorBloque` ya respeta
+ *   la sede de cada pareja. Pero los siete sitios que los llaman seguían
+ *   pasando `canchas: 5` — un numero, sin decir donde estan. Esto traduce las
+ *   filas de `tournament_courts` a lo que esos motores esperan, y lo hace en un
+ *   solo sitio para que los siete den la misma respuesta.
+ *
+ * ► LAS ELIMINATORIAS SE JUEGAN EN LA SEDE DEL TORNEO
+ *   Mundo Padel reparte los grupos entre Narvarte y Alberca Olimpica, y juega
+ *   TODO el cuadro en Alberca. Eso no necesita una columna nueva: el torneo ya
+ *   tiene `venue_id`, y esa es su sede — la que sale en el cartel y en la ficha.
+ *   Las canchas de otras sucursales son satelites que prestan canchas para la
+ *   fase de grupos.
+ *
+ *   Derivarlo asi en vez de preguntarlo evita el estado imposible de siempre:
+ *   una sede de eliminatorias que no tiene ni una cancha en el torneo.
+ *
+ * ► UNA CANCHA SIN SEDE ES DE LA SEDE DEL TORNEO
+ *   `tournament_courts.venue_id` es nulable a proposito: un club de una sola
+ *   sede no tiene por que repetirla en cada cancha, y asi puede mudarse sin
+ *   reescribirlas. Null se resuelve aqui, una vez.
+ *
+ * Modulo puro: sin red ni base. La consulta la hace cada lado.
+ */
+
+/** Una fila de `tournament_courts`, con lo justo. */
+interface CanchaDeTorneo {
+    nombre: string;
+    orden: number;
+    /** `venue_id`. Null = la sede del torneo. */
+    venueId: string | null;
+}
+/** Como se llama cada sede, para poder pintarla. */
+type NombresDeSede = Record<string, string>;
+/**
+ * Las sedes del torneo con sus canchas, LA PRINCIPAL PRIMERO.
+ *
+ * El orden importa: es el que ve la pareja al elegir bloque, y la sede del
+ * torneo es la que reconoce — es la del cartel. Las demas van detras por su
+ * nombre, que es estable entre cargas.
+ *
+ * Con una sola sede devuelve una entrada de id null, que es exactamente lo que
+ * `generarBloques` trata como "torneo normal": misma salida que antes de que
+ * las canchas tuvieran nombre.
+ */
+declare function sedesDelTorneo(canchas: readonly CanchaDeTorneo[], 
+/** `tournaments.venue_id`. Null si el torneo no tiene sede capturada. */
+sedePrincipal: string | null, nombres?: NombresDeSede): SedeConCanchas[];
+/**
+ * Las canchas de UNA sede, en orden.
+ *
+ * Es lo que traduce el carril que devuelve el planificador —1, 2, 3— al nombre
+ * que lee el jugador. Sin esto el partido dice "Cancha 4" y hay una Cancha 4 en
+ * cada sucursal.
+ */
+declare function canchasDeSede(canchas: readonly CanchaDeTorneo[], sedeId: string | null, sedePrincipal: string | null): CanchaDeTorneo[];
+/**
+ * El nombre de la cancha numero `carril` de una sede, 1-based.
+ *
+ * `null` cuando esa sede no tiene tantas canchas — que es un fallo de
+ * planificacion, no una etiqueta que inventar. Quien llama decide si avisa o
+ * cae a 'Cancha N', pero no se finge un nombre que no existe.
+ */
+declare function nombreDeCancha(canchas: readonly CanchaDeTorneo[], sedeId: string | null, sedePrincipal: string | null, carril: number): string | null;
+
 /** Un partido con su sitio en el calendario, tal como está hoy. */
 interface PartidoEnCalendario {
     id: string;
@@ -1924,4 +1992,4 @@ interface EntradaFixtureExpres {
  */
 declare function generarFixtureExpres(entrada: EntradaFixtureExpres): FixtureExpres;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CapturaExpres, type CategoriaCuadro, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoDeCuadro, type FormatoDeSet, type FormatoPartido, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoExpres, type GrupoId, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoDeCuadro, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CanchaDeTorneo, type CapturaExpres, type CategoriaCuadro, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoDeCuadro, type FormatoDeSet, type FormatoPartido, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoExpres, type GrupoId, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type NombresDeSede, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SedeConCanchas, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoDeCuadro, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, nombreDeCancha, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };

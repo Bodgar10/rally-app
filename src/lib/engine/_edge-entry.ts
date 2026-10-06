@@ -35,6 +35,13 @@ export { generarBloques, carrilesDeGrupo, PARTIDOS_POR_CARRIL } from './schedule
 export type { Bloque, VentanaDia as VentanaBloques, ReticulaBloques } from './schedule/bloques';
 export { bloqueDeGrupo, repartirPorBloque } from './schedule/reparto';
 
+// Las canchas de un torneo agrupadas por sede, y el nombre real de cada una.
+// Lo consumen `schedule-groups` y `schedule-knockout`: sin esto el partido dice
+// "Cancha 4" y hay una Cancha 4 en cada sucursal.
+export { sedesDelTorneo, canchasDeSede, nombreDeCancha } from './schedule/sedes';
+export type { CanchaDeTorneo, NombresDeSede } from './schedule/sedes';
+export type { SedeConCanchas } from './schedule/bloques';
+
 // Movimiento manual de un partido: lo valida la pantalla EN VIVO y lo
 // revalida la Edge Function `move-match` con el mismo codigo. Que la regla
 // viva en un solo sitio es el punto.

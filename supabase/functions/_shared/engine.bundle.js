@@ -1799,6 +1799,39 @@ function bloqueDeGrupo(elecciones) {
   return ganador === void 0 || ganador === SIN_BLOQUE ? null : ganador;
 }
 
+// src/lib/engine/schedule/sedes.ts
+var PRINCIPAL = "\0principal";
+function sedesDelTorneo(canchas, sedePrincipal, nombres = {}) {
+  const porSede = /* @__PURE__ */ new Map();
+  for (const c of canchas) {
+    const clave = c.venueId === null || c.venueId === sedePrincipal ? PRINCIPAL : c.venueId;
+    const ya = porSede.get(clave);
+    if (ya) ya.push(c);
+    else porSede.set(clave, [c]);
+  }
+  const satelites = [...porSede.keys()].filter((k) => k !== PRINCIPAL).sort((a, b) => (nombres[a] ?? a).localeCompare(nombres[b] ?? b));
+  const orden = porSede.has(PRINCIPAL) ? [PRINCIPAL, ...satelites] : satelites;
+  return orden.map((clave) => ({
+    // UNA SOLA SEDE = SIN SEDE. Devolver un id aqui prefijaria los ids de
+    // bloque de todos los torneos de siempre, y esos ids estan guardados en
+    // `pair_block_choices`: invalidaria la eleccion de cada pareja inscrita.
+    id: clave === PRINCIPAL ? orden.length === 1 ? null : sedePrincipal ?? PRINCIPAL : clave,
+    nombre: clave === PRINCIPAL ? orden.length === 1 ? null : sedePrincipal ? nombres[sedePrincipal] ?? null : null : nombres[clave] ?? null,
+    canchas: porSede.get(clave).length
+  }));
+}
+function canchasDeSede(canchas, sedeId, sedePrincipal) {
+  const esDeLaSede = (c) => {
+    const suya = c.venueId ?? sedePrincipal;
+    return sedeId === null ? true : suya === sedeId;
+  };
+  return canchas.filter(esDeLaSede).sort((a, b) => a.orden - b.orden);
+}
+function nombreDeCancha(canchas, sedeId, sedePrincipal, carril) {
+  const suyas = canchasDeSede(canchas, sedeId, sedePrincipal);
+  return suyas[carril - 1]?.nombre ?? null;
+}
+
 // src/lib/engine/schedule/mover.ts
 var SOLO_AVISAN = /* @__PURE__ */ new Set([
   "descanso_insuficiente"
@@ -3101,4 +3134,4 @@ function exigirPartidos(valor, grupoMasPequeno) {
   return k;
 }
 
-export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoDeCuadro, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoDeCuadro, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, nombreDeCancha, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
