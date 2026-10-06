@@ -107,6 +107,25 @@ export default function SelectorDeBloque({
   const dias: string[] = [];
   for (const b of visibles) if (!dias.includes(b.dia)) dias.push(b.dia);
 
+  /**
+   * ► CON DOS SUCURSALES, LA HORA SOLA NO BASTA.
+   *
+   *   Mundo Pádel juega en Narvarte y en Alberca Olímpica a la vez, así que el
+   *   sábado a las 9:00 hay DOS bloques. Pintados como estaban salían dos
+   *   tarjetas idénticas y la pareja elegía al azar — peor que no ofrecer la
+   *   sede, porque no sabe que está eligiendo una.
+   *
+   *   Se agrupan por sede dentro del día. Y solo se nombra cuando hay más de
+   *   una: en un torneo normal no hay nada que distinguir y el renglón sobra.
+   */
+  const sedesDe = (dia: string): (string | null)[] => {
+    const ids: (string | null)[] = [];
+    for (const b of visibles) {
+      if (b.dia === dia && !ids.includes(b.sedeId)) ids.push(b.sedeId);
+    }
+    return ids;
+  };
+
   const elegido = conCupo.find((b) => b.id === valor) ?? null;
   const forzando = !!elegido && elegido.cupo <= 0;
 
@@ -118,8 +137,20 @@ export default function SelectorDeBloque({
         <View key={dia} style={s.dia}>
           <Text style={s.diaNombre}>{formatearConDia(dia)}</Text>
 
+          {sedesDe(dia).map((sedeId) => {
+          const deLaSede = visibles.filter((b) => b.dia === dia && b.sedeId === sedeId);
+          const nombreSede = deLaSede[0]?.sedeNombre ?? null;
+          const variasSedes = sedesDe(dia).length > 1;
+
+          return (
+          <View key={sedeId ?? 'principal'}>
+          {variasSedes && (
+            <Text style={s.sedeNombre}>
+              {(nombreSede ?? 'Sede del torneo').toUpperCase()}
+            </Text>
+          )}
           <View style={s.rejilla}>
-            {visibles.filter((b) => b.dia === dia).map((b) => {
+            {deLaSede.map((b) => {
               const activo = b.id === valor;
               const lleno  = b.cupo <= 0;
 
@@ -137,6 +168,7 @@ export default function SelectorDeBloque({
                   accessibilityRole="radio"
                   accessibilityState={{ selected: activo, disabled: false }}
                   accessibilityLabel={
+                    (b.sedeNombre ? `${b.sedeNombre}. ` : '') +
                     `${formatearConDia(dia)}, de ${rangoLegible(b.desde, b.hasta)}. ` +
                     (minutosPorHorario ? `${textoDuracion(minutosPorHorario)}. ` : '') +
                     `${textoCupo(b.cupo)}.` +
@@ -171,6 +203,9 @@ export default function SelectorDeBloque({
               );
             })}
           </View>
+          </View>
+          );
+          })}
         </View>
       ))}
 
@@ -226,6 +261,10 @@ const s = StyleSheet.create({
     letterSpacing: 1.2, textTransform: 'uppercase',
   },
 
+  sedeNombre: {
+    fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.champagne,
+    letterSpacing: 1.4, marginBottom: 6, marginTop: 4,
+  },
   rejilla: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
 
   tarjeta: {

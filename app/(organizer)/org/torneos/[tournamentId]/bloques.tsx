@@ -306,6 +306,10 @@ export default function BloquesScreen() {
 
                   <View style={s.textos}>
                     <Text style={s.hora}>
+                      {/* LA SUCURSAL, PEGADA A LA HORA. Con dos sedes el mismo
+                          turno aparece dos veces y sin esto son dos tarjetas
+                          identicas: el organizador no sabria cual esta llena. */}
+                      {h.bloque.sedeNombre ? `${h.bloque.sedeNombre} · ` : ''}
                       {horaLegible(h.bloque.desde)} a {horaLegible(h.bloque.hasta)}
                     </Text>
 
