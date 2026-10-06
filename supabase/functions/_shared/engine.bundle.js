@@ -1322,8 +1322,17 @@ function esDiaValido(dia) {
 function generarBloques(entrada) {
   const partidosPorGrupo = entrada.partidosPorGrupo ?? PARTIDOS_POR_GRUPO;
   const avisos = [];
-  if (!Number.isInteger(entrada.canchas) || entrada.canchas <= 0) {
-    throw new Error(`canchas debe ser un entero positivo: ${entrada.canchas}`);
+  const sedes = entrada.sedes?.length ? entrada.sedes : [{ id: null, nombre: null, canchas: entrada.canchas }];
+  for (const sede of sedes) {
+    if (!Number.isInteger(sede.canchas) || sede.canchas <= 0) {
+      throw new Error(
+        `canchas debe ser un entero positivo${sede.nombre ? ` en ${sede.nombre}` : ""}: ${sede.canchas}`
+      );
+    }
+  }
+  const ids = sedes.map((x) => x.id);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error("Hay dos sedes con el mismo id.");
   }
   if (!Number.isFinite(entrada.minutosPorPartido) || entrada.minutosPorPartido <= 0) {
     throw new Error(`minutosPorPartido debe ser positivo: ${entrada.minutosPorPartido}`);
@@ -1379,23 +1388,28 @@ function generarBloques(entrada) {
       }
       let t = inicio;
       while (t + minutosPorBloque <= fin) {
-        const id = `${dia}-${formatHoraBloque(t)}`;
-        if (vistos.has(id)) {
-          avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
-        } else {
+        const hora = formatHoraBloque(t);
+        const finRealista = t + minutosRealistas;
+        for (const sede of sedes) {
+          const id = sede.id === null ? `${dia}-${hora}` : `${sede.id}:${dia}-${hora}`;
+          if (vistos.has(id)) {
+            avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
+            continue;
+          }
           vistos.add(id);
-          const finRealista = t + minutosRealistas;
           bloques.push({
             id,
+            sedeId: sede.id,
+            sedeNombre: sede.nombre,
             dia,
-            desde: formatHoraBloque(t),
+            desde: hora,
             hasta: formatHoraBloque(t + minutosPorBloque),
             hastaRealista: formatHoraBloque(finRealista % 1440),
             seSaleDeLaVentana: finRealista > fin,
-            carriles: entrada.canchas
+            carriles: sede.canchas
           });
-          bloquesDelDia += 1;
         }
+        bloquesDelDia += 1;
         t += minutosPorBloque;
       }
       sobrantesDelDia += fin - t;

@@ -54,17 +54,68 @@ export interface VentanaDia {
   hasta: string;
 }
 
+/**
+ * Una sede con sus canchas.
+ *
+ * ► POR QUE EL MOTOR SABE DE SEDES
+ *   Mundo Padel juega su torneo en DOS sucursales a la vez: Narvarte con 2
+ *   canchas y Alberca Olimpica con 3. La gente elige a cual se apunta, y el
+ *   cupo de cada una se agota por separado.
+ *
+ *   Eso no se podia decir con `canchas: number`: cinco canchas son cinco,
+ *   esten donde esten, y el planificador habria repartido un grupo entre dos
+ *   sucursales a diez kilometros.
+ *
+ * ► NO ES UN MODO APARTE
+ *   Un torneo de una sola sede es UNA sede con N canchas. El motor itera
+ *   siempre sedes; quien no las pasa recibe una implicita y sin nombre, y la
+ *   salida es identica a la de antes. Un solo camino, no dos.
+ */
+export interface SedeConCanchas {
+  /** `venues.id`. Null = la sede unica del torneo, sin nombrar. */
+  id: string | null;
+  /** 'Narvarte'. Null cuando no hay mas que una y no hace falta decirlo. */
+  nombre: string | null;
+  canchas: number;
+}
+
 export interface EntradaBloques {
   ventanas: VentanaDia[];
+  /**
+   * Canchas del torneo, cuando todas estan en el mismo sitio.
+   *
+   * Se ignora si viene `sedes`. Sigue aqui porque la lee medio proyecto y
+   * quitarla de golpe habria roto `schedule-groups`, `bloques-torneo` y el
+   * panel a la vez para arreglar un caso.
+   */
   canchas: number;
   minutosPorPartido: number;
   /** Default 3: grupo de 3 parejas, round robin. */
   partidosPorGrupo?: number;
+  /**
+   * Las sedes del torneo, cuando hay mas de una. Manda sobre `canchas`.
+   *
+   * Cada sede genera SUS PROPIOS bloques a las mismas horas: el sabado a las
+   * 9:00 hay un bloque en Narvarte con 2 carriles y otro en Alberca con 3. La
+   * pareja elige uno, y con eso queda dicho su horario Y su sucursal.
+   */
+  sedes?: SedeConCanchas[];
 }
 
 export interface Bloque {
-  /** `${dia}-${desde}`, estable y determinista. */
+  /**
+   * `${dia}-${desde}`, estable y determinista. Con varias sedes lleva la suya
+   * delante: `${sedeId}:${dia}-${desde}`.
+   *
+   * EL ID DE UN TORNEO DE UNA SOLA SEDE NO CAMBIA, y no es cosmetica: los
+   * bloques elegidos viven en `pair_block_choices`. Prefijar siempre habria
+   * invalidado la eleccion de cada pareja ya inscrita.
+   */
   id: string;
+  /** La sede de este bloque. Null en un torneo de una sola sede. */
+  sedeId: string | null;
+  /** 'Narvarte', para pintarlo. Null cuando no hay mas que una. */
+  sedeNombre: string | null;
   dia: string;
   desde: string;
   /** Hora a la que TERMINA el bloque si todo corre a tiempo. */
@@ -173,8 +224,27 @@ export function generarBloques(entrada: EntradaBloques): ReticulaBloques {
   const partidosPorGrupo = entrada.partidosPorGrupo ?? PARTIDOS_POR_GRUPO;
   const avisos: string[] = [];
 
-  if (!Number.isInteger(entrada.canchas) || entrada.canchas <= 0) {
-    throw new Error(`canchas debe ser un entero positivo: ${entrada.canchas}`);
+  /**
+   * UNA SOLA FORMA DE MIRAR LAS CANCHAS. Sin `sedes`, el torneo es una sede
+   * implicita con las canchas de siempre — asi el bucle de abajo no tiene que
+   * preguntar cual de los dos casos es.
+   */
+  const sedes: SedeConCanchas[] = entrada.sedes?.length
+    ? entrada.sedes
+    : [{ id: null, nombre: null, canchas: entrada.canchas }];
+
+  for (const sede of sedes) {
+    if (!Number.isInteger(sede.canchas) || sede.canchas <= 0) {
+      throw new Error(
+        `canchas debe ser un entero positivo${sede.nombre ? ` en ${sede.nombre}` : ''}: ${sede.canchas}`,
+      );
+    }
+  }
+  // Dos sedes con el mismo id harian dos bloques con el mismo id y uno se
+  // descartaria en silencio.
+  const ids = sedes.map((x) => x.id);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error('Hay dos sedes con el mismo id.');
   }
   if (!Number.isFinite(entrada.minutosPorPartido) || entrada.minutosPorPartido <= 0) {
     throw new Error(`minutosPorPartido debe ser positivo: ${entrada.minutosPorPartido}`);
@@ -253,26 +323,36 @@ export function generarBloques(entrada: EntradaBloques): ReticulaBloques {
 
       let t = inicio;
       while (t + minutosPorBloque <= fin) {
-        const id = `${dia}-${formatHoraBloque(t)}`;
-        if (vistos.has(id)) {
-          avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
-        } else {
+        const hora = formatHoraBloque(t);
+        // Con una ventana que cierra muy tarde el retraso puede cruzar la
+        // medianoche. Se envuelve para no emitir un "24:44" que nadie sabe
+        // leer; `seSaleDeLaVentana` sigue comparando el minuto crudo.
+        const finRealista = t + minutosRealistas;
+
+        // LA MISMA HORA EN CADA SEDE. El sabado a las 9:00 hay un bloque en
+        // Narvarte y otro en Alberca; son dos sitios, no dos turnos.
+        for (const sede of sedes) {
+          const id = sede.id === null ? `${dia}-${hora}` : `${sede.id}:${dia}-${hora}`;
+          if (vistos.has(id)) {
+            avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
+            continue;
+          }
           vistos.add(id);
-          // Con una ventana que cierra muy tarde el retraso puede cruzar la
-          // medianoche. Se envuelve para no emitir un "24:44" que nadie sabe
-          // leer; `seSaleDeLaVentana` sigue comparando el minuto crudo.
-          const finRealista = t + minutosRealistas;
           bloques.push({
             id,
+            sedeId: sede.id,
+            sedeNombre: sede.nombre,
             dia,
-            desde: formatHoraBloque(t),
+            desde: hora,
             hasta: formatHoraBloque(t + minutosPorBloque),
             hastaRealista: formatHoraBloque(finRealista % 1440),
             seSaleDeLaVentana: finRealista > fin,
-            carriles: entrada.canchas,
+            carriles: sede.canchas,
           });
-          bloquesDelDia += 1;
         }
+        // Un turno es un turno aunque haya dos sedes: el dia tiene los mismos
+        // bloques horarios, cada uno con mas carriles.
+        bloquesDelDia += 1;
         t += minutosPorBloque;
       }
 

@@ -577,16 +577,66 @@ interface VentanaDia {
     /** Hora a la que TERMINA el ultimo partido, no a la que empieza. 'HH:MM' */
     hasta: string;
 }
+/**
+ * Una sede con sus canchas.
+ *
+ * ► POR QUE EL MOTOR SABE DE SEDES
+ *   Mundo Padel juega su torneo en DOS sucursales a la vez: Narvarte con 2
+ *   canchas y Alberca Olimpica con 3. La gente elige a cual se apunta, y el
+ *   cupo de cada una se agota por separado.
+ *
+ *   Eso no se podia decir con `canchas: number`: cinco canchas son cinco,
+ *   esten donde esten, y el planificador habria repartido un grupo entre dos
+ *   sucursales a diez kilometros.
+ *
+ * ► NO ES UN MODO APARTE
+ *   Un torneo de una sola sede es UNA sede con N canchas. El motor itera
+ *   siempre sedes; quien no las pasa recibe una implicita y sin nombre, y la
+ *   salida es identica a la de antes. Un solo camino, no dos.
+ */
+interface SedeConCanchas {
+    /** `venues.id`. Null = la sede unica del torneo, sin nombrar. */
+    id: string | null;
+    /** 'Narvarte'. Null cuando no hay mas que una y no hace falta decirlo. */
+    nombre: string | null;
+    canchas: number;
+}
 interface EntradaBloques {
     ventanas: VentanaDia[];
+    /**
+     * Canchas del torneo, cuando todas estan en el mismo sitio.
+     *
+     * Se ignora si viene `sedes`. Sigue aqui porque la lee medio proyecto y
+     * quitarla de golpe habria roto `schedule-groups`, `bloques-torneo` y el
+     * panel a la vez para arreglar un caso.
+     */
     canchas: number;
     minutosPorPartido: number;
     /** Default 3: grupo de 3 parejas, round robin. */
     partidosPorGrupo?: number;
+    /**
+     * Las sedes del torneo, cuando hay mas de una. Manda sobre `canchas`.
+     *
+     * Cada sede genera SUS PROPIOS bloques a las mismas horas: el sabado a las
+     * 9:00 hay un bloque en Narvarte con 2 carriles y otro en Alberca con 3. La
+     * pareja elige uno, y con eso queda dicho su horario Y su sucursal.
+     */
+    sedes?: SedeConCanchas[];
 }
 interface Bloque {
-    /** `${dia}-${desde}`, estable y determinista. */
+    /**
+     * `${dia}-${desde}`, estable y determinista. Con varias sedes lleva la suya
+     * delante: `${sedeId}:${dia}-${desde}`.
+     *
+     * EL ID DE UN TORNEO DE UNA SOLA SEDE NO CAMBIA, y no es cosmetica: los
+     * bloques elegidos viven en `pair_block_choices`. Prefijar siempre habria
+     * invalidado la eleccion de cada pareja ya inscrita.
+     */
     id: string;
+    /** La sede de este bloque. Null en un torneo de una sola sede. */
+    sedeId: string | null;
+    /** 'Narvarte', para pintarlo. Null cuando no hay mas que una. */
+    sedeNombre: string | null;
     dia: string;
     desde: string;
     /** Hora a la que TERMINA el bloque si todo corre a tiempo. */

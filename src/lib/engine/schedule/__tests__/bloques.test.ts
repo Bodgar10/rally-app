@@ -504,3 +504,95 @@ describe('hora realista de fin', () => {
     }
   });
 });
+
+// ───────────────────────────────────────────
+// Dos sedes a la vez
+// ───────────────────────────────────────────
+//
+// EL CASO: Mundo Pádel juega su aniversario en DOS sucursales — Narvarte con 2
+// canchas y Alberca Olímpica con 3. La gente elige a cuál se apunta y el cupo
+// de cada una se agota por separado.
+
+describe('bloques con varias sedes', () => {
+  const VENTANAS = [
+    { dia: '2026-11-05', desde: '17:00', hasta: '23:00' },
+    { dia: '2026-11-06', desde: '17:00', hasta: '23:00' },
+    { dia: '2026-11-07', desde: '09:00', hasta: '22:00' },
+    { dia: '2026-11-08', desde: '09:00', hasta: '21:00' },   // eliminatorias
+  ];
+  const SEDES = [
+    { id: 'narvarte', nombre: 'Narvarte', canchas: 2 },
+    { id: 'alberca',  nombre: 'Alberca Olímpica', canchas: 3 },
+  ];
+
+  const conSedes = () =>
+    generarBloques({ ventanas: VENTANAS, canchas: 5, minutosPorPartido: 60, sedes: SEDES });
+
+  it('cada turno existe en las dos sedes', () => {
+    const r = conSedes();
+    const sabado9 = r.bloques.filter((b) => b.dia === '2026-11-07' && b.desde === '09:00');
+    expect(sabado9).toHaveLength(2);
+    expect(sabado9.map((b) => b.sedeNombre).sort())
+      .toEqual(['Alberca Olímpica', 'Narvarte']);
+  });
+
+  it('cada bloque lleva los carriles de SU sede, no los del torneo', () => {
+    const r = conSedes();
+    const narvarte = r.bloques.filter((b) => b.sedeId === 'narvarte');
+    const alberca = r.bloques.filter((b) => b.sedeId === 'alberca');
+    expect(narvarte.every((b) => b.carriles === 2)).toBe(true);
+    expect(alberca.every((b) => b.carriles === 3)).toBe(true);
+  });
+
+  // Con `canchas: 5` el motor habría dado 5 carriles por turno. Son los mismos
+  // en total, pero repartidos: un grupo de Narvarte no puede usar una cancha
+  // de Alberca.
+  it('la capacidad total es la suma de las dos', () => {
+    const r = conSedes();
+    const turnos = new Set(r.bloques.map((b) => `${b.dia}-${b.desde}`)).size;
+    expect(r.capacidadCarriles).toBe(turnos * 5);
+  });
+
+  it('el último día sigue siendo de eliminatorias en las dos sedes', () => {
+    const r = conSedes();
+    expect(r.diaEliminatorias).toBe('2026-11-08');
+    expect(r.bloques.some((b) => b.dia === '2026-11-08')).toBe(false);
+  });
+
+  it('el id lleva la sede delante', () => {
+    const r = conSedes();
+    expect(r.bloques.some((b) => b.id === 'narvarte:2026-11-07-09:00')).toBe(true);
+    expect(r.bloques.some((b) => b.id === 'alberca:2026-11-07-09:00')).toBe(true);
+  });
+
+  // `pair_block_choices` guarda el id del bloque elegido. Prefijar siempre
+  // habría invalidado la elección de cada pareja ya inscrita.
+  it('SIN sedes el id no cambia, y eso protege lo ya elegido', () => {
+    const r = generarBloques({ ventanas: VENTANAS, canchas: 5, minutosPorPartido: 60 });
+    expect(r.bloques[0].id).toBe('2026-11-05-17:00');
+    expect(r.bloques.every((b) => b.sedeId === null)).toBe(true);
+    expect(r.bloques.every((b) => b.carriles === 5)).toBe(true);
+  });
+
+  it('una lista de sedes vacía se trata como si no viniera', () => {
+    const r = generarBloques({ ventanas: VENTANAS, canchas: 5, minutosPorPartido: 60, sedes: [] });
+    expect(r.bloques[0].id).toBe('2026-11-05-17:00');
+  });
+
+  it('dos sedes con el mismo id revientan en vez de perder bloques', () => {
+    expect(() => generarBloques({
+      ventanas: VENTANAS, canchas: 5, minutosPorPartido: 60,
+      sedes: [
+        { id: 'x', nombre: 'A', canchas: 2 },
+        { id: 'x', nombre: 'B', canchas: 3 },
+      ],
+    })).toThrow(/mismo id/i);
+  });
+
+  it('una sede sin canchas revienta diciendo cuál', () => {
+    expect(() => generarBloques({
+      ventanas: VENTANAS, canchas: 5, minutosPorPartido: 60,
+      sedes: [{ id: 'n', nombre: 'Narvarte', canchas: 0 }],
+    })).toThrow(/Narvarte/);
+  });
+});
