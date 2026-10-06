@@ -27,6 +27,7 @@ import {
   type OpcionesCupo,
   type ReticulaBloques,
 } from '@/lib/engine/schedule/bloques';
+import { sedesDelTorneo } from '@/lib/engine/schedule/sedes';
 import { tamanosDeGrupo } from '@/lib/bloques-formato';
 
 /** Lo que la UI necesita para pintar el selector. */
@@ -65,10 +66,10 @@ const aHoraCorta = (t: string) => t.slice(0, 5);
 export async function cargarBloquesDelTorneo(
   tournamentId: string,
 ): Promise<BloquesDelTorneo> {
-  const [torneoRes, ventanasRes, ocupacionRes, conteosRes] = await Promise.all([
+  const [torneoRes, ventanasRes, ocupacionRes, conteosRes, canchasRes] = await Promise.all([
     supabase
       .from('tournaments')
-      .select('courts, match_minutes')
+      .select('courts, match_minutes, venue_id')
       .eq('id', tournamentId)
       .maybeSingle(),
     supabase
@@ -84,6 +85,15 @@ export async function cargarBloquesDelTorneo(
     // no. Se asume a propósito — el tamaño de grupo es un pronóstico, y una
     // pareja a medio pagar todavía no cuenta para el cuadro.
     supabase.rpc('tournament_category_counts', { p_tournament_id: tournamentId }),
+    // LAS CANCHAS, CON SU SEDE. De aqui sale que la pareja vea
+    // "Narvarte · sabado 9:00" en vez de "sabado 9:00" a secas, y que el cupo
+    // de cada sucursal se agote por separado. Un torneo de una sola sede
+    // devuelve una entrada sin id y la reticula sale como siempre.
+    supabase
+      .from('tournament_courts')
+      .select('nombre, orden, venue_id, venues:venue_id ( name )')
+      .eq('tournament_id', tournamentId)
+      .order('orden'),
   ]);
 
   const parejasPorCategoria: Record<string, number> = {};
@@ -106,6 +116,25 @@ export async function cargarBloquesDelTorneo(
     return { ...base, motivoSinBloques: 'Faltan los horarios: ningún día tiene ventana de juego.' };
   }
 
+  // Las sedes salen de `tournament_courts`. Sin filas —un torneo anterior a la
+  // migracion 091, o uno recien creado— se pasa `undefined` y `generarBloques`
+  // cae a `canchas`, que es el comportamiento de siempre.
+  const filasCanchas = (canchasRes.data ?? []) as unknown as Array<{
+    nombre: string; orden: number; venue_id: string | null;
+    venues: { name: string } | null;
+  }>;
+  const nombresDeSede: Record<string, string> = {};
+  for (const f of filasCanchas) {
+    if (f.venue_id && f.venues?.name) nombresDeSede[f.venue_id] = f.venues.name;
+  }
+  const sedes = filasCanchas.length > 0
+    ? sedesDelTorneo(
+        filasCanchas.map((f) => ({ nombre: f.nombre, orden: f.orden, venueId: f.venue_id })),
+        torneo.venue_id ?? null,
+        nombresDeSede,
+      )
+    : undefined;
+
   let reticula: ReticulaBloques;
   try {
     reticula = generarBloques({
@@ -116,6 +145,7 @@ export async function cargarBloquesDelTorneo(
       })),
       canchas:           torneo.courts,
       minutosPorPartido: torneo.match_minutes ?? 60,
+      sedes,
     });
   } catch (e) {
     // Datos imposibles (hora mal guardada, canchas en 0). Se registra y se

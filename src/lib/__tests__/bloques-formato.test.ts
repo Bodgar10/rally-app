@@ -48,9 +48,22 @@ describe('presentación', () => {
   });
 
   it('parte un id de bloque, y devuelve null si no tiene esa forma', () => {
-    expect(partesDeBloqueId('2026-03-14-08:00')).toEqual({ dia: '2026-03-14', desde: '08:00' });
+    expect(partesDeBloqueId('2026-03-14-08:00'))
+      .toEqual({ dia: '2026-03-14', desde: '08:00', sedeId: null });
     expect(partesDeBloqueId('2026-03-14')).toBeNull();
     expect(partesDeBloqueId('')).toBeNull();
+  });
+
+  // Con dos sucursales el id lleva la sede delante. El regex exigia el id
+  // pelado, asi que devolvia null justo en los torneos que mas lo necesitan y
+  // la pantalla se quedaba sin fecha que pintar.
+  it('un id con sede delante se parte igual, y dice cual', () => {
+    expect(partesDeBloqueId('narvarte:2026-11-07-09:00'))
+      .toEqual({ sedeId: 'narvarte', dia: '2026-11-07', desde: '09:00' });
+  });
+
+  it('un id con sede pero sin fecha sigue siendo null', () => {
+    expect(partesDeBloqueId('narvarte:2026-11-07')).toBeNull();
   });
 });
 

@@ -1723,6 +1723,48 @@ export type Database = {
         }
         Relationships: []
       }
+      tournament_courts: {
+        Row: {
+          created_at: string
+          id: string
+          nombre: string
+          orden: number
+          tournament_id: string
+          venue_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nombre: string
+          orden: number
+          tournament_id: string
+          venue_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nombre?: string
+          orden?: number
+          tournament_id?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_courts_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_courts_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournament_judges: {
         Row: {
           assigned_by: string | null
@@ -2383,10 +2425,6 @@ export type Database = {
           zona: string
         }[]
       }
-      zona_del_jugador: {
-        Args: { p_player: string }
-        Returns: string
-      }
       can_capture_tournament: {
         Args: { p_tournament_id: string }
         Returns: boolean
@@ -2534,6 +2572,7 @@ export type Database = {
       tournament_org: { Args: { t_id: string }; Returns: string }
       tournament_status: { Args: { t_id: string }; Returns: string }
       unaccent_lower: { Args: { t: string }; Returns: string }
+      zona_del_jugador: { Args: { p_player: string }; Returns: string }
     }
     Enums: {
       billing_cycle: "monthly" | "annual"

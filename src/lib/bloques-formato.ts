@@ -60,9 +60,16 @@ export function textoDuracion(minutosPorBloque: number, partidos = 3): string {
  * pero puede venir de una elección vieja apuntando a un bloque que ya no
  * existe: por eso devuelve null en vez de romper.
  */
-export function partesDeBloqueId(id: string): { dia: string; desde: string } | null {
-  const m = /^(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(id);
-  return m ? { dia: m[1], desde: m[2] } : null;
+export function partesDeBloqueId(
+  id: string,
+): { dia: string; desde: string; sedeId: string | null } | null {
+  // CON SEDE EL ID LLEVA LA SUYA DELANTE: `narvarte:2026-11-07-09:00`. Este
+  // regex exigia el id pelado y devolvia null para esos bloques, asi que la
+  // pantalla se quedaba sin fecha que pintar justo en los torneos de dos
+  // sucursales. El prefijo es opcional porque los torneos de una sola sede
+  // siguen guardando el id corto en `pair_block_choices`.
+  const m = /^(?:([^:]+):)?(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(id);
+  return m ? { sedeId: m[1] ?? null, dia: m[2], desde: m[3] } : null;
 }
 
 
