@@ -29,6 +29,19 @@
  *
  *   NUNCA se deja una pareja sin grupo: sin grupo no juega, y ya pagó. Un
  *   horario incómodo se negocia; quedarse fuera del torneo, no.
+ *
+ * Y CON DOS SEDES, UN RESTO YA NO ES SOLO UN HORARIO INCÓMODO
+ *   Mundo Pádel juega en dos sucursales a la vez. Si los restos se juntan sin
+ *   mirar dónde, una pareja que se apuntó en Narvarte acaba citada en Alberca
+ *   Olímpica, a diez kilómetros. Eso no se negocia por WhatsApp: no se
+ *   presentan.
+ *
+ *   Así que los restos se agotan DENTRO de su sede antes de cruzar. Solo si una
+ *   sede no junta lo suficiente para un grupo entero se mezcla con otra, y ese
+ *   grupo sale marcado (`cruzaSede`) para que el organizador lo vea y llame él.
+ *
+ *   Sin sedes no cambia nada: todo cae en una sede implícita y el reparto es
+ *   el de siempre.
  */
 
 /** Clave del cubo de las parejas que no eligieron bloque. No es un id válido. */
@@ -40,6 +53,14 @@ export interface GrupoRepartido<T> {
   bloqueId: string | null;
   /** Parejas que aporta cada bloque. Con más de una entrada, el grupo es mezclado. */
   desde: Record<string, number>;
+  /**
+   * El grupo junta parejas de SEDES distintas.
+   *
+   * Siempre false en un torneo de una sola sede. Con varias es el aviso de que
+   * alguien va a tener que viajar: no se puede evitar siempre —los tamaños de
+   * grupo no son negociables aquí— pero sí se puede decir.
+   */
+  cruzaSede: boolean;
 }
 
 /**
@@ -55,6 +76,11 @@ export function repartirPorBloque<T>(
   parejas: T[],
   bloqueDe: (p: T) => string | null,
   sizes: number[],
+  /**
+   * La sede de cada bloque. Sin esto, el torneo es de una sola sede y los
+   * restos se juntan como siempre.
+   */
+  sedeDeBloque?: (bloqueId: string | null) => string | null,
 ): GrupoRepartido<T>[] {
   // 1. Cubos por bloque, conservando el orden de entrada dentro de cada uno.
   const cubos = new Map<string, T[]>();
@@ -79,39 +105,68 @@ export function repartirPorBloque<T>(
   const pendientes = [...sizes].sort((a, b) => b - a);
   const grupos: GrupoRepartido<T>[] = [];
 
+  /** La sede de una pareja, por su bloque. `null` sin sedes o sin bloque. */
+  const sedeDe = (p: T): string | null =>
+    sedeDeBloque ? sedeDeBloque(bloqueDe(p)) : null;
+
   const construir = (items: T[]): GrupoRepartido<T> => {
     const desde: Record<string, number> = {};
     for (const it of items) {
       const clave = bloqueDe(it) ?? SIN_BLOQUE;
       desde[clave] = (desde[clave] ?? 0) + 1;
     }
-    return { items, bloqueId: bloqueDeGrupo(items.map(bloqueDe)), desde };
+    return {
+      items,
+      bloqueId: bloqueDeGrupo(items.map(bloqueDe)),
+      desde,
+      cruzaSede: new Set(items.map(sedeDe)).size > 1,
+    };
   };
 
-  // 3. Grupos limpios: los que salen enteros de un solo bloque.
-  for (const clave of claves) {
-    const cubo = cubos.get(clave)!;
+  /** Consume de `cubo` los tamaños que quepan enteros. Devuelve lo que sobró. */
+  const llenar = (cubo: T[]): T[] => {
     let i = 0;
     for (;;) {
       const quedan = cubo.length - i;
-      const idx = pendientes.findIndex((s) => s <= quedan);
+      const idx = pendientes.findIndex((x) => x <= quedan);
       if (idx === -1) break;
       const size = pendientes.splice(idx, 1)[0];
       grupos.push(construir(cubo.slice(i, i + size)));
       i += size;
     }
+    return cubo.slice(i);
+  };
+
+  // 3. Grupos limpios: los que salen enteros de un solo bloque.
+  for (const clave of claves) {
     // Lo que no llenó un grupo entero se queda para la fase de restos.
-    cubos.set(clave, cubo.slice(i));
+    cubos.set(clave, llenar(cubos.get(clave)!));
   }
 
-  // 4. Restos. Suman exactamente los tamaños que quedan (por la precondición),
-  //    así que nadie se queda fuera.
-  const restos: T[] = [];
-  for (const clave of claves) restos.push(...cubos.get(clave)!);
+  // 4. Restos, PRIMERO DENTRO DE CADA SEDE. Una pareja que eligió Narvarte
+  //    prefiere otra hora en Narvarte antes que la misma hora en Alberca.
+  //    Sin sedes hay un solo cubo y esto es el reparto de siempre.
+  const porSede = new Map<string, T[]>();
+  for (const clave of claves) {
+    for (const p of cubos.get(clave)!) {
+      const sede = sedeDe(p) ?? '\u0000sin-sede';
+      const ya = porSede.get(sede);
+      if (ya) ya.push(p);
+      else porSede.set(sede, [p]);
+    }
+  }
 
+  const sobrantes: T[] = [];
+  for (const sede of [...porSede.keys()].sort()) {
+    sobrantes.push(...llenar(porSede.get(sede)!));
+  }
+
+  // 5. Lo que ninguna sede pudo cerrar sola. Suma exactamente los tamaños que
+  //    quedan (por la precondición), así que nadie se queda fuera — y estos
+  //    grupos salen marcados con `cruzaSede`.
   let j = 0;
   for (const size of pendientes) {
-    grupos.push(construir(restos.slice(j, j + size)));
+    grupos.push(construir(sobrantes.slice(j, j + size)));
     j += size;
   }
 

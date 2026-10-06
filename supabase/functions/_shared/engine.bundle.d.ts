@@ -975,6 +975,19 @@ declare function programarGrupos(entrada: EntradaSchedulerGrupos): CalendarioGru
  *
  *   NUNCA se deja una pareja sin grupo: sin grupo no juega, y ya pagó. Un
  *   horario incómodo se negocia; quedarse fuera del torneo, no.
+ *
+ * Y CON DOS SEDES, UN RESTO YA NO ES SOLO UN HORARIO INCÓMODO
+ *   Mundo Pádel juega en dos sucursales a la vez. Si los restos se juntan sin
+ *   mirar dónde, una pareja que se apuntó en Narvarte acaba citada en Alberca
+ *   Olímpica, a diez kilómetros. Eso no se negocia por WhatsApp: no se
+ *   presentan.
+ *
+ *   Así que los restos se agotan DENTRO de su sede antes de cruzar. Solo si una
+ *   sede no junta lo suficiente para un grupo entero se mezcla con otra, y ese
+ *   grupo sale marcado (`cruzaSede`) para que el organizador lo vea y llame él.
+ *
+ *   Sin sedes no cambia nada: todo cae en una sede implícita y el reparto es
+ *   el de siempre.
  */
 interface GrupoRepartido<T> {
     items: T[];
@@ -982,6 +995,14 @@ interface GrupoRepartido<T> {
     bloqueId: string | null;
     /** Parejas que aporta cada bloque. Con más de una entrada, el grupo es mezclado. */
     desde: Record<string, number>;
+    /**
+     * El grupo junta parejas de SEDES distintas.
+     *
+     * Siempre false en un torneo de una sola sede. Con varias es el aviso de que
+     * alguien va a tener que viajar: no se puede evitar siempre —los tamaños de
+     * grupo no son negociables aquí— pero sí se puede decir.
+     */
+    cruzaSede: boolean;
 }
 /**
  * Reparte `parejas` en grupos de los tamaños EXACTOS de `sizes`, agrupando por
@@ -992,7 +1013,12 @@ interface GrupoRepartido<T> {
  * asume, y es lo que garantiza que los restos encajen justo en los tamaños que
  * sobran.
  */
-declare function repartirPorBloque<T>(parejas: T[], bloqueDe: (p: T) => string | null, sizes: number[]): GrupoRepartido<T>[];
+declare function repartirPorBloque<T>(parejas: T[], bloqueDe: (p: T) => string | null, sizes: number[], 
+/**
+ * La sede de cada bloque. Sin esto, el torneo es de una sola sede y los
+ * restos se juntan como siempre.
+ */
+sedeDeBloque?: (bloqueId: string | null) => string | null): GrupoRepartido<T>[];
 /**
  * A qué bloque pertenece un grupo, a partir de lo que eligió cada pareja.
  *

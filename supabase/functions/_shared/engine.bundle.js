@@ -1718,7 +1718,7 @@ function elegirCanchas(anchura, tramo, bloqueDelGrupo, categoryId, reservado, ca
 
 // src/lib/engine/schedule/reparto.ts
 var SIN_BLOQUE = "\0sin-bloque";
-function repartirPorBloque(parejas, bloqueDe, sizes) {
+function repartirPorBloque(parejas, bloqueDe, sizes, sedeDeBloque) {
   const cubos = /* @__PURE__ */ new Map();
   for (const p of parejas) {
     const clave = bloqueDe(p) ?? SIN_BLOQUE;
@@ -1733,32 +1733,51 @@ function repartirPorBloque(parejas, bloqueDe, sizes) {
   });
   const pendientes = [...sizes].sort((a, b) => b - a);
   const grupos = [];
+  const sedeDe = (p) => sedeDeBloque ? sedeDeBloque(bloqueDe(p)) : null;
   const construir = (items) => {
     const desde = {};
     for (const it of items) {
       const clave = bloqueDe(it) ?? SIN_BLOQUE;
       desde[clave] = (desde[clave] ?? 0) + 1;
     }
-    return { items, bloqueId: bloqueDeGrupo(items.map(bloqueDe)), desde };
+    return {
+      items,
+      bloqueId: bloqueDeGrupo(items.map(bloqueDe)),
+      desde,
+      cruzaSede: new Set(items.map(sedeDe)).size > 1
+    };
   };
-  for (const clave of claves) {
-    const cubo = cubos.get(clave);
+  const llenar = (cubo) => {
     let i = 0;
     for (; ; ) {
       const quedan = cubo.length - i;
-      const idx = pendientes.findIndex((s) => s <= quedan);
+      const idx = pendientes.findIndex((x) => x <= quedan);
       if (idx === -1) break;
       const size = pendientes.splice(idx, 1)[0];
       grupos.push(construir(cubo.slice(i, i + size)));
       i += size;
     }
-    cubos.set(clave, cubo.slice(i));
+    return cubo.slice(i);
+  };
+  for (const clave of claves) {
+    cubos.set(clave, llenar(cubos.get(clave)));
   }
-  const restos = [];
-  for (const clave of claves) restos.push(...cubos.get(clave));
+  const porSede = /* @__PURE__ */ new Map();
+  for (const clave of claves) {
+    for (const p of cubos.get(clave)) {
+      const sede = sedeDe(p) ?? "\0sin-sede";
+      const ya = porSede.get(sede);
+      if (ya) ya.push(p);
+      else porSede.set(sede, [p]);
+    }
+  }
+  const sobrantes = [];
+  for (const sede of [...porSede.keys()].sort()) {
+    sobrantes.push(...llenar(porSede.get(sede)));
+  }
   let j = 0;
   for (const size of pendientes) {
-    grupos.push(construir(restos.slice(j, j + size)));
+    grupos.push(construir(sobrantes.slice(j, j + size)));
     j += size;
   }
   return grupos;

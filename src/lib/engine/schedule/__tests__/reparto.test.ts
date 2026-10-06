@@ -167,3 +167,79 @@ describe('reparto contra el reparto real de computeFormat', () => {
     expect(g.filter((x) => bloquesDe(x) > 1).length).toBe(1);
   });
 });
+
+// ───────────────────────────────────────────
+// Dos sedes: un resto ya no es solo un horario incómodo
+// ───────────────────────────────────────────
+//
+// Mundo Pádel juega en dos sucursales a la vez. Si los restos se juntan sin
+// mirar dónde, una pareja que se apuntó en Narvarte acaba citada en Alberca
+// Olímpica, a diez kilómetros. Eso no se negocia por WhatsApp: no se presentan.
+
+describe('reparto con dos sedes', () => {
+  // Bloques de la misma hora en dos sucursales — los ids que genera el motor.
+  const N1 = 'narvarte:2026-11-05-17:00';
+  const N2 = 'narvarte:2026-11-06-17:00';
+  const A1 = 'alberca:2026-11-05-17:00';
+  const A2 = 'alberca:2026-11-06-17:00';
+
+  const sedeDe = (b: string | null) => (b ? b.split(':')[0] : null);
+  const conSedes = (ps: P[], sizes: number[]) =>
+    repartirPorBloque(ps, (p) => p.bloque, sizes, sedeDe);
+
+  it('un grupo que sale entero de un bloque nunca cruza sede', () => {
+    const r = conSedes([...parejas(N1, 3, 'n'), ...parejas(A1, 3, 'a')], [3, 3]);
+    expect(r.every((g) => !g.cruzaSede)).toBe(true);
+  });
+
+  // EL CASO: 2 sueltas en Narvarte y 2 en Alberca, y quedan dos grupos de 2.
+  // Sin mirar la sede saldrían dos grupos mezclados; mirando, ninguno.
+  it('los restos se agotan DENTRO de su sede antes de cruzar', () => {
+    const ps = [
+      ...parejas(N1, 3, 'n'), ...parejas(N2, 2, 'm'),   // Narvarte: 3 + 2
+      ...parejas(A1, 3, 'a'), ...parejas(A2, 2, 'b'),   // Alberca:  3 + 2
+    ];
+    const r = conSedes(ps, [3, 3, 2, 2]);
+    expect(r).toHaveLength(4);
+    expect(r.every((g) => !g.cruzaSede)).toBe(true);
+  });
+
+  // No siempre se puede evitar: los tamaños no son negociables aquí. Lo que sí
+  // se puede es decirlo, para que el organizador llame él.
+  it('cuando no hay más remedio cruza, y lo marca', () => {
+    const ps = [...parejas(N1, 1, 'n'), ...parejas(A1, 2, 'a')];
+    const r = conSedes(ps, [3]);
+    expect(r).toHaveLength(1);
+    expect(r[0].cruzaSede).toBe(true);
+  });
+
+  it('nadie se queda sin grupo por respetar la sede', () => {
+    const ps = [
+      ...parejas(N1, 4, 'n'), ...parejas(N2, 1, 'm'),
+      ...parejas(A1, 4, 'a'), ...parejas(A2, 1, 'b'),
+    ];
+    const r = conSedes(ps, [4, 4, 2]);
+    expect(r.flatMap((g) => g.items)).toHaveLength(10);
+    // El de 2 junta las dos sueltas, una de cada sede: no había otra forma.
+    expect(r.filter((g) => g.cruzaSede)).toHaveLength(1);
+  });
+
+  // La no-regresión que importa: un torneo de una sola sede reparte igual que
+  // siempre, y nunca dice que algo cruza.
+  it('SIN sedes el reparto no cambia y nada cruza', () => {
+    const ps = [...parejas(V, 4, 'x'), ...parejas(S, 2, 'y')];
+    const conSede = repartirPorBloque(ps, (p) => p.bloque, [3, 3]);
+    const sinSede = reparte(ps, [3, 3]);
+    expect(conSede.map((g) => g.items.map((i) => i.id)))
+      .toEqual(sinSede.map((g) => g.items.map((i) => i.id)));
+    expect(conSede.every((g) => !g.cruzaSede)).toBe(true);
+  });
+
+  it('las parejas sin bloque no arrastran a nadie de sede', () => {
+    const ps = [...parejas(N1, 3, 'n'), ...parejas(null, 3, 's')];
+    const r = conSedes(ps, [3, 3]);
+    expect(r).toHaveLength(2);
+    // Las de Narvarte van juntas; las que no eligieron, aparte.
+    expect(r.some((g) => g.items.every((i) => i.id.startsWith('n')))).toBe(true);
+  });
+});
