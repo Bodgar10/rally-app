@@ -79,3 +79,47 @@ export function resumenDeEtapas(
     + `cuadro a ${textoDeFormatoDeEtapa(cuadro).toLocaleLowerCase('es-MX')} · `
     + `final a ${textoDeFormatoDeEtapa(final).toLocaleLowerCase('es-MX')}`;
 }
+
+/**
+ * Cuánto se planifica un partido de ese formato.
+ *
+ * ► LOS MINUTOS DEPENDEN DEL FORMATO, Y LA APP NO LO SABÍA
+ *   Un set se juega en media hora; dos de tres, en una. Son dos campos
+ *   independientes —`match_minutes` y el formato de la etapa— así que nada
+ *   impedía elegir "un set" y dejar 60 minutos. El planificador reservaría el
+ *   doble de cancha por partido y diría que el torneo no cabe cuando cabe de
+ *   sobra.
+ *
+ *   Es un dato del deporte, no una preferencia: "cuando es un solo set son 30
+ *   minutos" — las palabras del organizador.
+ *
+ * ► SE SUGIERE, NO SE IMPONE
+ *   Un club con canchas lentas o con cambio de pelotas entre partidos puede
+ *   querer 35, y eso lo sabe él y no la app. Lo que no puede pasar es que la
+ *   diferencia esté ahí sin que nadie la vea.
+ */
+export function minutosSugeridos(f: FormatoDeEtapa): number {
+  return f === 'set_oro' || f === 'set_star_point' ? 30 : 60;
+}
+
+/**
+ * El aviso cuando la duración capturada no cuadra con el formato elegido.
+ *
+ * `null` cuando cuadra, para que la pantalla no tenga que comprobarlo otra vez.
+ * Manda la FASE DE GRUPOS: es donde están casi todos los partidos de un
+ * torneo, y es la que llena el calendario.
+ */
+export function avisoDeDuracion(
+  grupos: FormatoDeEtapa,
+  minutos: number | null | undefined,
+): string | null {
+  if (minutos == null) return null;
+  const toca = minutosSugeridos(grupos);
+  if (minutos === toca) return null;
+
+  return minutos > toca
+    ? `Los partidos están capturados a ${minutos} min y a este formato se juegan en ${toca}. `
+      + 'Con la duración de más el calendario reserva cancha que no se usa y puede decir que no cabe.'
+    : `Los partidos están capturados a ${minutos} min y a este formato suelen durar ${toca}. `
+      + 'Si se alargan, el día entero se va retrasando.';
+}

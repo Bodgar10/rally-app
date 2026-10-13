@@ -42,7 +42,9 @@ import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { cumplirPaso } from '@/lib/guia-store';
-import { OPCIONES_DE_ETAPA, resumenDeEtapas, type FormatoDeEtapa } from '@/lib/formato-de-etapa';
+import {
+  OPCIONES_DE_ETAPA, resumenDeEtapas, avisoDeDuracion, type FormatoDeEtapa,
+} from '@/lib/formato-de-etapa';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -70,6 +72,8 @@ export default function FormatoScreen() {
    * Las tres juntas en un estado porque se guardan juntas y se resumen juntas
    * — ver `resumenDeEtapas`.
    */
+  /** `match_minutes`. Solo para avisar si no cuadra con el formato elegido. */
+  const [minutos, setMinutos] = useState<number | null>(null);
   const [etapas, setEtapas] = useState<{
     grupos: FormatoDeEtapa; cuadro: FormatoDeEtapa; final: FormatoDeEtapa;
   }>({ grupos: null, cuadro: null, final: null });
@@ -134,6 +138,7 @@ export default function FormatoScreen() {
       setTerceroGuardado(fila.tercer_lugar === true);
       // Un torneo creado antes de la 063 no tiene el dato: súper muerte a 10,
       // que es como se venía jugando.
+      setMinutos(fila.match_minutes ?? null);
       setEtapas({
         grupos: fila.formato_grupos ?? null,
         cuadro: fila.formato_cuadro ?? null,
@@ -337,6 +342,14 @@ export default function FormatoScreen() {
 
         <View style={s.nota}>
           <Text style={s.notaTexto}>{resumenDeEtapas(etapas.grupos, etapas.cuadro, etapas.final)}</Text>
+          {/* LOS MINUTOS DEPENDEN DEL FORMATO, y son dos campos distintos: nada
+              impedía elegir "un set" y dejar 60 minutos. El planificador
+              reservaría el doble de cancha y diría que el torneo no cabe
+              cuando cabe de sobra. Se avisa, no se cambia: un club con cambio
+              de pelotas entre partidos puede querer 35, y eso lo sabe él. */}
+          {avisoDeDuracion(etapas.grupos, minutos) && (
+            <Text style={s.notaApagado}>{avisoDeDuracion(etapas.grupos, minutos)}</Text>
+          )}
         </View>
 
         {([

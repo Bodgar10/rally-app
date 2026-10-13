@@ -6,6 +6,7 @@
 
 import {
   OPCIONES_DE_ETAPA, textoDeFormatoDeEtapa, resumenDeEtapas,
+  minutosSugeridos, avisoDeDuracion,
 } from '@/lib/formato-de-etapa';
 
 describe('las opciones que se ofrecen', () => {
@@ -50,5 +51,49 @@ describe('el resumen de las tres etapas', () => {
     expect(r).toContain('Grupos a un set');
     expect(r).toContain('cuadro a dos de tres');
     expect(r).toContain('final a mejor de 3 sets');
+  });
+});
+
+// ───────────────────────────────────────────
+// Los minutos dependen del formato
+// ───────────────────────────────────────────
+//
+// "Normalmente cuando es un solo set son 30 minutos" — el organizador. Son dos
+// campos independientes, así que nada impedía elegir un set y dejar 60: el
+// planificador reservaría el doble de cancha y diría que no cabe.
+
+describe('cuánto dura un partido según cómo se juegue', () => {
+  it('un set, media hora', () => {
+    expect(minutosSugeridos('set_oro')).toBe(30);
+    expect(minutosSugeridos('set_star_point')).toBe(30);
+  });
+
+  it('dos de tres, una hora', () => {
+    expect(minutosSugeridos(null)).toBe(60);
+    expect(minutosSugeridos('dos_sets_oro')).toBe(60);
+  });
+});
+
+describe('el aviso de la duración', () => {
+  it('callado cuando cuadra', () => {
+    expect(avisoDeDuracion('set_oro', 30)).toBeNull();
+    expect(avisoDeDuracion(null, 60)).toBeNull();
+  });
+
+  // El caso que de verdad duele: reserva el doble de cancha y dice que no cabe
+  // un torneo que cabe de sobra.
+  it('con la duración de más dice lo que cuesta', () => {
+    const a = avisoDeDuracion('set_oro', 60);
+    expect(a).toContain('60');
+    expect(a).toContain('30');
+    expect(a).toMatch(/no cabe/i);
+  });
+
+  it('con la de menos avisa del retraso', () => {
+    expect(avisoDeDuracion(null, 30)).toMatch(/retrasando/i);
+  });
+
+  it('sin duración capturada no se inventa un aviso', () => {
+    expect(avisoDeDuracion('set_oro', null)).toBeNull();
   });
 });
