@@ -2107,4 +2107,135 @@ declare function setsDeEntrada(cfg: ScoreConfig): number;
  */
 declare function scoreConfigDelPartido(formato: string | null | undefined, base: ScoreConfig): ScoreConfig;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CanchaDeTorneo, type CapturaExpres, type CategoriaCuadro, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, FACTOR_RETRASO, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoConGanador, type FormatoDeSet, type FormatoPartido, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoExpres, type GrupoId, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type NombresDeSede, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SedeConCanchas, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, idDeBloque, nombreDeCancha, partesDeIdDeBloque, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+/**
+ * EL DÍA EN CASCADA: cada categoría juega sus grupos y enseguida su cuadro.
+ *
+ * ► EL PROBLEMA, MEDIDO
+ *   Padel Hype: 4 canchas, 32 parejas, un solo día. Los 48 partidos de grupos
+ *   llenaban exactamente las doce medias horas de 12:00 a 18:00 y los TRES
+ *   cuadros se amontonaban detrás. 5ª Mixto acababa sus grupos a las 15:00 y
+ *   jugaba cuartos a las 18:08: tres horas de nada para doce parejas.
+ *
+ * ► LAS TRES FORMAS, SIMULADAS CON ESE TORNEO
+ *   El mismo trabajo —48 partidos de grupos y 17 de cuadro— ordenado de tres
+ *   maneras. Lo único que cambia es a quién le toca esperar:
+ *
+ *     orden                              peor espera   esperas >1 h   en el club
+ *     ──────────────────────────────────────────────────────────────────────────
+ *     como estaba                           180 min       13 de 98       3,0 h
+ *     RONDA A RONDA (las tres a la vez)      90 min       73 de 98       5,9 h
+ *     CASCADA (categoría por categoría)      60 min        0 de 98       2,8 h
+ *
+ *   Ronda a ronda parece lo justo —todos juegan a la vez— y es lo peor de los
+ *   tres: con 4 canchas y 8 grupos solo caben DOS grupos por turno, así que la
+ *   vuelta completa son cuatro turnos y cada pareja juega cada dos horas. Y
+ *   las que no clasifican se van a casa a las ocho en vez de a las tres.
+ *
+ *   La cascada cuesta media hora de cierre —21:00 en vez de 20:30, que es el
+ *   mínimo teórico con 65 partidos y 4 canchas—. A cambio nadie espera más de
+ *   una hora y cada categoría pasa por el club menos de tres.
+ *
+ * ► POR QUÉ NO SE PUDO HACER CON BLOQUES
+ *   El carril de un bloque se reserva ENTERO: un cuadro que ocupa 4 canchas el
+ *   primer turno, 2 el segundo y 1 el tercero se come un bloque de hora y
+ *   media y deja cinco canchas-turno muertas. Tres categorías así alargan el
+ *   día tres horas, que es más de lo que ahorran. El reparto en cascada tiene
+ *   que ser turno a turno.
+ *
+ * ► ESTE MOTOR COLOCA LOS GRUPOS; EL CUADRO LO SIGUE PONIENDO EL SUYO
+ *   `programarEliminatorias` ya sabe meter cada cuadro en las canchas que la
+ *   fase de grupos deja libres (`ocupadas` + `noAntesDe`). Aquí solo se
+ *   RESERVAN los turnos que va a necesitar, para que la categoría siguiente no
+ *   se los coma: sin esa reserva, los grupos se apilan al principio del día
+ *   porque es donde caben, y el cuadro se vuelve a ir al final.
+ *
+ *   Así un partido movido a mano no descuadra nada: el cuadro se programa
+ *   contra lo que de verdad hay escrito, no contra esta simulación.
+ *
+ * ► SOLO EN TORNEOS DE UN DÍA
+ *   En uno de varios, el bloque que eligió la pareja es la única promesa que
+ *   se le hizo y vale más que cualquier optimización. Ahí no se toca nada.
+ *
+ * Módulo puro y determinista: misma entrada, mismo día.
+ */
+/** Un partido de grupo tal como lo emitió `generateRoundRobin`. */
+interface PartidoEnCascada {
+    matchId: string;
+    pairAId: string;
+    pairBId: string;
+    /** 1-based. Dentro de una ronda ninguna pareja se repite. */
+    ronda: number;
+}
+interface GrupoEnCascada {
+    id: string;
+    /** 'A', 'B', … Solo para ordenar de forma estable. */
+    nombre: string;
+    partidos: PartidoEnCascada[];
+}
+interface CategoriaEnCascada {
+    id: string;
+    grupos: GrupoEnCascada[];
+    /** Tamaño del cuadro. De aquí salen los turnos que hay que reservarle. */
+    clasificados: number;
+}
+interface EntradaCascada {
+    canchas: number;
+    /** 'HH:MM'. La ventana del día. */
+    desde: string;
+    hasta: string;
+    minutosPorPartido: number;
+    categorias: CategoriaEnCascada[];
+}
+interface PartidoColocado {
+    matchId: string;
+    groupId: string;
+    categoryId: string;
+    inicio: string;
+    inicioMin: number;
+    /** 1..canchas. */
+    cancha: number;
+}
+/** Lo que el día le reserva al cuadro de una categoría. */
+interface HuecoDeCuadro {
+    categoryId: string;
+    desdeMin: number;
+    hastaMin: number;
+    turnos: number;
+}
+interface PlanCascada {
+    partidos: PartidoColocado[];
+    /** Partidos de grupo que no cupieron en la ventana. */
+    sinColocar: string[];
+    /** Las categorías en el orden en que entran al club. */
+    orden: string[];
+    huecos: HuecoDeCuadro[];
+    /** Minuto en que acaba el último partido —de grupo o de cuadro— del día. */
+    finMin: number | null;
+    avisos: string[];
+}
+/**
+ * Turnos que necesita el cuadro de una categoría.
+ *
+ * Una ronda de 4 partidos en 4 canchas es UN turno; en 2 canchas, dos. Las
+ * rondas se suman porque van encadenadas: la semifinal no empieza hasta que
+ * acaban los cuartos.
+ */
+declare function turnosDeCuadro(clasificados: number, canchas: number): number;
+/**
+ * El día entero, categoría por categoría.
+ *
+ * ► EL ORDEN: LA CATEGORÍA MÁS GRANDE PRIMERO
+ *   Es la que más canchas simultáneas necesita, así que entra cuando el club
+ *   está vacío. Dejarla para el final la obliga a repartirse en más turnos, y
+ *   es justo la que más gente mueve. Se desempata por id para que el mismo
+ *   torneo dé siempre el mismo día.
+ *
+ * ► LA CATEGORÍA SIGUIENTE EMPIEZA EN CUANTO SOBRA UNA CANCHA
+ *   No espera a que la anterior termine. Mientras 5ª Mixto juega su final en
+ *   una cancha, las otras tres ya son de 6ª: así la cascada cuesta media hora
+ *   y no tres. Lo que NO puede hacer es meterse en los turnos reservados al
+ *   cuadro de la anterior.
+ */
+declare function planearDiaEnCascada(entrada: EntradaCascada): PlanCascada;
+
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CanchaDeTorneo, type CapturaExpres, type CategoriaCuadro, type CategoriaEnCascada, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaCascada, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, FACTOR_RETRASO, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoConGanador, type FormatoDeSet, type FormatoPartido, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoEnCascada, type GrupoExpres, type GrupoId, type HuecoDeCuadro, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type NombresDeSede, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoColocado, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoEnCascada, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanCascada, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SedeConCanchas, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, idDeBloque, nombreDeCancha, partesDeIdDeBloque, partidosPendientes, planAvance, planearDiaEnCascada, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, turnosDeCuadro, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };

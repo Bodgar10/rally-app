@@ -147,3 +147,12 @@ export type { ResultadoSuma6, TablaExpres, FilaTablaExpres, EmpateExpres, Criter
 export type { ClinchExpresResult, EstadoClinchExpres } from './expres/clinch';
 export type { CapturaExpres, FilaStandingExpres, EntradaCapturaExpres } from './expres/captura';
 export type { PlanExpres, FranjaPlanificada, MinutosPorEtapa, VentanaExpres, ZonaExpres } from './expres/plan';
+
+// El dia en cascada: en un torneo de un solo dia cada categoria juega sus
+// grupos y enseguida su cuadro. `schedule-groups` lo usa en vez del reparto
+// por bloques, que ahi no promete nada porque no habia horario que elegir.
+export { planearDiaEnCascada, turnosDeCuadro } from './schedule/cascada';
+export type {
+  EntradaCascada, PlanCascada, CategoriaEnCascada, GrupoEnCascada,
+  PartidoEnCascada, PartidoColocado, HuecoDeCuadro,
+} from './schedule/cascada';

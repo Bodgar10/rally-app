@@ -723,3 +723,18 @@ describe('cuadro encajado entre los grupos', () => {
     expect(b.partidos).toEqual(a.partidos);
   });
 });
+
+it('una ronda partida en dos tandas no deja empezar la siguiente hasta que acaba', () => {
+  // Dos canchas y una categoría de 8: los cuartos (4 partidos) van en dos
+  // tandas. Las semis no pueden empezar con media llave sin jugar.
+  const r = correrCalendario({
+    canchas: 2, desde: '09:00', hasta: '20:00', minutosPorPartido: 60,
+    categorias: [{ id: 'A', clasificados: 8 }], tercerLugar: false,
+  });
+  const fin = (etapa: string) => Math.max(...r.partidos.filter((p) => p.etapa === etapa).map((p) => p.inicioMin));
+  const ini = (etapa: string) => Math.min(...r.partidos.filter((p) => p.etapa === etapa).map((p) => p.inicioMin));
+  expect(ini('semi')).toBeGreaterThan(fin('quarter'));
+  expect(ini('final')).toBeGreaterThan(fin('semi'));
+  // Y ningún aviso habla de descansos negativos.
+  expect(r.avisos.join(' ')).not.toContain('-');
+});

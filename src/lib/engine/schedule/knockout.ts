@@ -423,7 +423,14 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
     const t = tareas.find(
       (x) => x.categoryId === categoryId && x.ronda === ronda && !x.tercerLugar,
     );
-    return t ? t.finMin : null;
+    // UNA RONDA A MEDIO COLOCAR NO HA TERMINADO.
+    //
+    //   `finMin` se actualiza con cada tanda, así que una ronda partida en dos
+    //   decía haber acabado en cuanto se colocaba la primera. La siguiente se
+    //   colaba en el mismo turno que la segunda tanda y el aviso salía con un
+    //   descanso NEGATIVO: la final antes que su semifinal.
+    if (!t || t.restantes > 0) return null;
+    return t.finMin;
   };
 
   const pendientes = () => tareas.filter((t) => t.restantes > 0);

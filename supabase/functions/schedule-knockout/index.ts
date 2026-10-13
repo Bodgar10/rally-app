@@ -22,7 +22,6 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   programarEliminatorias,
   canchasDeSede,
-  FACTOR_RETRASO,
   type CategoriaCuadro,
   type Calendario,
 } from '../_shared/engine.bundle.js';
@@ -176,8 +175,26 @@ Deno.serve(async (req) => {
      *   grupo todavía está en pista es el mismo error con menos minutos.
      */
     const minutosPartido = (torneo.match_minutes as number) ?? 60;
-    /** Lo que de verdad ocupa una cancha un partido planificado a `minutos`. */
-    const minutosReales = Math.round(minutosPartido * FACTOR_RETRASO);
+
+    /**
+     * LO QUE OCUPA UN PARTIDO DE GRUPOS EN LA RETÍCULA: su duración nominal.
+     *
+     * ► EL COJÍN DE RETRASO NO VA AQUÍ
+     *   Antes se le sumaba `FACTOR_RETRASO` —30 min planificados son 38 de
+     *   verdad— para no arrancar el cuadro con el último grupo todavía en
+     *   pista. Con el cuadro DETRÁS de todo eso era razonable. Metiéndolo
+     *   ENTRE los grupos es destructivo: la retícula del cuadro arrancaba a
+     *   las 14:38 y la de los grupos iba a las 14:30, 15:00, 15:30… Ocho
+     *   minutos de desfase bastan para que cada partido de cuadro pise el
+     *   turno de grupos siguiente y no encuentre cancha en toda la tarde.
+     *   Medido: las semifinales de 5ª se iban de las 15:08 a las 18:08.
+     *
+     *   La fase de grupos se planifica a la duración nominal, uno detrás de
+     *   otro. El cuadro del mismo día tiene que leer el mismo reloj. El
+     *   retraso real se dice aparte, en `finRealista`, que es donde el
+     *   organizador lo necesita.
+     */
+    const minutosReales = minutosPartido;
 
     /** 'HH:MM' del club, no del servidor (que corre en UTC). */
     const horaEnClub = (iso: string): string =>
@@ -243,9 +260,17 @@ Deno.serve(async (req) => {
     const primerFin = finDeSusGrupos.size > 0
       ? Math.min(...finDeSusGrupos.values())
       : null;
+    /**
+     * Alineado a la retícula del día. Si los grupos van a y media, el cuadro
+     * también: una retícula desplazada no encuentra nunca una cancha entera
+     * libre porque siempre pisa el turno siguiente.
+     */
+    const alineado = (min: number): number =>
+      aperturaMin + Math.ceil(Math.max(0, min - aperturaMin) / minutosPartido) * minutosPartido;
+
     const desdeCuadro = primerFin === null
       ? aHHMM(ventana.desde)
-      : deMinutos(Math.max(aperturaMin, primerFin));
+      : deMinutos(alineado(Math.max(aperturaMin, primerFin)));
 
     if (dias.length === 1 && finDeSusGrupos.size === 0) {
       // Grupos sin programar todavía. No se adivina: el cuadro arranca en la
@@ -388,7 +413,7 @@ Deno.serve(async (req) => {
     }
 
     const noAntesDe: Record<string, number> = {};
-    for (const [catId, fin] of finDeSusGrupos) noAntesDe[catId] = fin;
+    for (const [catId, fin] of finDeSusGrupos) noAntesDe[catId] = alineado(fin);
 
     let plan: Calendario;
     try {

@@ -1116,7 +1116,8 @@ function correrCalendario(entrada) {
     const t = tareas.find(
       (x) => x.categoryId === categoryId && x.ronda === ronda && !x.tercerLugar
     );
-    return t ? t.finMin : null;
+    if (!t || t.restantes > 0) return null;
+    return t.finMin;
   };
   const pendientes = () => tareas.filter((t) => t.restantes > 0);
   const oleadasForzosas = /* @__PURE__ */ new Set();
@@ -1541,11 +1542,11 @@ function bloquesDisponibles(bloques, ocupacion, categoriaId, opciones = {}) {
 // src/lib/engine/schedule/grupos.ts
 function huellaDeGrupo(partidos) {
   const rondas = [...new Set(partidos.map((p) => p.ronda))].sort((a, b) => a - b);
-  const porRonda = rondas.map((r) => partidos.filter((p) => p.ronda === r));
+  const porRonda2 = rondas.map((r) => partidos.filter((p) => p.ronda === r));
   return {
     rondas: rondas.length,
-    anchura: porRonda.reduce((a, r) => Math.max(a, r.length), 0),
-    porRonda
+    anchura: porRonda2.reduce((a, r) => Math.max(a, r.length), 0),
+    porRonda: porRonda2
   };
 }
 function turnosDeBloque(bloque, minutosPorPartido) {
@@ -3194,4 +3195,118 @@ function scoreConfigDelPartido(formato, base) {
   return scoreConfigDeFormato(formato, base);
 }
 
-export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, FACTOR_RETRASO, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, idDeBloque, nombreDeCancha, partesDeIdDeBloque, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+// src/lib/engine/schedule/cascada.ts
+function turnosDeCuadro(clasificados, canchas) {
+  return partidosPorRonda(clasificados).reduce((a, n) => a + Math.ceil(n / Math.max(1, canchas)), 0);
+}
+function porRonda(partidos) {
+  const rondas = [...new Set(partidos.map((p) => p.ronda))].sort((a, b) => a - b);
+  return rondas.map((r) => partidos.filter((p) => p.ronda === r));
+}
+function planearDiaEnCascada(entrada) {
+  const { canchas, minutosPorPartido: dur } = entrada;
+  const inicio = parseHora(entrada.desde);
+  const techo = parseHora(entrada.hasta);
+  const avisos = [];
+  if (canchas < 1) throw new Error("Se necesita al menos una cancha");
+  if (techo <= inicio) throw new Error("La ventana termina antes de empezar");
+  if (dur < 15 || dur > 120) throw new Error("minutosPorPartido fuera de rango");
+  const orden = [...entrada.categorias].sort((a, b) => b.grupos.length - a.grupos.length || a.id.localeCompare(b.id)).map((c) => c.id);
+  const puesto = new Map(orden.map((id, i) => [id, i]));
+  const tareas = [];
+  for (const cat of entrada.categorias) {
+    const grupos = [...cat.grupos].sort((a, b) => a.nombre.localeCompare(b.nombre) || a.id.localeCompare(b.id));
+    grupos.forEach((g2, gi) => {
+      porRonda(g2.partidos).forEach((ronda, ri) => {
+        for (const p of ronda) {
+          tareas.push({
+            partido: p,
+            groupId: g2.id,
+            categoryId: cat.id,
+            // La ronda manda sobre el grupo: dentro de una categoría conviene
+            // que los grupos avancen a la par, no uno entero y luego otro.
+            peso: ri * 100 + gi,
+            rondaDelGrupo: ri,
+            colocadoEn: null
+          });
+        }
+      });
+    });
+  }
+  const partidos = [];
+  const huecos = [];
+  const reservados = /* @__PURE__ */ new Map();
+  const ocupadaEn = /* @__PURE__ */ new Map();
+  const finDeGrupos = /* @__PURE__ */ new Map();
+  const pendientes = () => tareas.filter((t) => t.colocadoEn === null);
+  const reservarLosQueTerminaron = () => {
+    for (const cat of entrada.categorias) {
+      if (finDeGrupos.has(cat.id)) continue;
+      const suyas = tareas.filter((x) => x.categoryId === cat.id);
+      if (suyas.length === 0 || suyas.some((x) => x.colocadoEn === null)) continue;
+      const fin = Math.max(...suyas.map((x) => x.colocadoEn)) + dur;
+      finDeGrupos.set(cat.id, fin);
+      let turno = 0;
+      for (const n of partidosPorRonda(cat.clasificados)) {
+        let quedan = n;
+        while (quedan > 0) {
+          const pide = Math.min(quedan, canchas);
+          const t0 = fin + turno * dur;
+          reservados.set(t0, Math.min(canchas, (reservados.get(t0) ?? 0) + pide));
+          quedan -= pide;
+          turno++;
+        }
+      }
+      const turnos = turno;
+      huecos.push({ categoryId: cat.id, desdeMin: fin, hastaMin: fin + turnos * dur, turnos });
+    }
+  };
+  for (let t = inicio; t < techo && pendientes().length > 0; t += dur) {
+    reservarLosQueTerminaron();
+    let libres = canchas - (reservados.get(t) ?? 0);
+    const jugando = /* @__PURE__ */ new Set();
+    const listas = pendientes().filter((x) => {
+      return !tareas.some((y) => y.groupId === x.groupId && y.rondaDelGrupo < x.rondaDelGrupo && (y.colocadoEn === null || y.colocadoEn >= t));
+    }).sort((a, b) => puesto.get(a.categoryId) - puesto.get(b.categoryId) || a.peso - b.peso || a.partido.matchId.localeCompare(b.partido.matchId));
+    for (const x of listas) {
+      if (libres === 0) break;
+      const { pairAId, pairBId } = x.partido;
+      if (jugando.has(pairAId) || jugando.has(pairBId)) continue;
+      if (t + dur > techo) break;
+      x.colocadoEn = t;
+      jugando.add(pairAId);
+      jugando.add(pairBId);
+      ocupadaEn.set(pairAId, t);
+      ocupadaEn.set(pairBId, t);
+      partidos.push({
+        matchId: x.partido.matchId,
+        groupId: x.groupId,
+        categoryId: x.categoryId,
+        inicio: formatHora(t),
+        inicioMin: t,
+        // Las canchas del cuadro se cuentan desde la 1: los grupos se ponen
+        // en las de arriba para no partirle la fila a nadie.
+        cancha: canchas - libres + 1
+      });
+      libres--;
+    }
+  }
+  reservarLosQueTerminaron();
+  const sinColocar = pendientes().map((x) => x.partido.matchId);
+  if (sinColocar.length > 0) {
+    avisos.push(
+      `${sinColocar.length} partido${sinColocar.length === 1 ? "" : "s"} de grupos no cabe${sinColocar.length === 1 ? "" : "n"} en el d\xEDa: con las categor\xEDas jugando una detr\xE1s de otra hacen falta m\xE1s horas o m\xE1s canchas.`
+    );
+  }
+  const finGrupos = partidos.length > 0 ? Math.max(...partidos.map((p) => p.inicioMin)) + dur : null;
+  const finCuadros = huecos.length > 0 ? Math.max(...huecos.map((h) => h.hastaMin)) : null;
+  const finMin = finGrupos === null ? finCuadros : finCuadros === null ? finGrupos : Math.max(finGrupos, finCuadros);
+  if (finMin !== null && finMin > techo) {
+    avisos.push(
+      `El d\xEDa se sale de la ventana: termina a las ${formatHora(finMin)} y el club cierra a las ${entrada.hasta}.`
+    );
+  }
+  return { partidos, sinColocar, orden, huecos, finMin, avisos };
+}
+
+export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, FACTOR_RETRASO, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, idDeBloque, nombreDeCancha, partesDeIdDeBloque, partidosPendientes, planAvance, planearDiaEnCascada, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, turnosDeCuadro, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };

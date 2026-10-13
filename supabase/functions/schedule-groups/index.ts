@@ -30,6 +30,7 @@ import {
   sedesDelTorneo,
   nombreDeCancha,
   partesDeIdDeBloque,
+  planearDiaEnCascada,
   type Bloque,
   type GrupoAProgramar,
   type CalendarioGrupos,
@@ -257,10 +258,26 @@ Deno.serve(async (req) => {
     // ─────────────────── 4. Grupos, partidos y elecciones ───────────────────
     const { data: cats } = await admin
       .from('categories')
-      .select('id, display_name')
+      .select('id, display_name, num_groups, advance_per_group, best_extra_qualifiers')
       .eq('tournament_id', tournamentId);
     const idsCat = (cats ?? []).map((c) => c.id);
     const nombrePorCat = new Map((cats ?? []).map((c) => [c.id, c.display_name]));
+
+    /**
+     * Cuántas parejas pasan al cuadro de cada categoría.
+     *
+     * Hace falta AQUÍ, en el planificador de grupos, porque el día en cascada
+     * le reserva al cuadro los turnos que va a necesitar. Sin esa reserva la
+     * categoría siguiente se los come y el cuadro vuelve al final del día.
+     */
+    const clasificadosPorCat = new Map<string, number>();
+    for (const c of (cats ?? []) as Array<{
+      id: string; num_groups: number | null; advance_per_group: number | null;
+      best_extra_qualifiers: number | null;
+    }>) {
+      if (c.num_groups == null || c.advance_per_group == null || c.best_extra_qualifiers == null) continue;
+      clasificadosPorCat.set(c.id, c.num_groups * c.advance_per_group + c.best_extra_qualifiers);
+    }
 
     if (idsCat.length === 0) {
       return json({ error: 'sin_categorias', message: 'El torneo no tiene categorías.' }, 400);
@@ -343,18 +360,77 @@ Deno.serve(async (req) => {
     }
 
     // ─────────────────── 6. El motor decide ───────────────────
-    let plan: CalendarioGrupos;
-    try {
-      plan = programarGrupos({
-        bloques,
-        minutosPorPartido: torneo.match_minutes as number,
-        grupos: entrada,
-        jugadoresPorCategoria,
-      });
-    } catch (e) {
-      return json({ error: 'entrada_invalida', message: String((e as Error).message ?? e) }, 400);
+    //
+    // ► DOS DÍAS DISTINTOS, DOS MOTORES
+    //   En un torneo de VARIOS días, la pareja eligió su bloque al inscribirse
+    //   y esa es la única promesa que se le hizo: manda `programarGrupos`, que
+    //   coloca cada grupo dentro del bloque que eligió y no lo mueve.
+    //
+    //   En uno de UN SOLO día no hay horario que elegir —todo el mundo está
+    //   en el club desde que abre— y el reparto por bloques amontona los
+    //   grupos al principio porque es donde caben: en Padel Hype eso dejaba a
+    //   5ª Mixto con los grupos terminados a las 15:00 y los cuartos a las
+    //   18:08. Ahí manda la cascada: cada categoría juega sus grupos y
+    //   enseguida su cuadro.
+    //
+    // ► Y SOLO CON UNA SEDE
+    //   Con dos sucursales el bloque también dice DÓNDE se juega, no solo
+    //   cuándo. Eso sigue siendo una promesa aunque el torneo dure un día.
+    const unSoloDia = (ventanas as FilaVentana[]).length === 1;
+    const unaSolaSede = !sedes || sedes.length <= 1;
+    const enCascada = unSoloDia && unaSolaSede;
+
+    /** Lo que se escribe, venga del motor que venga. */
+    interface Colocado { matchId: string; inicio: string; cancha: number; bloqueId: string | null }
+    let colocados: Colocado[];
+    let plan: CalendarioGrupos | null = null;
+    let cascada: ReturnType<typeof planearDiaEnCascada> | null = null;
+
+    if (enCascada) {
+      const dia = (ventanas as FilaVentana[])[0];
+      try {
+        cascada = planearDiaEnCascada({
+          canchas: canchas.length > 0 ? canchas.length : (torneo.courts as number),
+          desde: aHHMM(dia.desde),
+          hasta: aHHMM(dia.hasta),
+          minutosPorPartido: torneo.match_minutes as number,
+          categorias: idsCat
+            .map((id) => ({
+              id,
+              clasificados: clasificadosPorCat.get(id) ?? 0,
+              grupos: entrada.filter((g) => g.categoryId === id)
+                .map((g) => ({ id: g.id, nombre: g.nombre, partidos: g.partidos })),
+            }))
+            .filter((c) => c.grupos.length > 0),
+        });
+      } catch (e) {
+        return json({ error: 'entrada_invalida', message: String((e as Error).message ?? e) }, 400);
+      }
+      avisos.push(...cascada.avisos);
+      avisos.push(
+        'Torneo de un día: cada categoría juega sus grupos y enseguida su cuadro, una detrás de ' +
+        `otra (${cascada.orden.map((id) => nombrePorCat.get(id) ?? id).join(' → ')}). ` +
+        'Así nadie espera horas entre partido y partido.',
+      );
+      colocados = cascada.partidos.map((p) => ({
+        matchId: p.matchId, inicio: `${dia.dia}T${p.inicio}`, cancha: p.cancha, bloqueId: null,
+      }));
+    } else {
+      try {
+        plan = programarGrupos({
+          bloques,
+          minutosPorPartido: torneo.match_minutes as number,
+          grupos: entrada,
+          jugadoresPorCategoria,
+        });
+      } catch (e) {
+        return json({ error: 'entrada_invalida', message: String((e as Error).message ?? e) }, 400);
+      }
+      avisos.push(...plan.avisos);
+      colocados = plan.partidos.map((p) => ({
+        matchId: p.matchId, inicio: p.inicio, cancha: p.cancha, bloqueId: p.bloqueId,
+      }));
     }
-    avisos.push(...plan.avisos);
 
     // ─────────────────── 7. Escribir ───────────────────
     // Un partido ya jugado conserva su hora: es un hecho, no un plan. Se cuenta
@@ -374,13 +450,28 @@ Deno.serve(async (req) => {
     // Se le escribe su franja igual: es la que le tocaba, y el orden de las
     // dos acciones del organizador —capturar y programar— no debería cambiar
     // lo que ve después.
+    /**
+     * La hora que se escribe. En cascada el motor da 'YYYY-MM-DDTHH:MM' porque
+     * el día es uno solo; `programarGrupos` ya lo da así también.
+     */
+    const horaDe = (p: Colocado) => aTimestamptz(p.inicio);
+
+    /**
+     * El nombre de la cancha. Con bloque sale de la sede de ese bloque; sin él
+     * —la cascada, que no usa bloques— del orden de las canchas del torneo,
+     * que es el mismo que ve el organizador en su pantalla.
+     */
+    const etiquetaDe = (p: Colocado) => p.bloqueId !== null
+      ? etiqueta(p.bloqueId, p.cancha)
+      : (canchas[p.cancha - 1]?.nombre ?? `Cancha ${p.cancha}`);
+
     const jugados = new Set(
       ((partidos ?? []) as FilaPartido[])
         .filter((m) => m.status === 'finished' && m.scheduled_at)
         .map((m) => m.id),
     );
 
-    const porEscribir = plan.partidos.filter((p) => !jugados.has(p.matchId));
+    const porEscribir = colocados.filter((p) => !jugados.has(p.matchId));
     let escritos = 0;
     const fallos: string[] = [];
 
@@ -398,7 +489,7 @@ Deno.serve(async (req) => {
       const res = await Promise.all(tanda.map((p) =>
         admin
           .from('matches')
-          .update({ scheduled_at: aTimestamptz(p.inicio), court_label: etiqueta(p.bloqueId, p.cancha) })
+          .update({ scheduled_at: horaDe(p), court_label: etiquetaDe(p) })
           .eq('id', p.matchId)
           .then((r) => ({ id: p.matchId, error: r.error }))
       ));
@@ -410,13 +501,13 @@ Deno.serve(async (req) => {
 
     // Los empalmes con NOMBRE de categoría, no con uuid: el consumidor es una
     // pantalla, y "a3f9-… choca con 7b21-…" no le sirve a nadie.
-    const empalmes = plan.empalmes.map((e) => ({
+    const empalmes = (plan?.empalmes ?? []).map((e) => ({
       ...e,
       categoriaA: nombrePorCat.get(e.categoriaA) ?? e.categoriaA,
       categoriaB: nombrePorCat.get(e.categoriaB) ?? e.categoriaB,
     }));
 
-    const sinProgramar = plan.sinProgramar.map((s) => ({
+    const sinProgramar = (plan?.sinProgramar ?? []).map((s) => ({
       ...s,
       categoria: nombrePorCat.get(s.categoryId) ?? s.categoryId,
       grupo: filasGrupo.find((g) => g.id === s.groupId)?.name ?? s.groupId,
@@ -459,7 +550,7 @@ Deno.serve(async (req) => {
         error: 'verificacion_fallida',
         message: 'Se escribieron los horarios pero no se pudo comprobar que todos los partidos quedaran con hora. Vuelve a programar.',
         matchesActualizados: escritos,
-        sinProgramar, empalmes, sobrevendidos: plan.sobrevendidos, avisos,
+        sinProgramar, empalmes, sobrevendidos: plan?.sobrevendidos ?? [], avisos,
       }, 500);
     }
 
@@ -469,7 +560,7 @@ Deno.serve(async (req) => {
     // Un grupo puede aparecer aquí SIN estar en `sinProgramar`: es el caso de
     // los partidos que el motor sí colocó pero cuyo UPDATE falló, y merece
     // salir nombrado igual.
-    const motivoPorGrupo = new Map(plan.sinProgramar.map((x) => [x.groupId, x.motivo]));
+    const motivoPorGrupo = new Map((plan?.sinProgramar ?? []).map((x) => [x.groupId, x.motivo]));
     const gruposAfectados = [...new Set((pendientes ?? []).map((m) => m.group_id).filter(Boolean))]
       .map((gid) => {
         const g = filasGrupo.find((x) => x.id === gid);
@@ -494,13 +585,21 @@ Deno.serve(async (req) => {
       partidosSinHora,
       gruposAfectados,
       matchesActualizados: escritos,
-      partidosPlanificados: plan.partidos.length,
-      partidosYaJugados: plan.partidos.length - porEscribir.length,
+      partidosPlanificados: colocados.length,
+      partidosYaJugados: colocados.length - porEscribir.length,
       sinProgramar,
       empalmes,
-      sobrevendidos: plan.sobrevendidos,
-      ocupacion: plan.ocupacion,
-      ocupacionPorBloque: plan.ocupacionPorBloque,
+      sobrevendidos: plan?.sobrevendidos ?? [],
+      ocupacion: plan?.ocupacion ?? null,
+      ocupacionPorBloque: plan?.ocupacionPorBloque ?? [],
+      // El orden en que entran las categorías al club. Solo en cascada.
+      cascada: cascada === null ? null : {
+        orden: cascada.orden.map((id) => nombrePorCat.get(id) ?? id),
+        huecosDeCuadro: cascada.huecos.map((h) => ({
+          categoria: nombrePorCat.get(h.categoryId) ?? h.categoryId,
+          turnos: h.turnos,
+        })),
+      },
       avisos,
       fallos: fallos.length > 0 ? fallos : undefined,
     }, ok ? 200 : 409);
