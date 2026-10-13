@@ -181,6 +181,20 @@ export interface PlanTorneo {
    * seis o a las diez.
    */
   eliminacion: Fase;
+  /**
+   * Slots que ocupa SOLO la fase de grupos, sin el cuadro.
+   *
+   * ► `grupos.usados` NO SIRVE PARA ESTO, Y CONFUNDE
+   *   Con un solo día los dos presupuestos son el mismo y `usados` suma las dos
+   *   fases: es lo correcto para decidir si el día entero cabe, y es lo que
+   *   mide la barra de ocupación.
+   *
+   *   Pero quien quiera saber A QUÉ HORA ACABAN LOS GRUPOS —para empezar el
+   *   cuadro después, que es lo que pasa en un torneo de una jornada— con ese
+   *   número cuenta el cuadro dos veces: una dentro y otra al programarlo. El
+   *   resultado es un "no cabe" falso en un torneo que cabe de sobra.
+   */
+  slotsSoloGrupos: number;
   /** A qué hora termina de verdad el último día. Null si no hay ventanas. */
   ultimoDia: HorasUltimoDia | null;
   avisos: string[];
@@ -683,6 +697,8 @@ export function planTournament(
   const gOcup = presupuestoGrupos > 0 ? gUsados / presupuestoGrupos : Infinity;
   const eOcup = presupuestoElim   > 0 ? eUsados / presupuestoElim   : Infinity;
 
+  const slotsSoloGrupos = sumaGrupos();
+
   const grupos: Fase = {
     presupuesto: presupuestoGrupos, usados: gUsados,
     ocupacion: gOcup, zona: zonaDe(gOcup),
@@ -792,7 +808,7 @@ export function planTournament(
     };
   }
 
-  return { cabe, planes: elegido, grupos, eliminacion, ultimoDia, avisos, diagnostico };
+  return { cabe, planes: elegido, grupos, eliminacion, slotsSoloGrupos, ultimoDia, avisos, diagnostico };
 }
 
 /**

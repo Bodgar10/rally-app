@@ -154,13 +154,22 @@ function describirAsegurados(tam: number[]): string {
     return n === 1 ? '1 partido asegurado' : `${n} partidos asegurados`;
   }
 
-  // El tamaño mayoritario manda; los demás se enuncian como excepción.
-  const [mayor, ...resto] = distintos;
-  const excepciones = resto
-    .map((t) => `${t - 1} en los grupos de ${t}`)
-    .join(', o ');
+  // ► CON GRUPOS DESIGUALES NO HAY "ASEGURADOS", Y ASÍ HAY QUE DECIRLO.
+  //
+  //   Decía "3 partidos, o 2 en los grupos de 3", que es cierto y se lee como
+  //   una nota al pie. Y no es una nota al pie: el organizador anuncia "3
+  //   partidos asegurados" en su cartel, y con este formato seis de cada diez
+  //   parejas juegan dos. Eso es publicidad engañosa y lo descubre el sábado,
+  //   con la gente delante.
+  //
+  //   Lo que de verdad asegura un formato desigual es su grupo MÁS CHICO. Se
+  //   dice ese número, y aparte que no todos juegan lo mismo.
+  const menor = distintos[distintos.length - 1];
+  const mayor = distintos[0];
+  const n = menor - 1;
 
-  return `${mayor - 1} partidos, o ${excepciones}`;
+  return `solo ${n} ${n === 1 ? 'partido asegurado' : 'partidos asegurados'}`
+    + ` · los grupos de ${mayor} juegan ${mayor - 1}`;
 }
 
 /**
@@ -951,7 +960,10 @@ export default function CerrarInscripcionesScreen() {
     let desdeCuadro = ventana.desde;
 
     if (unSoloDia && capacidad) {
-      const turnos = Math.ceil(capacidad.grupos.usados / canchas);
+      // `slotsSoloGrupos` y no `grupos.usados`: con un solo día aquel suma las
+      // DOS fases, así que usarlo aquí contaría el cuadro dos veces —una
+      // dentro y otra al programarlo detrás— y daba un "no cabe" falso.
+      const turnos = Math.ceil(capacidad.slotsSoloGrupos / canchas);
       const minutosGrupos = turnos * Math.round(minutos * FACTOR_RETRASO);
       const [hh, mm] = ventana.desde.split(':').map(Number);
       const t = hh * 60 + mm + minutosGrupos;
