@@ -17,6 +17,17 @@ export interface Pestana {
   etiqueta: string;
   /** Número al lado del nombre: partidos, parejas, lo que cuente. */
   cuenta?: number;
+  /**
+   * Punto de color delante del nombre.
+   *
+   * ES LA LEYENDA DE ALGO QUE SE PINTA DEBAJO. En el calendario cada categoría
+   * lleva su color en la parrilla, y sin verlo también aquí el color no dice
+   * nada: el organizador vería bandas de colores sin saber cuál es cuál.
+   *
+   * Opcional porque la mayoría de los selectores no pintan nada de color, y un
+   * punto gris delante de cada pestaña sería ruido.
+   */
+  color?: string;
 }
 
 export interface SelectorPestanasProps {
@@ -46,6 +57,7 @@ export default function SelectorPestanas({ pestanas, activa, onCambiar }: Select
             accessibilityState={{ selected: sel }}
             accessibilityLabel={p.etiqueta}
           >
+            {p.color && <View style={[s.punto, { backgroundColor: p.color }]} />}
             <Text style={[s.texto, sel && s.textoActivo]} numberOfLines={1}>
               {p.etiqueta}
             </Text>
@@ -60,6 +72,7 @@ export default function SelectorPestanas({ pestanas, activa, onCambiar }: Select
 }
 
 const s = StyleSheet.create({
+  punto: { width: 7, height: 7, borderRadius: 4, marginRight: 2 },
   contenedor: { flexGrow: 0 },
   fila:       { gap: space[2], paddingVertical: space[1] },
 

@@ -44,6 +44,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet, useWindowDimensions } fr
 
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import type { FilaCalendario } from '@/lib/calendario-franjas';
+import { colorDeCategoria } from '@/lib/color-de-categoria';
 
 /** Ancho de cada columna de hora. Cabe "5A Fuerza / Cuartos" en dos líneas. */
 const ANCHO_CELDA = 104;
@@ -102,6 +103,11 @@ interface Props {
   onCapturar?: (fila: FilaCalendario) => void;
   /** Si ese partido admite marcador. Sin las dos parejas no hay nada que anotar. */
   sePuedeCapturar?: (fila: FilaCalendario) => boolean;
+  /**
+   * Las categorías del torneo, en el orden en que las enseña la pantalla. De
+   * aquí sale el color de cada una — ver `colorDeCategoria`.
+   */
+  categorias?: readonly string[];
 }
 
 /** 'Cancha 3' → 3. Para ordenar y para colocar en su fila. */
@@ -111,7 +117,8 @@ const numeroDeCancha = (etiqueta: string | null): number | null => {
 };
 
 export default function ParrillaDia({
-  filas, canchas, resaltado, onCelda, onCapturar, sePuedeCapturar, anchoForzado,
+  filas, canchas, resaltado, onCelda, onCapturar, sePuedeCapturar, categorias = [],
+  anchoForzado,
 }: Props) {
   const { width } = useWindowDimensions();
   const ancha = anchoForzado ?? width >= ANCHO_PARA_NOMBRES;
@@ -207,12 +214,31 @@ export default function ParrillaDia({
                             (f.estado === 'finished' ? ', terminado' : '')
                           }
                         >
-                          <Text
-                            style={[s.partidoCat, f.estado === 'finished' && s.partidoCatHecho]}
-                            numberOfLines={1}
-                          >
-                            {f.estado === 'finished' ? '✓ ' : ''}{f.categoria}
-                          </Text>
+                          {/* LA BANDA DE COLOR DE SU CATEGORÍA.
+                              Sesenta celdas que dicen "5ª Mixto" obligan a
+                              leerlas todas para ver dónde está cada una. Con
+                              la banda, la forma del día se ve sin leer. */}
+                          <View
+                            style={[
+                              s.banda,
+                              { backgroundColor: colorDeCategoria(f.categoriaId, categorias) },
+                            ]}
+                          />
+
+                          <View style={s.cabeceraCelda}>
+                            <Text
+                              style={[s.partidoCat, f.estado === 'finished' && s.partidoCatHecho]}
+                              numberOfLines={1}
+                            >
+                              {f.estado === 'finished' ? '✓ ' : ''}{f.categoria}
+                            </Text>
+                            {/* EL MARCADOR ARRIBA Y A LA DERECHA, donde se
+                                busca: es lo primero que mira el organizador
+                                para saber si ese partido ya está. */}
+                            {ancha && f.marcador && (
+                              <Text style={s.marcador} numberOfLines={1}>{f.marcador}</Text>
+                            )}
+                          </View>
                           {!ancha && <Text style={s.partidoEtapa} numberOfLines={1}>{f.etapa}</Text>}
 
                           {/* QUIÉN JUEGA, cuando hay sitio. Sin esto el
@@ -220,19 +246,27 @@ export default function ParrillaDia({
                               "5ª Mixto" de las 13:00 es el que busca. */}
                           {ancha && (f.parejaA || f.parejaB) && (
                             <View style={s.parejas}>
-                              <Text style={s.pareja} numberOfLines={1}>{f.parejaA ?? '—'}</Text>
+                              {/* LA CORONA EN EL QUE GANÓ. Con el marcador
+                                  solo, hay que saber qué pareja va primero
+                                  para leer quién ganó; con la corona no hay
+                                  que leer nada. */}
+                              <Text
+                                style={[s.pareja, f.ganadorId === f.parejaAId && s.parejaGana]}
+                                numberOfLines={1}
+                              >
+                                {f.ganadorId === f.parejaAId ? '👑 ' : ''}{f.parejaA ?? '—'}
+                              </Text>
                               {/* El "vs" en medio: sin él las dos líneas se
                                   leen como una lista de cuatro personas y hay
                                   que contar para saber quién va con quién. */}
                               <Text style={s.versus}>vs</Text>
-                              <Text style={s.pareja} numberOfLines={1}>{f.parejaB ?? '—'}</Text>
+                              <Text
+                                style={[s.pareja, f.ganadorId === f.parejaBId && s.parejaGana]}
+                                numberOfLines={1}
+                              >
+                                {f.ganadorId === f.parejaBId ? '👑 ' : ''}{f.parejaB ?? '—'}
+                              </Text>
                             </View>
-                          )}
-
-                          {/* El marcador solo si existe: un hueco en blanco
-                              bajo cada partido por jugar es ruido. */}
-                          {ancha && f.marcador && (
-                            <Text style={s.marcador} numberOfLines={1}>{f.marcador}</Text>
                           )}
 
                           {/* ANOTAR, SIN PASAR POR EL DETALLE.
@@ -300,13 +334,22 @@ const s = StyleSheet.create({
   celdaVacia: { backgroundColor: 'transparent' },
 
   // Las dos parejas, cuando la pantalla da para decirlas.
+  // La banda vive pegada al borde izquierdo de la celda, como la pestaña de
+  // una carpeta.
+  banda: {
+    position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+    borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.sm,
+  },
+  cabeceraCelda: { flexDirection: 'row', alignItems: 'baseline', gap: space[1] },
+
   parejas: { marginTop: 3, gap: 1 },
   // Legible de pie y a medio metro, que es como se mira esto en el club.
   pareja:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
+  parejaGana: { color: color.goldBright, fontWeight: '600' },
   versus:  { fontFamily: font.body, fontSize: 9, color: color.muted, marginVertical: 1 },
   marcador: {
-    fontFamily: font.display, fontSize: fontSize.minAbsolute, color: color.champagne,
-    marginTop: 1,
+    marginLeft: 'auto',
+    fontFamily: font.display, fontSize: fontSize.minAbsolute, color: color.live,
   },
 
   // Discreto a propósito: la parrilla se lee de un vistazo y treinta botones de
@@ -327,7 +370,9 @@ const s = StyleSheet.create({
 
   partido: {
     flex: 1, backgroundColor: color.surface2, borderRadius: radius.sm,
-    paddingHorizontal: 5, paddingVertical: 3, justifyContent: 'center',
+    // El relleno izquierdo deja sitio a la banda de categoría, que va absoluta
+    // pegada al borde: sin él el texto le pasaría por encima.
+    paddingLeft: 9, paddingRight: 5, paddingVertical: 3, justifyContent: 'center',
   },
   // `color.live` es el token de "en vivo / victoria / positivo" (Doc D §2.2).
   // El fondo va tenue: la celda es pequeña y un verde sólido taparía el texto.

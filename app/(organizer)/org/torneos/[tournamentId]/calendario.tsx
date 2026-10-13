@@ -40,6 +40,7 @@ import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, tournamentChannel } from '@/lib/realtime/channels';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
 import { webContentFluido, bottomInset } from '@/lib/web-layout';
+import { colorDeCategoria } from '@/lib/color-de-categoria';
 import BotonVolver from '@/components/ui/BotonVolver';
 import HorasUltimoDia from '@/components/tournament/HorasUltimoDia';
 import { fetchParejasPublicas, type ParejaPublica } from '@/lib/parejas-publicas';
@@ -909,8 +910,12 @@ export default function CalendarioScreen() {
                 <SelectorPestanas
                   pestanas={[
                     { id: TODO_EL_DIA, etiqueta: 'Todo el día', cuenta: diaActivo.filas.length },
+                    // El punto es la LEYENDA de la banda que lleva cada
+                    // celda: sin él, el organizador ve colores sin saber cuál
+                    // es cuál.
                     ...diaActivo.categorias.map((c) => ({
                       id: c.id, etiqueta: c.nombre, cuenta: c.partidos,
+                      color: colorDeCategoria(c.id, estado.categorias.map((x) => x.id)),
                     })),
                   ]}
                   activa={tab}
@@ -929,6 +934,10 @@ export default function CalendarioScreen() {
                   // dos. Ver `onCapturar` en ParrillaDia.
                   onCapturar={(f) => setCapturando(f as Fila)}
                   sePuedeCapturar={(f) => sePuedeCapturar(f as Fila)}
+                  // El orden de los tabs manda el color de cada categoría, así
+                  // que la banda de la celda y el chip de arriba hablan de lo
+                  // mismo. Ver `colorDeCategoria`.
+                  categorias={estado.categorias.map((c) => c.id)}
                 />
 
                 {/* DESPUÉS de la parrilla: se entra a ver el calendario, no a
