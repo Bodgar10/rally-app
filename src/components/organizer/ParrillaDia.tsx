@@ -11,10 +11,19 @@
  *   organizador tiene que traducir de la pantalla a su pizarra mental, la
  *   pantalla está mal.
  *
- * LA CELDA DICE DOS PALABRAS, NO CUATRO NOMBRES
- *   Categoría y ronda. Los nombres completos de cuatro personas por celda
- *   hacían la vista ilegible — y no son lo que se busca al mirar el día: se
- *   busca la forma del día. Los nombres están a un toque, en el detalle.
+ * EN EL MÓVIL, DOS PALABRAS; EN LA LAPTOP, LOS NOMBRES
+ *   La celda decía solo categoría y ronda, y en 390 px es lo correcto: cuatro
+ *   nombres por celda hacen la vista ilegible y lo que se busca ahí es la
+ *   FORMA del día.
+ *
+ *   Pero el organizador no trabaja en el móvil el sábado por la tarde: trabaja
+ *   en una laptop con la parrilla abierta, y ahí sobran 1400 px para decir
+ *   quién juega. Obligarle a abrir una celda para saber si ese 5ª Mixto de las
+ *   13:00 es el suyo es hacerle clics que no hacen falta.
+ *
+ *   Así que la celda crece con la pantalla: ancha enseña las dos parejas y el
+ *   marcador cuando lo hay; estrecha sigue como estaba. Los nombres siguen
+ *   estando a un toque en el detalle, que es donde se mueve y se corrige.
  *
  * NO HAY FILAS "SIN PARTIDOS"
  *   En una lista había que escribirlo. En una parrilla el hueco ES la celda
@@ -31,7 +40,7 @@
  *   alturas cuadran porque las dos usan las mismas constantes.
  */
 
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 
 import { color, font, fontSize, radius, space } from '@/lib/design-tokens';
 import type { FilaCalendario } from '@/lib/calendario-franjas';
@@ -42,7 +51,25 @@ const ANCHO_CELDA = 104;
 const ANCHO_CANCHA = 62;
 const ALTO_FILA = 54;
 
+/**
+ * A partir de aquí la celda enseña quién juega.
+ *
+ * 1100 px es una laptop con la ventana entera: por debajo —una tablet, media
+ * pantalla, un móvil apaisado— las seis columnas de hora con nombres no caben
+ * sin que todo se corte, y una celda con tres textos truncados es peor que una
+ * con dos enteros.
+ */
+const ANCHO_PARA_NOMBRES = 1100;
+/** Lo que mide una celda cuando sí caben los nombres. */
+const ANCHO_CELDA_ANCHA = 190;
+const ALTO_FILA_ANCHA = 96;
+
 interface Props {
+  /**
+   * Fuerza el modo ancho o el estrecho. Sin esto manda el ancho de la ventana.
+   * Existe para poder probarlo sin un navegador.
+   */
+  anchoForzado?: boolean;
   /** Los partidos del día. */
   filas: FilaCalendario[];
   /** Canchas del torneo. Define las filas aunque alguna esté vacía todo el día. */
@@ -58,7 +85,14 @@ const numeroDeCancha = (etiqueta: string | null): number | null => {
   return m ? Number(m[1]) : null;
 };
 
-export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Props) {
+export default function ParrillaDia({
+  filas, canchas, resaltado, onCelda, anchoForzado,
+}: Props) {
+  const { width } = useWindowDimensions();
+  const ancha = anchoForzado ?? width >= ANCHO_PARA_NOMBRES;
+  const anchoCelda = ancha ? ANCHO_CELDA_ANCHA : ANCHO_CELDA;
+  const altoFila = ancha ? ALTO_FILA_ANCHA : ALTO_FILA;
+
   if (filas.length === 0) {
     return <Text style={s.vacio}>No hay partidos programados este día.</Text>;
   }
@@ -95,7 +129,7 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
           {filasCancha.map((n) => {
             const vacia = !rejilla.get(n) || rejilla.get(n)!.size === 0;
             return (
-              <View key={n} style={s.celdaCancha}>
+              <View key={n} style={[s.celdaCancha, { height: altoFila }]}>
                 <Text style={[s.cancha, vacia && s.canchaLibre]}>{n}</Text>
               </View>
             );
@@ -107,7 +141,7 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
           {/* Cabecera de horas */}
           <View style={s.fila}>
             {horas.map((h) => (
-              <View key={h} style={[s.celda, s.cabecera]}>
+              <View key={h} style={[s.celda, s.cabecera, { width: anchoCelda }]}>
                 <Text style={s.hora}>{h}</Text>
               </View>
             ))}
@@ -125,7 +159,7 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
                   // Dos partidos en la misma cancha y hora es un choque real:
                   // se apilan para que se vea, en vez de esconder uno.
                   return (
-                    <View key={h} style={s.celda}>
+                    <View key={h} style={[s.celda, { width: anchoCelda, height: altoFila }]}>
                       {aqui.map((f) => (
                         <Pressable
                           key={f.id}
@@ -155,6 +189,22 @@ export default function ParrillaDia({ filas, canchas, resaltado, onCelda }: Prop
                             {f.estado === 'finished' ? '✓ ' : ''}{f.categoria}
                           </Text>
                           <Text style={s.partidoEtapa} numberOfLines={1}>{f.etapa}</Text>
+
+                          {/* QUIÉN JUEGA, cuando hay sitio. Sin esto el
+                              organizador abre la celda solo para saber si ese
+                              "5ª Mixto" de las 13:00 es el que busca. */}
+                          {ancha && (f.parejaA || f.parejaB) && (
+                            <View style={s.parejas}>
+                              <Text style={s.pareja} numberOfLines={1}>{f.parejaA ?? '—'}</Text>
+                              <Text style={s.pareja} numberOfLines={1}>{f.parejaB ?? '—'}</Text>
+                            </View>
+                          )}
+
+                          {/* El marcador solo si existe: un hueco en blanco
+                              bajo cada partido por jugar es ruido. */}
+                          {ancha && f.marcador && (
+                            <Text style={s.marcador} numberOfLines={1}>{f.marcador}</Text>
+                          )}
                         </Pressable>
                       ))}
                     </View>
@@ -196,6 +246,14 @@ const s = StyleSheet.create({
     borderRightWidth: 1, borderRightColor: color.lineSoft,
   },
   celdaVacia: { backgroundColor: 'transparent' },
+
+  // Las dos parejas, cuando la pantalla da para decirlas.
+  parejas: { marginTop: 2, gap: 1 },
+  pareja:  { fontFamily: font.body, fontSize: fontSize.minAbsolute, color: color.text },
+  marcador: {
+    fontFamily: font.display, fontSize: fontSize.minAbsolute, color: color.champagne,
+    marginTop: 1,
+  },
 
   cabecera: { height: 30, borderBottomWidth: 1, borderBottomColor: color.line, justifyContent: 'center' },
   hora:     { fontFamily: font.display, fontSize: fontSize.caption, color: color.champagne, textAlign: 'center' },
