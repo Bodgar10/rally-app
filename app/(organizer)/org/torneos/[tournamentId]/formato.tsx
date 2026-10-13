@@ -74,6 +74,13 @@ export default function FormatoScreen() {
    */
   /** `match_minutes`. Solo para avisar si no cuadra con el formato elegido. */
   const [minutos, setMinutos] = useState<number | null>(null);
+  /**
+   * Partidos que el torneo PROMETE. Null = sin promesa.
+   *
+   * No es una preferencia: es lo que el cartel anuncia. Con un número aquí, el
+   * motor deja de proponer formatos que no lo cumplen.
+   */
+  const [asegurados, setAsegurados] = useState<number | null>(null);
   const [etapas, setEtapas] = useState<{
     grupos: FormatoDeEtapa; cuadro: FormatoDeEtapa; final: FormatoDeEtapa;
   }>({ grupos: null, cuadro: null, final: null });
@@ -103,7 +110,7 @@ export default function FormatoScreen() {
     try {
       const { data: t, error: te } = await supabase
         .from('tournaments')
-        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos, modo, formato_grupos, formato_cuadro, formato_final')
+        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos, modo, formato_grupos, formato_cuadro, formato_final, partidos_asegurados')
         .eq('id', tournamentId)
         .maybeSingle();
       if (te) throw te;
@@ -113,6 +120,7 @@ export default function FormatoScreen() {
         name: string; courts: number | null;
         match_minutes: number | null; tercer_lugar: boolean | null;
         formato_grupos: FormatoDeEtapa; formato_cuadro: FormatoDeEtapa; formato_final: FormatoDeEtapa;
+        partidos_asegurados: number | null;
         tercer_set_formato: 'super_muerte' | 'set_completo' | null;
         tercer_set_puntos: number | null;
         modo: string | null;
@@ -139,6 +147,7 @@ export default function FormatoScreen() {
       // Un torneo creado antes de la 063 no tiene el dato: súper muerte a 10,
       // que es como se venía jugando.
       setMinutos(fila.match_minutes ?? null);
+      setAsegurados(fila.partidos_asegurados ?? null);
       setEtapas({
         grupos: fila.formato_grupos ?? null,
         cuadro: fila.formato_cuadro ?? null,
@@ -238,6 +247,7 @@ export default function FormatoScreen() {
           formato_grupos: etapas.grupos,
           formato_cuadro: etapas.cuadro,
           formato_final:  etapas.final,
+          partidos_asegurados: asegurados,
         } as never)
         .eq('id', tournamentId);
       if (e) throw e;
@@ -330,6 +340,41 @@ export default function FormatoScreen() {
               día se recalcula sin él.
             </Text>
           )}
+        </View>
+
+        {/* ── LO QUE PROMETE EL CARTEL ─────────────────────────────────
+            Padel Hype anuncia "3 partidos asegurados". Con 10 parejas el motor
+            proponía un grupo de 4 y dos de 3: seis de cada diez juegan DOS.
+            Eso es publicidad engañosa y se descubre el sábado con la gente
+            delante. Con el número puesto, el motor deja de ofrecer lo que no
+            se puede cumplir. */}
+        <Text style={s.seccion}>Partidos asegurados</Text>
+        <Text style={s.notaTexto}>
+          Los que juega cada pareja aunque pierda todos. Es lo que anuncias en
+          tu cartel, y al cerrar inscripciones solo te ofreceremos formatos que
+          lo cumplan.
+        </Text>
+
+        <View style={s.opcionesEtapa}>
+          {([null, 2, 3, 4] as const).map((v) => {
+            const elegida = asegurados === v;
+            const titulo = v === null ? 'Sin promesa' : `${v} partidos`;
+            const sub = v === null
+              ? 'Repartimos por capacidad'
+              : `Ningún grupo baja de ${v + 1}`;
+            return (
+              <Pressable
+                key={titulo}
+                onPress={() => { setAsegurados(v); setConfirmando(false); }}
+                style={[s.opcionEtapa, elegida && s.opcionElegida]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: elegida }}
+              >
+                <Text style={[s.opcionTitulo, elegida && s.opcionTituloElegida]}>{titulo}</Text>
+                <Text style={s.opcionSub}>{sub}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* ── CÓMO SE JUEGA CADA ETAPA ─────────────────────────────────

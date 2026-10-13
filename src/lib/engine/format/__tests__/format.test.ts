@@ -141,3 +141,64 @@ describe('lo que juega Padel Hype está entre las opciones', () => {
     expect(computeFormat(16).groupSizes).toEqual([4, 3, 3, 3, 3]);
   });
 });
+
+// ───────────────────────────────────────────
+// El suelo de partidos asegurados
+// ───────────────────────────────────────────
+//
+// Padel Hype anuncia "3 partidos asegurados" en su cartel. Con 10 parejas el
+// motor proponía un grupo de 4 y dos de 3: seis de cada diez parejas juegan
+// DOS. Eso es publicidad engañosa y se descubre el sábado con la gente
+// delante.
+
+describe('cuando el torneo promete N partidos asegurados', () => {
+  const asegurados = (p: { groupSizes: number[] }) =>
+    p.groupSizes.length === 0 ? 0 : Math.min(...p.groupSizes) - 1;
+
+  it.each([8, 9, 10, 12, 13, 14, 16, 20, 24])(
+    'con %i parejas ningún grupo baja de 4', (n) => {
+      const p = computeFormat(n, { minimoAsegurados: 3 });
+      expect(asegurados(p)).toBeGreaterThanOrEqual(3);
+      expect(p.noCumpleAsegurados).toBeUndefined();
+    });
+
+  // EL CASO DE PADEL HYPE: sin suelo propone grupos de 3; con suelo, de 5.
+  it('10 parejas pasan de "un grupo de 4 y dos de 3" a "dos de 5"', () => {
+    expect(computeFormat(10).groupSizes).toEqual([4, 3, 3]);
+    expect(computeFormat(10, { minimoAsegurados: 3 }).groupSizes).toEqual([5, 5]);
+  });
+
+  // Las opciones que rompen el cartel dejan de ofrecerse: enseñarlas es
+  // invitar a romperlo.
+  it('las alternativas que no cumplen no se ofrecen', () => {
+    const p = computeFormat(16, { minimoAsegurados: 3 });
+    for (const alt of p.alternatives ?? []) {
+      expect(asegurados(alt)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  // 7 parejas no admiten partición en [3,5] sin un grupo de 3.
+  it('cuando es imposible lo dice en vez de callarlo', () => {
+    const p = computeFormat(7, { minimoAsegurados: 3 });
+    expect(p.noCumpleAsegurados).toBe(3);
+    // Y devuelve el mejor plan que SÍ existe, no un cuadro directo sin grupos.
+    expect(p.groupSizes.length).toBeGreaterThan(0);
+    expect(asegurados(p)).toBe(2);
+  });
+
+  // Un cuadro directo es jugar uno y, si lo pierdes, a casa. `Math.min()` de
+  // una lista vacía da Infinity, que leído como "asegurados" decía que un
+  // knockout puro cumple cualquier promesa.
+  it('un cuadro sin grupos no asegura nada', () => {
+    const p = computeFormat(11, { minimoAsegurados: 3 });
+    expect(p.groupSizes.length).toBeGreaterThan(0);
+  });
+
+  // Sin promesa, el motor sigue prefiriendo grupos de 3: es lo que cabe cuando
+  // la capacidad aprieta, y lo que hizo Cimepa con 165 parejas.
+  it('sin suelo nada cambia', () => {
+    expect(computeFormat(12).groupSizes).toEqual([3, 3, 3, 3]);
+    expect(computeFormat(16).groupSizes).toEqual([4, 3, 3, 3, 3]);
+    expect(computeFormat(12, { minimoAsegurados: 0 }).groupSizes).toEqual([3, 3, 3, 3]);
+  });
+});

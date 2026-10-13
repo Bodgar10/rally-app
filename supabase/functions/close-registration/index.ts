@@ -137,7 +137,21 @@ serve(async (req) => {
   if (validPairs.length < 2) return json({ error: "not_enough_pairs", count: validPairs.length }, 400);
 
   // 5) ENGINE: plan de formato. Si es ambiguo y el organizador no eligió -> devolver para decisión.
-  const plan: FormatPlan = body.chosen_format ?? computeFormat(validPairs.length);
+  //
+  // LO QUE PROMETE EL CARTEL manda sobre lo que prefiere el motor. Padel Hype
+  // anuncia "3 partidos asegurados": con eso puesto, el motor deja de proponer
+  // un grupo de 4 y dos de 3, donde seis de cada diez parejas juegan DOS.
+  //
+  // Se vuelve a leer aquí en vez de fiarse de lo que mandó la pantalla: el
+  // cierre es irreversible y el formato decide el torneo entero.
+  const { data: torneoFmt } = await admin
+    .from("tournaments").select("partidos_asegurados")
+    .eq("id", cat.tournament_id).maybeSingle();
+
+  const plan: FormatPlan = body.chosen_format
+    ?? computeFormat(validPairs.length, {
+      minimoAsegurados: (torneoFmt?.partidos_asegurados as number | null) ?? 0,
+    });
   if (plan.ambiguous && !body.chosen_format) {
     // La decisión la toma el organizador (UI/Sonnet) entre plan.alternatives.
     return json({ status: "needs_decision", plan, alternatives: plan.alternatives ?? [] });

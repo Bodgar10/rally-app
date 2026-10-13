@@ -1940,6 +1940,7 @@ export type Database = {
           modo: Database["public"]["Enums"]["tournament_modo"]
           name: string
           organizer_id: string
+          partidos_asegurados: number | null
           prioridad_hasta: string | null
           registration_fee: number
           start_date: string
@@ -1962,6 +1963,7 @@ export type Database = {
           modo?: Database["public"]["Enums"]["tournament_modo"]
           name: string
           organizer_id: string
+          partidos_asegurados?: number | null
           prioridad_hasta?: string | null
           registration_fee?: number
           start_date: string
@@ -1984,6 +1986,7 @@ export type Database = {
           modo?: Database["public"]["Enums"]["tournament_modo"]
           name?: string
           organizer_id?: string
+          partidos_asegurados?: number | null
           prioridad_hasta?: string | null
           registration_fee?: number
           start_date?: string

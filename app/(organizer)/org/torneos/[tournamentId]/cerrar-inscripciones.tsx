@@ -782,10 +782,11 @@ export default function CerrarInscripcionesScreen() {
           single: () => Promise<{ data: {
             name: string; courts: number | null; match_minutes: number | null;
             modo: string | null;
+            partidos_asegurados: number | null;
           } | null }>;
         } };
       })('tournaments')
-        .select('name, courts, match_minutes, tercer_lugar, modo').eq('id', tournamentId).single(),
+        .select('name, courts, match_minutes, tercer_lugar, modo, partidos_asegurados').eq('id', tournamentId).single(),
       supabase.from('categories')
         .select('id, display_name, status, num_groups, advance_per_group, best_extra_qualifiers')
         .eq('tournament_id', tournamentId).order('division'),
@@ -798,6 +799,9 @@ export default function CerrarInscripcionesScreen() {
     ]);
 
     if (t) setNombre(t.name);
+    // Lo que promete el cartel. Null = sin promesa, y el motor reparte por
+    // capacidad como siempre.
+    const asegurados = t?.partidos_asegurados ?? 0;
 
     /**
      * ► UN EXPRÉS NO PASA POR AQUÍ, Y SI LLEGA SE LE SACA.
@@ -835,7 +839,9 @@ export default function CerrarInscripcionesScreen() {
 
       const n = pagadas ?? 0;
       // computeFormat lanza con menos de 2: hay que cortar antes.
-      const plan = n >= 2 ? computeFormat(n) : null;
+      // LO QUE PROMETE EL CARTEL manda sobre lo que prefiere el motor: con un
+      // suelo puesto deja de proponer formatos que no lo cumplen.
+      const plan = n >= 2 ? computeFormat(n, { minimoAsegurados: asegurados }) : null;
 
       return {
         id: c.id, nombre: c.display_name, status: c.status,

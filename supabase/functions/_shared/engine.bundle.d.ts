@@ -84,13 +84,52 @@ interface FormatPlan {
     knockoutStart: KnockoutStart;
     ambiguous: boolean;
     alternatives?: FormatPlan[];
+    /**
+     * El torneo prometía este mínimo de partidos asegurados y NO se puede
+     * cumplir con este número de parejas.
+     *
+     * Pasa con números que no admiten partición en [3,5] sin dejar un grupo
+     * chico —7 parejas prometiendo 3, por ejemplo—. Se devuelve el mejor plan
+     * posible con esto puesto en vez de callarlo: el organizador tiene que saber
+     * que su cartel no se puede cumplir ANTES del sábado, no con la gente
+     * delante.
+     */
+    noCumpleAsegurados?: number;
 }
 
+/**
+ * Lo que el torneo PROMETE que juega cada pareja.
+ *
+ * ► NO ES UNA PREFERENCIA, ES UN CONTRATO
+ *   Padel Hype anuncia "3 partidos asegurados" en su cartel. Con 10 parejas el
+ *   motor proponía un grupo de 4 y dos de 3: seis de cada diez parejas juegan
+ *   DOS. Eso es publicidad engañosa, y el organizador lo descubre el sábado con
+ *   la gente delante.
+ *
+ *   Un grupo de N da N-1 partidos a cada pareja, así que prometer 3 es exigir
+ *   que NINGÚN grupo baje de 4. Con eso dicho, el motor deja de proponer lo que
+ *   no se puede cumplir.
+ *
+ * ► SE PIDE, NO SE ASUME
+ *   Sin número, el motor sigue prefiriendo grupos de 3 — que es lo que cabe
+ *   cuando la capacidad aprieta, y lo que hizo Cimepa con 165 parejas. Un
+ *   torneo que no promete nada no tiene por qué pagar el doble de canchas.
+ */
+interface OpcionesDeFormato {
+    /**
+     * Partidos que CADA pareja juega como mínimo en la fase de grupos.
+     *
+     * Sin esto no hay suelo: los grupos se reparten por capacidad y el más chico
+     * manda. Con esto, ninguna partición con un grupo menor que `n + 1` es
+     * válida.
+     */
+    minimoAsegurados?: number;
+}
 /**
  * Calcula el formato de una categoría dado el nº de parejas.
  * Usa la tabla literal (Doc B §1.1) si N está listado; si no, deriva.
  */
-declare function computeFormat(numPairs: number): FormatPlan;
+declare function computeFormat(numPairs: number, opciones?: OpcionesDeFormato): FormatPlan;
 
 interface Fixture {
     round: number;

@@ -13,6 +13,17 @@ export interface FormatPlan {
   knockoutStart: KnockoutStart;
   ambiguous: boolean;
   alternatives?: FormatPlan[];
+  /**
+   * El torneo prometía este mínimo de partidos asegurados y NO se puede
+   * cumplir con este número de parejas.
+   *
+   * Pasa con números que no admiten partición en [3,5] sin dejar un grupo
+   * chico —7 parejas prometiendo 3, por ejemplo—. Se devuelve el mejor plan
+   * posible con esto puesto en vez de callarlo: el organizador tiene que saber
+   * que su cartel no se puede cumplir ANTES del sábado, no con la gente
+   * delante.
+   */
+  noCumpleAsegurados?: number;
 }
 
 const plan = (

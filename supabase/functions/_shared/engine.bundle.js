@@ -83,11 +83,13 @@ function distribute(n, g2) {
   return sizes;
 }
 var TAMANO_PREFERIDO = 3;
-function scorePartition(sizes) {
+var aseguradosDe = (sizes) => sizes.length === 0 ? 0 : Math.min(...sizes) - 1;
+function scorePartition(sizes, minimoAsegurados = 0) {
   if (sizes.some((s) => s < 3 || s > 5)) return null;
+  if (aseguradosDe(sizes) < minimoAsegurados) return null;
   return sizes.reduce((acc, s) => acc + Math.abs(s - TAMANO_PREFERIDO), 0);
 }
-function deriveFormat(n) {
+function deriveFormat(n, minimoAsegurados = 0) {
   if (n <= 5) {
     return {
       formatType: "round_robin",
@@ -104,7 +106,7 @@ function deriveFormat(n) {
   const gMax = Math.floor(n / 3);
   for (let g3 = gMin; g3 <= gMax; g3++) {
     const sizes = distribute(n, g3);
-    const score = scorePartition(sizes);
+    const score = scorePartition(sizes, minimoAsegurados);
     if (score === null) continue;
     if (best === null || score < best.score) {
       best = { g: g3, sizes, score };
@@ -153,13 +155,29 @@ function deriveFormat(n) {
     ambiguous: tie
   };
 }
-function computeFormat(numPairs) {
+function computeFormat(numPairs, opciones = {}) {
   if (numPairs < 2) {
     throw new Error("computeFormat: se requieren al menos 2 parejas.");
   }
+  const minimo = opciones.minimoAsegurados ?? 0;
   const listed = RULES[numPairs];
-  if (listed) return listed;
-  return deriveFormat(numPairs);
+  if (minimo <= 0) return listed ?? deriveFormat(numPairs);
+  if (listed) {
+    const familia = [listed, ...listed.alternatives ?? []];
+    const valen = familia.filter((p) => aseguradosDe(p.groupSizes) >= minimo);
+    if (valen.length > 0) {
+      const [mejor, ...resto] = valen;
+      return { ...mejor, alternatives: resto.length > 0 ? resto : void 0 };
+    }
+  }
+  const derivado = deriveFormat(numPairs, minimo);
+  if (aseguradosDe(derivado.groupSizes) >= minimo) return derivado;
+  const mejorPosible = listed ?? deriveFormat(numPairs);
+  return {
+    ...mejorPosible,
+    ambiguous: true,
+    noCumpleAsegurados: minimo
+  };
 }
 
 // src/lib/engine/fixtures/index.ts

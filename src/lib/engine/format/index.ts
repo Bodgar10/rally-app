@@ -58,9 +58,51 @@ function distribute(n: number, g: number): number[] {
  */
 const TAMANO_PREFERIDO = 3;
 
+/**
+ * Lo que el torneo PROMETE que juega cada pareja.
+ *
+ * ► NO ES UNA PREFERENCIA, ES UN CONTRATO
+ *   Padel Hype anuncia "3 partidos asegurados" en su cartel. Con 10 parejas el
+ *   motor proponía un grupo de 4 y dos de 3: seis de cada diez parejas juegan
+ *   DOS. Eso es publicidad engañosa, y el organizador lo descubre el sábado con
+ *   la gente delante.
+ *
+ *   Un grupo de N da N-1 partidos a cada pareja, así que prometer 3 es exigir
+ *   que NINGÚN grupo baje de 4. Con eso dicho, el motor deja de proponer lo que
+ *   no se puede cumplir.
+ *
+ * ► SE PIDE, NO SE ASUME
+ *   Sin número, el motor sigue prefiriendo grupos de 3 — que es lo que cabe
+ *   cuando la capacidad aprieta, y lo que hizo Cimepa con 165 parejas. Un
+ *   torneo que no promete nada no tiene por qué pagar el doble de canchas.
+ */
+export interface OpcionesDeFormato {
+  /**
+   * Partidos que CADA pareja juega como mínimo en la fase de grupos.
+   *
+   * Sin esto no hay suelo: los grupos se reparten por capacidad y el más chico
+   * manda. Con esto, ninguna partición con un grupo menor que `n + 1` es
+   * válida.
+   */
+  minimoAsegurados?: number;
+}
+
+/**
+ * El grupo más chico de una partición es el que fija lo asegurado.
+ *
+ * SIN GRUPOS NO HAY NADA ASEGURADO: un cuadro directo es jugar uno y, si lo
+ * pierdes, a casa. `Math.min()` de una lista vacía devuelve Infinity, que leído
+ * como "asegurados" decía que un knockout puro cumple cualquier promesa.
+ */
+const aseguradosDe = (sizes: readonly number[]): number =>
+  sizes.length === 0 ? 0 : Math.min(...sizes) - 1;
+
 /** Score de cercanía al tamaño preferido; menor es mejor. Inválido fuera de [3,5]. */
-function scorePartition(sizes: number[]): number | null {
+function scorePartition(sizes: number[], minimoAsegurados = 0): number | null {
   if (sizes.some((s) => s < 3 || s > 5)) return null;
+  // El suelo prometido descarta la partición entera, no la penaliza: un torneo
+  // que anuncia 3 no puede jugar 2 "un poco".
+  if (aseguradosDe(sizes) < minimoAsegurados) return null;
   return sizes.reduce((acc, s) => acc + Math.abs(s - TAMANO_PREFERIDO), 0);
 }
 
@@ -70,7 +112,7 @@ function scorePartition(sizes: number[]): number | null {
  * completar con los mejores de la posición advancePerGroup+1 (segundos si
  * pasa 1 por grupo, terceros si pasan 2). ambiguous=true si dos g empatan en score.
  */
-function deriveFormat(n: number): FormatPlan {
+function deriveFormat(n: number, minimoAsegurados = 0): FormatPlan {
   if (n <= 5) {
     // Categoría muy chica sin listar: round robin a una sola final entre top 2.
     return {
@@ -90,7 +132,7 @@ function deriveFormat(n: number): FormatPlan {
   const gMax = Math.floor(n / 3);
   for (let g = gMin; g <= gMax; g++) {
     const sizes = distribute(n, g);
-    const score = scorePartition(sizes);
+    const score = scorePartition(sizes, minimoAsegurados);
     if (score === null) continue;
     if (best === null || score < best.score) {
       best = { g, sizes, score };
@@ -149,11 +191,49 @@ function deriveFormat(n: number): FormatPlan {
  * Calcula el formato de una categoría dado el nº de parejas.
  * Usa la tabla literal (Doc B §1.1) si N está listado; si no, deriva.
  */
-export function computeFormat(numPairs: number): FormatPlan {
+export function computeFormat(
+  numPairs: number,
+  opciones: OpcionesDeFormato = {},
+): FormatPlan {
   if (numPairs < 2) {
     throw new Error('computeFormat: se requieren al menos 2 parejas.');
   }
+  const minimo = opciones.minimoAsegurados ?? 0;
   const listed = RULES[numPairs];
-  if (listed) return listed;
-  return deriveFormat(numPairs);
+
+  if (minimo <= 0) return listed ?? deriveFormat(numPairs);
+
+  // ── Con un suelo prometido ───────────────────────────────────────────────
+  //
+  // La tabla literal está calibrada por CAPACIDAD, no por promesa: sus
+  // entradas prefieren grupos de 3. Así que se busca entre el plan y sus
+  // alternativas la primera que cumpla, y lo que no cumple deja de ofrecerse —
+  // enseñar una opción que rompe el cartel es invitar a romperlo.
+  if (listed) {
+    const familia = [listed, ...(listed.alternatives ?? [])];
+    const valen = familia.filter((p) => aseguradosDe(p.groupSizes) >= minimo);
+    if (valen.length > 0) {
+      const [mejor, ...resto] = valen;
+      return { ...mejor, alternatives: resto.length > 0 ? resto : undefined };
+    }
+  }
+
+  const derivado = deriveFormat(numPairs, minimo);
+  if (aseguradosDe(derivado.groupSizes) >= minimo) return derivado;
+
+  // ── No se puede cumplir con este número de parejas ────────────────────────
+  //
+  // Pasa con números que no admiten partición en [3,5] sin un grupo chico —7
+  // parejas con suelo 3, por ejemplo—. Se devuelve lo mejor que hay y se dice:
+  // callarlo dejaría al organizador anunciando algo imposible, y mentir con un
+  // plan que no cumple es peor que avisar.
+  // SIN EL FILTRO, no `derivado`: aquel se calculó exigiendo el suelo y, al no
+  // encontrar partición, cayó a cuadro directo — cero asegurados, que es peor
+  // que el plan normal. Lo que se devuelve es lo mejor que SÍ existe.
+  const mejorPosible = listed ?? deriveFormat(numPairs);
+  return {
+    ...mejorPosible,
+    ambiguous: true,
+    noCumpleAsegurados: minimo,
+  };
 }
