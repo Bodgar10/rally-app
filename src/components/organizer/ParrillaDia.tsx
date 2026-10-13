@@ -235,6 +235,15 @@ export default function ParrillaDia({
                             {/* EL MARCADOR ARRIBA Y A LA DERECHA, donde se
                                 busca: es lo primero que mira el organizador
                                 para saber si ese partido ya está. */}
+                            {/* LA RONDA, SIEMPRE. Una celda que solo dice
+                                "5ª Mixto" no distingue un partido de grupos de
+                                la final: en la tarde del torneo eso es
+                                exactamente lo que se busca, y en las celdas que
+                                aún no tienen parejas es lo ÚNICO que se puede
+                                decir. En ancho va en la misma línea que la
+                                categoría para no gastar un renglón de nombres;
+                                en estrecho no cabe y sigue en el suyo. */}
+                            {ancha && <Text style={s.partidoEtapaInline} numberOfLines={1}>{f.etapa}</Text>}
                             {ancha && f.marcador && (
                               <Text style={s.marcador} numberOfLines={1}>{f.marcador}</Text>
                             )}
@@ -267,6 +276,15 @@ export default function ParrillaDia({
                                 {f.ganadorId === f.parejaBId ? '👑 ' : ''}{f.parejaB ?? '—'}
                               </Text>
                             </View>
+                          )}
+
+                          {/* SIN PAREJAS TODAVÍA: el hueco se nombra. Un
+                              cuartos que aún no sabe quién lo juega es una
+                              celda legítima del día —tiene cancha y hora—, y
+                              dejarla medio vacía la hace parecer un error del
+                              calendario. */}
+                          {ancha && !f.parejaA && !f.parejaB && (
+                            <Text style={s.porDefinir}>Por definir</Text>
                           )}
 
                           {/* ANOTAR, SIN PASAR POR EL DETALLE.
@@ -343,6 +361,10 @@ const s = StyleSheet.create({
   cabeceraCelda: { flexDirection: 'row', alignItems: 'baseline', gap: space[1] },
 
   parejas: { marginTop: 3, gap: 1 },
+  // La ronda cede el ancho antes que la categoría: "5ª Mixto" es lo que
+  // identifica la celda, "semifinal" es la segunda pregunta.
+  partidoEtapaInline: { flexShrink: 1, fontFamily: font.body, fontSize: 10, color: color.muted },
+  porDefinir: { marginTop: 3, fontFamily: font.body, fontSize: fontSize.caption, color: color.muted },
   // Legible de pie y a medio metro, que es como se mira esto en el club.
   pareja:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
   parejaGana: { color: color.goldBright, fontWeight: '600' },
@@ -379,7 +401,7 @@ const s = StyleSheet.create({
   partidoHecho:     { backgroundColor: 'rgba(66,214,164,0.14)', borderWidth: 1, borderColor: 'rgba(66,214,164,0.35)' },
   partidoChoque:    { borderWidth: 1, borderColor: color.danger },
   partidoResaltado: { borderWidth: 1.5, borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.14)' },
-  partidoCat:       { fontFamily: font.body, fontSize: 11, color: color.text },
+  partidoCat:       { flexShrink: 0, fontFamily: font.body, fontSize: 11, color: color.text },
   partidoCatHecho:  { color: color.live },
   partidoEtapa:     { fontFamily: font.body, fontSize: 10, color: color.muted },
 
