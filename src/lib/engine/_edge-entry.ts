@@ -57,6 +57,10 @@ export type { OcupacionBloque, Ocupacion, BloqueDisponible } from './schedule/bl
 
 // Scheduler del dia de eliminatorias (lo consume schedule-knockout)
 export { programarEliminatorias, etapaDeRonda } from './schedule/knockout';
+// Cuánto dura de verdad un partido planificado a N minutos. Lo necesita
+// `schedule-knockout` para saber a qué hora acaban los grupos en un torneo de
+// un solo día — y no programar el cuadro encima de ellos.
+export { FACTOR_RETRASO } from './schedule/knockout';
 export type {
   EntradaScheduler,
   CategoriaCuadro,

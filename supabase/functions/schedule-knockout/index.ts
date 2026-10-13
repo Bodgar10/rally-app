@@ -22,6 +22,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   programarEliminatorias,
   canchasDeSede,
+  FACTOR_RETRASO,
   type CategoriaCuadro,
   type Calendario,
 } from '../_shared/engine.bundle.js';
@@ -148,11 +149,67 @@ Deno.serve(async (req) => {
     // son fase de grupos, el último es eliminatorias. Ya viene ordenado por
     // `dia` ascendente, así que el último elemento es el que buscamos.
     const ventana = dias[dias.length - 1];
+
+    /**
+     * A qué hora ARRANCA el cuadro.
+     *
+     * ► EL BUG, Y YA MORDIÓ UNA VEZ
+     *   Con varios días esto es la apertura del último: ese día es solo del
+     *   cuadro. Con UN SOLO DÍA —los torneos de Padel Hype, y los exprés— la
+     *   fase de grupos ocupa esa misma ventana, y arrancar en la apertura
+     *   programaba los cuartos ENCIMA de los grupos. En el exprés de
+     *   septiembre eso puso ocho jugadores en dos partidos a la vez.
+     *
+     * ► SE PREGUNTA A LOS PARTIDOS, NO SE PROYECTA
+     *   La hora buena es cuando acaba el último partido de grupos, y eso ya
+     *   está escrito en `matches.scheduled_at`: los grupos se programan antes
+     *   que el cuadro, siempre. Recalcularlo con `generarBloques` daría una
+     *   proyección que puede no coincidir con lo que de verdad se guardó —por
+     *   un partido movido a mano, por ejemplo.
+     *
+     *   Se le suma la duración REAL de ese partido, no la planificada: un
+     *   partido de 60 minutos ocupa 75. Empezar el cuadro cuando el último
+     *   grupo todavía está en pista es el mismo error con menos minutos.
+     */
+    let desdeCuadro = aHHMM(ventana.desde);
+
     if (dias.length === 1) {
-      avisos.push(
-        'El torneo tiene un solo día: la fase de grupos y las eliminatorias comparten la ventana, ' +
-        'así que el calendario no reserva tiempo para los grupos.',
-      );
+      const { data: ultimoGrupo } = await admin
+        .from('matches')
+        .select('scheduled_at')
+        .eq('tournament_id', tournamentId)
+        .eq('stage', 'group')
+        .not('scheduled_at', 'is', null)
+        .order('scheduled_at', { ascending: false })
+        .limit(1);
+
+      const fin = (ultimoGrupo ?? [])[0]?.scheduled_at as string | undefined;
+
+      if (!fin) {
+        // Grupos sin programar todavía. No se adivina: el cuadro arranca en la
+        // apertura y se avisa, que es lo que había antes de esto.
+        avisos.push(
+          'El torneo es de un solo día y sus partidos de grupos no tienen hora: el cuadro se ' +
+          'programa desde la apertura y puede quedar encima de ellos.',
+        );
+      } else {
+        const minutos = (torneo.match_minutes as number) ?? 60;
+        const acaba = new Date(fin);
+        acaba.setMinutes(acaba.getMinutes() + Math.round(minutos * FACTOR_RETRASO));
+
+        // La hora del club, no la de quien corre esto.
+        const hhmm = acaba.toLocaleTimeString('es-MX', {
+          hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City',
+        });
+
+        // Si los grupos acaban después del cierre, el motor lo dirá con su
+        // diagnóstico: aquí no se recorta la ventana a mano.
+        desdeCuadro = hhmm;
+        avisos.push(
+          `El torneo es de un solo día: el cuadro arranca a las ${hhmm}, cuando acaba el último ` +
+          'partido de la fase de grupos.',
+        );
+      }
     }
 
     // ─────────────────── 4. Clasificados por categoría ───────────────────
@@ -259,7 +316,7 @@ Deno.serve(async (req) => {
     try {
       plan = programarEliminatorias({
         canchas: delCuadro.length > 0 ? delCuadro.length : (torneo.courts as number),
-        desde: aHHMM(ventana.desde),
+        desde: desdeCuadro,
         hasta: aHHMM(ventana.hasta),
         categorias,
         minutosPorPartido: torneo.match_minutes as number,

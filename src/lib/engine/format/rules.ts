@@ -59,8 +59,19 @@ export const RULES: Record<number, FormatPlan> = {
   // 12 partidos en vez de 20. La alternativa de 5+5 da 1 asegurado más.
   10: plan('groups_then_knockout', [4, 3, 3], 1, 1, 'semi', false, [
     plan('groups_then_knockout', [5, 5], 2, 0, 'semi'),
+    // COMO LO JUEGA PADEL HYPE: dos grupos de 5, pasan los tres primeros de
+    // cada uno. Los dos campeones de grupo entran con bye y esperan en
+    // semifinales; el 2.º y el 3.º se cruzan en cuartos. Seis clasificados en
+    // un cuadro de ocho — que es lo que hacen los byes.
+    plan('groups_then_knockout', [5, 5], 3, 0, 'quarter'),
   ]),
-  12: plan('groups_then_knockout', [3, 3, 3, 3], 2, 0, 'quarter'),
+  // La de siempre son cuatro grupos de 3: dos partidos asegurados y 12 de
+  // grupos. La alternativa son tres de 4 — TRES asegurados, que es lo que
+  // anuncia quien promete "3 partidos asegurados" — a cambio de 18 partidos y
+  // de cruzar a los dos mejores terceros para llenar los cuartos.
+  12: plan('groups_then_knockout', [3, 3, 3, 3], 2, 0, 'quarter', false, [
+    plan('groups_then_knockout', [4, 4, 4], 2, 2, 'quarter'),
+  ]),
   // Ya estaba bien; deja de ser ambigua porque con preferencia 3 no hay empate.
   14: plan('groups_then_knockout', [4, 4, 3, 3], 2, 0, 'quarter'),
   // 18 partidos en vez de 24.
