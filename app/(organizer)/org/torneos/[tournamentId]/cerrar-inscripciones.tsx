@@ -1606,9 +1606,25 @@ export default function CerrarInscripcionesScreen() {
                   <Text style={s.faltan}>Se necesitan 2 parejas pagadas para poder cerrar.</Text>
                 )}
 
-                {/* Alternativas del plan ambiguo */}
-                {c.estado === 'ambigua' && c.plan && (
+                {/* ── OTRAS FORMAS DE ARMARLO ──────────────────────────────
+                    ANTES SOLO SALÍAN CUANDO EL MOTOR DUDABA (`ambigua`), y esa
+                    condición dejaba fuera el caso que más importa: el motor
+                    tiene clara su preferencia —grupos de 3, que es lo que cabe
+                    cuando la capacidad aprieta— pero el organizador prometió
+                    otra cosa en su cartel.
+
+                    Padel Hype anuncia "3 partidos asegurados". Con 10 parejas
+                    el plan preferido da 2, y la alternativa de dos grupos de 5
+                    da 4 — estaba calculada y no se enseñaba, así que la única
+                    salida era tocar la base.
+
+                    Que el motor sepa cuál prefiere no quita que el organizador
+                    sepa algo que la app no: lo que vendió. */}
+                {c.plan && (c.plan.alternatives?.length ?? 0) > 0 && (
                   <View style={s.alternativas}>
+                    {c.estado !== 'ambigua' && (
+                      <Text style={s.alternativasTitulo}>Otras formas de armarlo</Text>
+                    )}
                     {[c.plan, ...(c.plan.alternatives ?? [])].map((alt, i) => (
                       <Pressable
                         key={i}
@@ -1843,6 +1859,10 @@ const s = StyleSheet.create({
   avisoPagoTitulo: { fontFamily: font.display, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
   avisoPagoCuerpo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
 
+  alternativasTitulo: {
+    fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.muted,
+    letterSpacing: 1.2, marginBottom: space[1],
+  },
   alternativas:    { gap: space[2], marginTop: space[1] },
   alternativa:     { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: touchTarget },
   radio:           { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: color.lineSoft, flexShrink: 0 },
