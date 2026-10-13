@@ -44,6 +44,7 @@ import { supabase } from '@/lib/supabase/client';
 import { cumplirPaso } from '@/lib/guia-store';
 import Icon from '@/components/ui/Icon';
 import { computeFormat, type FormatPlan } from '@/lib/engine/format';
+import { FACTOR_RETRASO } from '@/lib/engine/schedule/knockout';
 import {
   planTournament,
   type Capacidad, type PlanTorneo, type Fase as FaseCapacidad,
@@ -898,6 +899,35 @@ export default function CerrarInscripcionesScreen() {
     if (canchas == null || ventanas.length === 0) return null;
     const ventana = ventanas[ventanas.length - 1];
 
+    /**
+     * ► A QUÉ HORA EMPIEZA EL CUADRO.
+     *
+     *   Con varios días es la apertura del último: ese día es solo suyo. Con
+     *   UN SOLO DÍA la fase de grupos ocupa esa misma ventana, y calcular el
+     *   cuadro desde la apertura daba "el sábado termina 14:00" en un torneo
+     *   que a las 14:00 todavía está jugando grupos. El organizador lee esa
+     *   hora para decidir cuántos repescar.
+     *
+     *   Los grupos tardan lo que tardan sus partidos repartidos entre las
+     *   canchas. Es la misma cuenta que la barra de ocupación de arriba —
+     *   optimista, porque supone reparto perfecto— y por eso las dos cifras
+     *   cuadran entre sí en vez de contarse historias distintas.
+     */
+    const unSoloDia = ventanas.length === 1;
+    let desdeCuadro = ventana.desde;
+
+    if (unSoloDia && capacidad) {
+      const turnos = Math.ceil(capacidad.grupos.usados / canchas);
+      const minutosGrupos = turnos * Math.round(minutos * FACTOR_RETRASO);
+      const [hh, mm] = ventana.desde.split(':').map(Number);
+      const t = hh * 60 + mm + minutosGrupos;
+      // Pasada la medianoche no hay cuadro que programar: se deja la apertura
+      // y el motor dirá que no cabe, que es la verdad.
+      if (t < 24 * 60) {
+        desdeCuadro = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+      }
+    }
+
     // TODAS las categorías, no solo las que se van a cerrar ahora: las ya
     // cerradas también ocupan cancha el último día.
     const cuadros: CategoriaCuadro[] = [];
@@ -918,7 +948,7 @@ export default function CerrarInscripcionesScreen() {
     try {
       const plan = programarEliminatorias({
         canchas,
-        desde: ventana.desde,
+        desde: desdeCuadro,
         hasta: ventana.hasta,
         categorias: cuadros,
         minutosPorPartido: minutos,
@@ -941,7 +971,7 @@ export default function CerrarInscripcionesScreen() {
       // rango). Si rechaza, la capacidad está mal capturada: se cae a la barra.
       return null;
     }
-  }, [canchas, minutos, ventanas, categorias]);
+  }, [canchas, minutos, ventanas, categorias, capacidad]);
 
   const cerrables = useMemo(
     () => categorias.filter((c) => marcadas.has(c.id)),
