@@ -15,6 +15,16 @@
  *   Se crean en `auth` para que el trigger escriba su fila en `users`. Sin eso
  *   `fetchParejasPublicas` no las encuentra y el cuadro sale con guiones.
  *
+ * ► Y ELIGEN HORARIO, COMO LA GENTE DE VERDAD
+ *   La pareja reserva su bloque al inscribirse —es un asiento, no una
+ *   preferencia— y el cierre de categoría se niega a seguir sin eso: metería a
+ *   la gente en grupos de otro horario sin poder deshacerlo.
+ *
+ *   Sembrar sin bloque dejaba el torneo imposible de cerrar. Aquí se reparten
+ *   por bloques respetando los carriles de cada uno, y las parejas que van a
+ *   acabar en el mismo grupo caen en el mismo bloque — que es lo que hace que
+ *   un grupo se juegue de un tirón en una cancha.
+ *
  * ► IDEMPOTENTE
  *   Los correos son deterministas por índice y categoría. Correrlo dos veces no
  *   duplica parejas: se comprueba quién está ya en la categoría, que es la
@@ -26,6 +36,9 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import {
+  generarBloques, computeFormat, carrilesDeGrupo,
+} from '../supabase/functions/_shared/engine.bundle.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -124,6 +137,12 @@ async function main() {
   const { data: cats } = await supa
     .from('categories').select('id, display_name, gender').eq('tournament_id', tournamentId);
 
+  // Lo que promete el cartel: decide el tamaño de grupo y por tanto cuántas
+  // parejas van juntas a cada bloque.
+  const { data: tProm } = await supa
+    .from('tournaments').select('partidos_asegurados').eq('id', tournamentId).maybeSingle();
+  const asegurados = tProm?.partidos_asegurados ?? 0;
+
   console.log(`\n  ${torneo.name}\n`);
   for (const p of pedido) {
     const c = (cats ?? []).find((x) => x.display_name === p.categoria);
@@ -131,6 +150,30 @@ async function main() {
     console.log(`    ${p.categoria.padEnd(14)} ${String(p.parejas).padStart(2)} parejas  (${c.gender})`);
   }
   if (dry) { console.log('\n  --dry: no se escribió nada.\n'); return; }
+
+  // ── Los bloques del torneo, para repartir horarios ────────────────────────
+  //
+  // Se calculan con el MISMO motor que usa la inscripción, así que los ids que
+  // se guardan son los que la app va a buscar después.
+  const [{ data: ventanas }, { data: t2 }] = await Promise.all([
+    supa.from('tournament_windows').select('dia, desde, hasta')
+      .eq('tournament_id', tournamentId).order('dia'),
+    supa.from('tournaments').select('courts, match_minutes').eq('id', tournamentId).maybeSingle(),
+  ]);
+
+  let bloques = [];
+  if ((ventanas ?? []).length > 0 && t2?.courts) {
+    bloques = generarBloques({
+      ventanas: ventanas.map((v) => ({
+        dia: v.dia, desde: v.desde.slice(0, 5), hasta: v.hasta.slice(0, 5),
+      })),
+      canchas: t2.courts,
+      minutosPorPartido: t2.match_minutes ?? 60,
+    }).bloques;
+  }
+
+  /** Carriles que quedan libres en cada bloque. Se va gastando. */
+  const libres = new Map(bloques.map((b) => [b.id, b.carriles]));
 
   // Los contadores van FUERA del bucle: son del torneo entero, no de cada
   // categoría. Ver `nombreDe`.
@@ -219,6 +262,49 @@ async function main() {
       if (error) morir(`Parejas de ${p.categoria}: ${error.message}`);
     }
     console.log(`  ${p.categoria}: ${(yaParejas ?? []).length + nuevas.length} parejas (${nuevas.length} nuevas)`);
+
+    // ── El horario ──────────────────────────────────────────────────────────
+    //
+    // Las parejas que van a acabar en el mismo grupo se reservan en el MISMO
+    // bloque: un grupo se juega de un tirón en una cancha, y repartirlo entre
+    // horarios es citar a tres personas a horas distintas para jugar entre
+    // ellas.
+    if (bloques.length > 0) {
+      const { data: todas } = await supa
+        .from('pairs').select('id').eq('category_id', cat.id).order('created_at');
+      const ids = (todas ?? []).map((x) => x.id);
+
+      const { data: yaEligieron } = await supa
+        .from('pair_block_choices').select('pair_id').in('pair_id', ids);
+      const conBloque = new Set((yaEligieron ?? []).map((x) => x.pair_id));
+
+      // El tamaño de grupo sale del mismo motor que decidirá el formato.
+      const plan = computeFormat(ids.length, { minimoAsegurados: asegurados });
+      const tam = Math.min(...plan.groupSizes);
+      const gasto = carrilesDeGrupo(tam);
+
+      const elecciones = [];
+      for (let k = 0; k < ids.length; k += tam) {
+        const tanda = ids.slice(k, k + tam).filter((id) => !conBloque.has(id));
+        if (tanda.length === 0) continue;
+        const bloque = bloques.find((b) => (libres.get(b.id) ?? 0) >= gasto);
+        if (!bloque) {
+          console.error(`    ✕ ${p.categoria}: no quedan carriles para otro grupo.`);
+          break;
+        }
+        libres.set(bloque.id, libres.get(bloque.id) - gasto);
+        for (const id of tanda) {
+          elecciones.push({ pair_id: id, tournament_id: tournamentId, bloque_id: bloque.id, forzado: false });
+        }
+      }
+
+      if (elecciones.length > 0) {
+        const { error } = await supa.from('pair_block_choices')
+          .upsert(elecciones, { onConflict: 'pair_id' });
+        if (error) morir(`Horarios de ${p.categoria}: ${error.message}`);
+        console.log(`  ${p.categoria}: ${elecciones.length} parejas con horario`);
+      }
+    }
   }
 
   console.log('\n  Listo. Cierra inscripciones por categoría desde el panel.\n');
