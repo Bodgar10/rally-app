@@ -60,9 +60,9 @@ const ALTO_FILA = 54;
  * con dos enteros.
  */
 const ANCHO_PARA_NOMBRES = 1100;
-/** Lo que mide una celda cuando sí caben los nombres. */
+/** Lo que mide una celda cuando sí caben los nombres y el botón de anotar. */
 const ANCHO_CELDA_ANCHA = 190;
-const ALTO_FILA_ANCHA = 96;
+const ALTO_FILA_ANCHA = 118;
 
 interface Props {
   /**
@@ -77,6 +77,24 @@ interface Props {
   /** Resaltada: la celda a la que saltó un aviso. */
   resaltado?: string | null;
   onCelda: (fila: FilaCalendario) => void;
+  /**
+   * Anotar el marcador SIN SALIR DE LA PARRILLA.
+   *
+   * ► DOS TOQUES ERAN DOS DE MÁS
+   *   Tocar la celda abría el detalle y desde ahí se capturaba. En una laptop
+   *   con el torneo en marcha eso son dos clics y un diálogo intermedio por
+   *   cada marcador, y el organizador anota treinta y uno en una tarde.
+   *
+   *   El detalle sigue estando: es donde se mueve un partido y donde se ve
+   *   todo. Lo que cambia es que anotar —lo que se hace treinta veces— deja de
+   *   pasar por él.
+   *
+   * Solo en modo ancho: en el móvil no cabe un botón dentro de la celda sin
+   * comerse los dos textos que la hacen útil.
+   */
+  onCapturar?: (fila: FilaCalendario) => void;
+  /** Si ese partido admite marcador. Sin las dos parejas no hay nada que anotar. */
+  sePuedeCapturar?: (fila: FilaCalendario) => boolean;
 }
 
 /** 'Cancha 3' → 3. Para ordenar y para colocar en su fila. */
@@ -86,7 +104,7 @@ const numeroDeCancha = (etiqueta: string | null): number | null => {
 };
 
 export default function ParrillaDia({
-  filas, canchas, resaltado, onCelda, anchoForzado,
+  filas, canchas, resaltado, onCelda, onCapturar, sePuedeCapturar, anchoForzado,
 }: Props) {
   const { width } = useWindowDimensions();
   const ancha = anchoForzado ?? width >= ANCHO_PARA_NOMBRES;
@@ -205,6 +223,29 @@ export default function ParrillaDia({
                           {ancha && f.marcador && (
                             <Text style={s.marcador} numberOfLines={1}>{f.marcador}</Text>
                           )}
+
+                          {/* ANOTAR, SIN PASAR POR EL DETALLE.
+                              Es lo que se hace treinta veces en una tarde; el
+                              detalle es para mover, que se hace dos. */}
+                          {ancha && onCapturar && sePuedeCapturar?.(f) && (
+                            <Pressable
+                              onPress={() => onCapturar(f)}
+                              style={({ pressed }) => [
+                                s.anotar,
+                                f.estado === 'finished' && s.anotarHecho,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                (f.estado === 'finished' ? 'Editar el resultado de ' : 'Anotar el resultado de ')
+                                + `${f.parejaA ?? ''} contra ${f.parejaB ?? ''}`
+                              }
+                            >
+                              <Text style={s.anotarTexto}>
+                                {f.estado === 'finished' ? 'Editar' : 'Anotar'}
+                              </Text>
+                            </Pressable>
+                          )}
                         </Pressable>
                       ))}
                     </View>
@@ -254,6 +295,16 @@ const s = StyleSheet.create({
     fontFamily: font.display, fontSize: fontSize.minAbsolute, color: color.champagne,
     marginTop: 1,
   },
+
+  // Discreto a propósito: la parrilla se lee de un vistazo y treinta botones de
+  // oro la convertirían en una lista de botones.
+  anotar: {
+    marginTop: 'auto', alignSelf: 'flex-start',
+    paddingHorizontal: space[2], paddingVertical: 2,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.goldMuted,
+  },
+  anotarHecho: { borderColor: color.lineSoft },
+  anotarTexto: { fontFamily: font.body, fontSize: fontSize.minAbsolute, color: color.gold },
 
   cabecera: { height: 30, borderBottomWidth: 1, borderBottomColor: color.line, justifyContent: 'center' },
   hora:     { fontFamily: font.display, fontSize: fontSize.caption, color: color.champagne, textAlign: 'center' },

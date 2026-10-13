@@ -924,6 +924,11 @@ export default function CalendarioScreen() {
                   canchas={estado.canchas ?? 8}
                   resaltado={resaltado}
                   onCelda={(f) => setDetalle(f as Fila)}
+                  // Anotar sin pasar por el detalle: es lo que se hace treinta
+                  // veces en una tarde. El detalle es para mover, que se hace
+                  // dos. Ver `onCapturar` en ParrillaDia.
+                  onCapturar={(f) => setCapturando(f as Fila)}
+                  sePuedeCapturar={(f) => sePuedeCapturar(f as Fila)}
                 />
 
                 {/* DESPUÉS de la parrilla: se entra a ver el calendario, no a
