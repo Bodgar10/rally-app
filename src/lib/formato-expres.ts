@@ -23,7 +23,7 @@
  */
 
 import { GAMES_POR_PARTIDO } from '@/lib/engine/expres/suma6';
-import type { FormatoPartido } from '@/lib/engine/expres/formato';
+import type { FormatoPartido } from '@/lib/engine/score/formato-partido';
 import { PARTIDOS_POR_PAREJA, CLASIFICAN_POR_GRUPO } from '@/lib/engine/expres/reglas';
 
 /** `expres_etapa.stage`. */

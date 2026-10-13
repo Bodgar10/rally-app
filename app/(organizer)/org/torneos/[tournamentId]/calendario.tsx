@@ -51,6 +51,7 @@ import DetallePartido from '@/components/organizer/DetallePartido';
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import { scoreConfigDelPartido } from '@/lib/engine/score/formato-partido';
 import type { ScoreConfig } from '@/lib/engine/score';
 import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
 import {
@@ -118,6 +119,11 @@ const deMinutos = (m: number): string =>
  * día, que es lo que permite repartir el fin de semana en pestañas.
  */
 interface Fila extends FilaCalendario {
+  /**
+   * `matches.formato`: si ESTE partido va a un set o a dos de tres. Vacío en un
+   * torneo de los de siempre, y entonces manda la regla del torneo.
+   */
+  formato?: string | null;
   /** 'YYYY-MM-DD' en la zona del club. Ver diaDeTorneo. */
   dia: string;
 }
@@ -353,7 +359,7 @@ export default function CalendarioScreen() {
       // más. Mientras `scheduled_at` sea NULL, este filtro los deja fuera y la
       // pantalla se comporta como hasta hoy.
       supabase.from('matches')
-        .select('id, category_id, stage, round_label, scheduled_at, court_label, pair_a_id, pair_b_id, status, winner_pair_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
+        .select('id, category_id, stage, round_label, formato, scheduled_at, court_label, pair_a_id, pair_b_id, status, winner_pair_id, match_sets(set_number,games_a,games_b,is_super_tiebreak,tiebreak_a,tiebreak_b)')
         .eq('tournament_id', tournamentId)
         .not('scheduled_at', 'is', null),
     ]);
@@ -1011,7 +1017,7 @@ export default function CalendarioScreen() {
             pairBName={capturando.parejaB ?? '—'}
             setsIniciales={estado.setsPorPartido[capturando.id] ?? []}
             ganadorInicial={capturando.ganadorId ?? null}
-            scoreConfig={scoreConfig}
+            scoreConfig={scoreConfigDelPartido(capturando.formato, scoreConfig)}
             onSuccess={() => { setCapturando(null); void cargar(); }}
           />
         </Hoja>

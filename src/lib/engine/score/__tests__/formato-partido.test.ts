@@ -4,7 +4,7 @@
 // de exprés es UN SET — el juez tecleaba el 6-4 que lo cerraba y el botón de
 // guardar seguía apagado pidiendo un segundo set que nadie iba a jugar.
 
-import { scoreConfigDeFormato, esFormatoDeCuadro, setsDeEntrada } from '../formato';
+import { scoreConfigDeFormato, esFormatoConGanador, setsDeEntrada } from '../formato-partido';
 import { validateScore, DEFAULT_SCORE_CONFIG } from '../../score';
 import type { SetScore } from '../../types';
 
@@ -15,10 +15,10 @@ const set = (a: number, b: number): SetScore => ({ gamesA: a, gamesB: b });
 
 describe('qué formatos se capturan con sets', () => {
   it('el cuadro sí; el suma 6 no', () => {
-    expect(esFormatoDeCuadro('set_oro')).toBe(true);
-    expect(esFormatoDeCuadro('set_star_point')).toBe(true);
-    expect(esFormatoDeCuadro('dos_sets_oro')).toBe(true);
-    expect(esFormatoDeCuadro('suma_6')).toBe(false);
+    expect(esFormatoConGanador('set_oro')).toBe(true);
+    expect(esFormatoConGanador('set_star_point')).toBe(true);
+    expect(esFormatoConGanador('dos_sets_oro')).toBe(true);
+    expect(esFormatoConGanador('suma_6')).toBe(false);
   });
 
   // Un suma 6 no tiene ganador: validarlo con esto lo leería como un partido

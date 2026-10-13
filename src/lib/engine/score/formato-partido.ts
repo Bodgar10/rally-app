@@ -1,5 +1,5 @@
 /**
- * RALLY · Cómo se juega cada partido de un exprés, en reglas de marcador
+ * RALLY · Cómo se juega CADA PARTIDO, en reglas de marcador
  *
  * ► EL BUG
  *   La captura del cuadro de un exprés pedía DOS SETS y ofrecía un tercero. Un
@@ -30,15 +30,25 @@
  *   misma regla que `scoreConfigDelTorneo`, ningún default silencioso.
  */
 
-import { DEFAULT_SCORE_CONFIG, type ScoreConfig } from '../score';
+import { DEFAULT_SCORE_CONFIG, type ScoreConfig } from './index.ts';
 
 /** `formato_partido` — el enum de la base (migración 074). */
 export type FormatoPartido = 'suma_6' | 'set_oro' | 'dos_sets_oro' | 'set_star_point';
 
-/** Los formatos que se capturan con sets. `suma_6` no es uno de ellos. */
-export type FormatoDeCuadro = Exclude<FormatoPartido, 'suma_6'>;
+/**
+ * Los formatos que se capturan con sets y tienen ganador.
+ *
+ * SE LLAMABA `FormatoDeCuadro` Y EL NOMBRE SE QUEDÓ CORTO. Nació para el cuadro
+ * del exprés, donde era cierto: los grupos iban a suma 6 y solo el cuadro tenía
+ * ganador. Padel Hype juega SU FASE DE GRUPOS a un set con punto de oro, así
+ * que un partido de grupos también puede ser de estos.
+ *
+ * Lo que de verdad distingue: `suma_6` no tiene ganador y su tabla se ordena
+ * por saldo de games. Todo lo demás se valida con `validateScore`.
+ */
+export type FormatoConGanador = Exclude<FormatoPartido, 'suma_6'>;
 
-export function esFormatoDeCuadro(f: string): f is FormatoDeCuadro {
+export function esFormatoConGanador(f: string): f is FormatoConGanador {
   return f === 'set_oro' || f === 'set_star_point' || f === 'dos_sets_oro';
 }
 
@@ -79,4 +89,30 @@ export function scoreConfigDeFormato(
 /** Cuántos sets se teclean de entrada. Es lo que decide cuántas filas pinta la captura. */
 export function setsDeEntrada(cfg: ScoreConfig): number {
   return Math.min(2, cfg.bestOf);
+}
+
+/**
+ * Las reglas de marcador de UN partido concreto.
+ *
+ * ► ES LO QUE HACE FALTA EN CADA PANTALLA DE CAPTURA
+ *   `matches.formato` puede venir vacío —un torneo largo de los de siempre— o
+ *   traer lo que decidió el organizador para esa etapa. Componer las dos cosas
+ *   estaba repetido en la pantalla del juez, en la de grupos y en la del
+ *   calendario, y tres copias de la misma regla se desincronizan el día que
+ *   alguien toque una.
+ *
+ * `base` es la configuración del torneo (`scoreConfigDelTorneo`): de ahí sale a
+ * cuántos puntos va la súper muerte.
+ *
+ * Un `suma_6` devuelve `base` en vez de reventar: quien llama a esto es una
+ * pantalla pintando un partido, no el motor validándolo, y un exprés tiene sus
+ * propias pantallas. Reventar aquí tiraría una pantalla entera por un partido
+ * que ni siquiera se captura así.
+ */
+export function scoreConfigDelPartido(
+  formato: string | null | undefined,
+  base: ScoreConfig,
+): ScoreConfig {
+  if (!formato || !esFormatoConGanador(formato)) return base;
+  return scoreConfigDeFormato(formato, base);
 }

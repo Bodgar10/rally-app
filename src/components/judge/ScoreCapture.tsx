@@ -51,7 +51,7 @@ import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { mensajeDeCaptura } from '@/lib/captura-errores';
 import { clasificarSet, estadoDeSet, validateParcial, validateScore, type ScoreConfig } from '@/lib/engine/score';
-import { setsDeEntrada } from '@/lib/engine/expres/formato';
+import { setsDeEntrada } from '@/lib/engine/score/formato-partido';
 // La conversión formulario -> payload vive fuera para poder probarla: el fallo
 // del set vacío que llegaba como 0-0 era de conversión, no de pantalla.
 import { aMotor, capturado, payloadDeSets } from '@/lib/captura-sets';

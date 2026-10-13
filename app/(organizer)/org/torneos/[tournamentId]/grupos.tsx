@@ -42,6 +42,7 @@ import LiveStandings, { type StandingRow } from '@/components/realtime/LiveStand
 import LiveBracket, { type BracketMatch } from '@/components/realtime/LiveBracket';
 import { fetchParejasPublicas, nombreDePareja } from '@/lib/parejas-publicas';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import { scoreConfigDelPartido } from '@/lib/engine/score/formato-partido';
 import type { ScoreConfig } from '@/lib/engine/score';
 import { computeStandingsDetalle, DEFAULT_STANDINGS_CONFIG } from '@/lib/engine/standings';
 import { validarSiembra, type Problema } from '@/lib/engine/validacion-siembra';
@@ -68,6 +69,11 @@ interface SetDeMatch {
 
 interface PartidoGrupo {
   id: string;
+  /**
+   * `matches.formato`: si ESTE partido va a un set o a dos de tres. Vacío en un
+   * torneo de los de siempre, y entonces manda la regla del torneo.
+   */
+  formato?: string | null;
   parejaA: string;
   parejaB: string;
   parejaAId: string | null;
@@ -236,6 +242,7 @@ export default function GruposScreen() {
 
     setCapturando({
       id: m.id,
+      formato: m.formato ?? null,
       parejaA: m.pairAName ?? '—',
       parejaB: m.pairBName ?? '—',
       parejaAId: m.pairAId,
@@ -273,7 +280,7 @@ export default function GruposScreen() {
       supabase.from('groups').select('id, category_id, name').in('category_id', catIds),
       supabase.from('pairs').select('id, category_id, group_id').eq('tournament_id', tournamentId),
       supabase.from('matches')
-        .select('id, category_id, group_id, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at, court_label')
+        .select('id, category_id, group_id, status, formato, pair_a_id, pair_b_id, winner_pair_id, scheduled_at, court_label')
         .eq('tournament_id', tournamentId).eq('stage', 'group'),
     ]);
 
@@ -1126,7 +1133,7 @@ export default function GruposScreen() {
               setsIniciales={capturando.sets}
               ganadorInicial={capturando.ganadorId}
               onSuccess={() => { setCapturando(null); void cargar(); }}
-              scoreConfig={scoreConfig}
+              scoreConfig={scoreConfigDelPartido(capturando.formato, scoreConfig)}
             />)}
 
         </Hoja>

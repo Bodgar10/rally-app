@@ -1932,6 +1932,9 @@ export type Database = {
           courts: number | null
           created_at: string
           end_date: string
+          formato_cuadro: Database["public"]["Enums"]["formato_partido"] | null
+          formato_final: Database["public"]["Enums"]["formato_partido"] | null
+          formato_grupos: Database["public"]["Enums"]["formato_partido"] | null
           id: string
           match_minutes: number | null
           modo: Database["public"]["Enums"]["tournament_modo"]
@@ -1951,6 +1954,9 @@ export type Database = {
           courts?: number | null
           created_at?: string
           end_date: string
+          formato_cuadro?: Database["public"]["Enums"]["formato_partido"] | null
+          formato_final?: Database["public"]["Enums"]["formato_partido"] | null
+          formato_grupos?: Database["public"]["Enums"]["formato_partido"] | null
           id?: string
           match_minutes?: number | null
           modo?: Database["public"]["Enums"]["tournament_modo"]
@@ -1970,6 +1976,9 @@ export type Database = {
           courts?: number | null
           created_at?: string
           end_date?: string
+          formato_cuadro?: Database["public"]["Enums"]["formato_partido"] | null
+          formato_final?: Database["public"]["Enums"]["formato_partido"] | null
+          formato_grupos?: Database["public"]["Enums"]["formato_partido"] | null
           id?: string
           match_minutes?: number | null
           modo?: Database["public"]["Enums"]["tournament_modo"]

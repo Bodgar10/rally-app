@@ -26,7 +26,6 @@ export * from './tabla';
 export * from './clinch';
 export * from './captura';
 export * from './plan';
-export * from './formato';
 export { rondasDelCirculo, verificarReparto } from './circulo';
 export {
   barajar,

@@ -7,8 +7,7 @@ import {
   computeStandings,
   computeClinch,
   planAvance,
-  scoreConfigDeFormato,
-  esFormatoDeCuadro,
+  scoreConfigDelPartido,
 } from '../_shared/engine.bundle.js';
 
 // CORS mínimo
@@ -169,19 +168,19 @@ Deno.serve(async (req) => {
       superTiebreakTarget: cfgTorneo.tercer_set_puntos ?? DEFAULT_SCORE_CONFIG.superTiebreakTarget,
     };
 
-    // EN UN EXPRÉS EL FORMATO ES DE LA ETAPA, NO DEL TORNEO.
+    // EL FORMATO ES DE LA ETAPA, NO DEL TORNEO.
     //
     // Un cuarto de exprés es UN SET: se juega, lo gana quien lo gane y a la
     // siguiente ronda. Con la regla del torneo largo —mejor de 3— el 6-4 que
     // cerraba el partido se rechazaba con 'Falta el segundo set', y el juez no
     // tenía forma de guardar un resultado correcto.
     //
-    // `matches.formato` lo dice para cada partido y lo rellena el trigger de la
-    // migración 088 desde `expres_etapa`. En un torneo largo la columna viene
-    // vacía y manda la del torneo, que es la que siempre mandó.
-    const scoreCfg = match.formato && esFormatoDeCuadro(match.formato)
-      ? scoreConfigDeFormato(match.formato, baseTorneo)
-      : baseTorneo;
+    // `matches.formato` lo dice para cada partido. En un exprés lo rellena el
+    // trigger desde `expres_etapa`; en un torneo largo, desde las tres columnas
+    // de `tournaments` (migración 092) — que es lo que permite a Padel Hype
+    // jugar sus grupos a un set y la final a dos de tres. Vacía = manda la del
+    // torneo, que es la que siempre mandó.
+    const scoreCfg = scoreConfigDelPartido(match.formato, baseTorneo);
 
     const huecos = sets.filter(setSinNumeros).length;
     if (huecos > 0) {

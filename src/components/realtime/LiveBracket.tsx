@@ -59,6 +59,13 @@ export interface BracketMatch {
   scheduledAt: string | null;
   /** 'Cancha 3'. Opcional: el cuadro del jugador no lo trae. */
   courtLabel?: string | null;
+  /**
+   * `matches.formato`: si este partido va a un set o a dos de tres.
+   *
+   * Lo necesita quien lo abre para capturar. Vacío en un torneo de los de
+   * siempre, y entonces manda la regla del torneo.
+   */
+  formato?: string | null;
 }
 
 interface LiveBracketProps {
@@ -197,7 +204,7 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
     // declarado, pero nadie lo traía. En un torneo con ocho canchas, saber a
     // qué hora juegas sin saber dónde no sirve de mucho.
     .select(
-      `id, stage, round_label, status, pair_a_id, pair_b_id, winner_pair_id, scheduled_at, court_label`
+      `id, stage, round_label, status, formato, pair_a_id, pair_b_id, winner_pair_id, scheduled_at, court_label`
     )
     .eq('category_id', categoryId)
     .neq('stage', 'group')
@@ -228,6 +235,7 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
     winnerPairId: row.winner_pair_id,
     scheduledAt: row.scheduled_at,
     courtLabel: row.court_label,
+    formato: (row as { formato?: string | null }).formato ?? null,
   }));
 
   const { data: plan } = await planPromesa;
@@ -254,6 +262,7 @@ async function fetchBracketMatches(categoryId: string): Promise<BracketMatch[]> 
       winnerPairId: null,
       scheduledAt: slot.scheduledAt,
       courtLabel: slot.courtLabel,
+      formato: null,
     }),
   );
 }

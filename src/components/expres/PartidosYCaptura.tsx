@@ -65,7 +65,7 @@ import { type ResultadoSuma6 } from '@/lib/engine/expres';
 import { agendaExpres, coincide } from '@/lib/agenda-expres';
 import ScoreCapture from '@/components/judge/ScoreCapture';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
-import { scoreConfigDeFormato, esFormatoDeCuadro } from '@/lib/engine/expres/formato';
+import { scoreConfigDeFormato, esFormatoConGanador } from '@/lib/engine/score/formato-partido';
 import type { ScoreConfig } from '@/lib/engine/score';
 import type { FaseTorneo } from '@/lib/fase-torneo';
 import { textoDeBalance } from '@/lib/expres-texto';
@@ -289,14 +289,14 @@ export default function PartidosYCaptura({
   //   —que es UN SET— el 6-4 que lo cerraba dejaba el botón apagado pidiendo
   //   un segundo set que nadie iba a jugar. Ver `scoreConfigDeFormato`.
   if (abierto && esCuadro) {
-    const config = baseDelTorneo && esFormatoDeCuadro(abierto.formato)
+    const config = baseDelTorneo && esFormatoConGanador(abierto.formato)
       ? scoreConfigDeFormato(abierto.formato, baseDelTorneo)
       : null;
     if (!config) {
       return (
         <View style={s.error}>
           <Text style={s.errorTexto}>
-            {esFormatoDeCuadro(abierto.formato)
+            {esFormatoConGanador(abierto.formato)
               ? 'Falta saber cómo juega este torneo el set decisivo. Revísalo en '
                 + 'Formato antes de capturar el cuadro.'
               : 'Este partido no tiene formato guardado, así que no se sabe si es a '

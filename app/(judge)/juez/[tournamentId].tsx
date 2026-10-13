@@ -40,6 +40,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { color, font, radius } from '@/lib/design-tokens';
 import { supabase } from '@/lib/supabase/client';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
+import { scoreConfigDelPartido } from '@/lib/engine/score/formato-partido';
 import type { ScoreConfig } from '@/lib/engine/score';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
@@ -56,6 +57,15 @@ import { ETIQUETA_FASE, faseDeStage, type FaseTorneo } from '@/lib/fase-torneo';
 // ───────────────────────────────────────────
 
 interface JudgeMatch extends PartidoOrdenable {
+  /**
+   * `matches.formato`. Dice si ESTE partido va a un set o a dos de tres.
+   *
+   * Vacío en un torneo de los de siempre, y entonces manda la regla del torneo.
+   * Padel Hype juega sus grupos a un set con punto de oro: sin leer esto, el
+   * juez tecleaba el 6-4 que cierra el partido y el botón seguía apagado
+   * pidiendo un segundo set que nadie iba a jugar.
+   */
+  formato?: string | null;
   id: string;
   stage: string;
   roundLabel: string | null;
@@ -147,7 +157,7 @@ async function fetchMatches(tournamentId: string): Promise<JudgeMatch[]> {
       // `court_label` NO estaba, y es lo que el juez tiene delante cuando le
       // preguntan. Ya pasó en el cuadro: el campo en el tipo, pintándose, y la
       // consulta sin pedirlo — así que aquí van juntos a propósito.
-      `id, stage, round_label, status, pair_a_id, pair_b_id, scheduled_at,
+      `id, stage, round_label, status, formato, pair_a_id, pair_b_id, scheduled_at,
        court_label, category_id, group_id, winner_pair_id,
        categories:category_id ( display_name ),
        groups:group_id ( name ),
@@ -702,7 +712,7 @@ export default function JudgeTournamentScreen() {
             pairBName={selectedMatch.pairBName}
             setsIniciales={selectedMatch.sets}
             ganadorInicial={selectedMatch.winnerPairId}
-            scoreConfig={scoreConfig}
+            scoreConfig={scoreConfigDelPartido(selectedMatch.formato, scoreConfig)}
             onSuccess={handleSuccess}
           />}
         </Hoja>
