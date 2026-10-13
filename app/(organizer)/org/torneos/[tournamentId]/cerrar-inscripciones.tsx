@@ -213,6 +213,40 @@ function describirPlan(plan: FormatPlan): string {
 }
 
 /**
+ * Las tres partes de la descripción, para poder resaltar los asegurados.
+ *
+ * ► POR QUÉ SE PARTE EN VEZ DE PINTAR LA CADENA ENTERA
+ *   Los partidos asegurados son lo que el organizador anuncia en su cartel, y
+ *   lo que compara entre una opción y otra. En una línea corrida —"2 grupos de
+ *   5 · 4 partidos asegurados · pasan 2 por grupo · semifinales"— ese dato pesa
+ *   lo mismo que el resto y hay que leerla entera para encontrarlo.
+ *
+ *   Partirla permite ponerlo en negrita. `describirPlan` se queda para el texto
+ *   plano que lee un lector de pantalla, donde la negrita no existe.
+ */
+function partesDelPlan(plan: FormatPlan): { antes: string; asegurados: string; despues: string } {
+  const grupos = describirGrupos(plan.groupSizes);
+  const unSoloGrupo = plan.groupSizes.length === 1;
+  const ronda = RONDA[plan.knockoutStart] ?? plan.knockoutStart;
+
+  const extra = plan.bestExtraQualifiers > 0
+    ? ` + ${plan.bestExtraQualifiers} ${mejoresDePosicion(plan.advancePerGroup + 1, plan.bestExtraQualifiers)}`
+    : '';
+
+  if (plan.advancePerGroup === 0 && !extra) {
+    return { antes: `${grupos} · `, asegurados: '', despues: 'sin fase final' };
+  }
+
+  return {
+    antes: `${grupos} · `,
+    asegurados: describirAsegurados(plan.groupSizes),
+    despues: unSoloGrupo
+      ? ` · pasan ${plan.advancePerGroup}${extra} a la ${ronda}`
+      : ` · pasan ${plan.advancePerGroup} por grupo${extra} · ${ronda}`,
+  };
+}
+
+/**
  * Cuántos SEGUNDOS de grupo llegan al cuadro, y con qué frase.
  *
  * Es el dato que decide si el torneo se muere a la mitad: cuando de un grupo
@@ -425,7 +459,7 @@ function BloquesDelPlan({
       <View style={s.bloque}>
         <Text style={s.bloqueEtiqueta}>FASE DE GRUPOS</Text>
         <Text style={s.bloqueLinea}>{describirGrupos(plan.groupSizes)}</Text>
-        <Text style={s.bloqueNota}>{describirAsegurados(plan.groupSizes)}</Text>
+        <Text style={[s.bloqueNota, s.asegurados]}>{describirAsegurados(plan.groupSizes)}</Text>
       </View>
 
       {grupos > 1 && (
@@ -1634,7 +1668,13 @@ export default function CerrarInscripcionesScreen() {
                         accessibilityState={{ selected: c.alternativa === i }}
                       >
                         <View style={[s.radio, c.alternativa === i && s.radioActivo]} />
-                        <Text style={s.alternativaTexto}>{describirPlan(alt)}</Text>
+                        {/* Los asegurados en negrita: es lo que el organizador
+                            anuncia y lo que compara entre una opción y otra. */}
+                        <Text style={s.alternativaTexto} accessibilityLabel={describirPlan(alt)}>
+                          {partesDelPlan(alt).antes}
+                          <Text style={s.asegurados}>{partesDelPlan(alt).asegurados}</Text>
+                          {partesDelPlan(alt).despues}
+                        </Text>
                       </Pressable>
                     ))}
                   </View>
@@ -1859,6 +1899,8 @@ const s = StyleSheet.create({
   avisoPagoTitulo: { fontFamily: font.display, fontSize: fontSize.body, fontWeight: '600', color: color.alive },
   avisoPagoCuerpo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, lineHeight: 17 },
 
+  // Lo que el organizador prometió en su cartel. Se busca con la vista.
+  asegurados: { color: color.goldBright, fontWeight: '600' },
   alternativasTitulo: {
     fontFamily: font.display, fontSize: fontSize.eyebrow, color: color.muted,
     letterSpacing: 1.2, marginBottom: space[1],
