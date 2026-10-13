@@ -29,6 +29,7 @@ import {
   programarGrupos,
   sedesDelTorneo,
   nombreDeCancha,
+  partesDeIdDeBloque,
   type Bloque,
   type GrupoAProgramar,
   type CalendarioGrupos,
@@ -222,7 +223,11 @@ Deno.serve(async (req) => {
      */
     const etiqueta = (bloqueId: string, carril: number): string => {
       if (canchas.length === 0) return `Cancha ${carril}`;
-      const sedeId = bloqueId.includes(':') ? bloqueId.split(':')[0] : null;
+      // La hora del bloque TAMBIÉN lleva dos puntos: partir por el primero
+      // leía `2026-10-17-12` como id de sede y dejaba sin nombre a todas las
+      // canchas de los torneos de una sola sede. Lo parsea el motor, que es
+      // quien escribe el id.
+      const sedeId = partesDeIdDeBloque(bloqueId)?.sedeId ?? null;
       const nombre = nombreDeCancha(canchas, sedeId, sedePrincipal, carril);
       if (nombre === null) {
         avisos.push(

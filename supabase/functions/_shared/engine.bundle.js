@@ -960,6 +960,7 @@ function planAvance(partidos, matchId, winnerPairId, tercerLugar = true) {
 // src/lib/engine/schedule/knockout.ts
 var DISTANCIA_MINIMA_SEPARACION = 2;
 var MAX_ESPERA_POR_EMPALME = 4;
+var MAX_ESPERA_POR_OLEADA = 1;
 var FACTOR_RETRASO = 1.25;
 var DEFAULT_MINUTOS_PARTIDO = 60;
 var DEFAULT_DESCANSO_MINIMO = 30;
@@ -1095,7 +1096,11 @@ function correrCalendario(entrada) {
     }
   }
   const totalPartidos = tareas.reduce((a, t) => a + t.partidos, 0);
-  const ocupadaHasta = [];
+  const ocupadaHasta = (entrada.ocupadas ?? []).map((o) => ({
+    cancha: o.cancha - 1,
+    desde: o.desdeMin,
+    hasta: o.hastaMin
+  }));
   const partidos = [];
   const canchasLibres = (t) => {
     const libres = [];
@@ -1115,6 +1120,7 @@ function correrCalendario(entrada) {
   };
   const pendientes = () => tareas.filter((t) => t.restantes > 0);
   const oleadasForzosas = /* @__PURE__ */ new Set();
+  const oleadasPorCancha = /* @__PURE__ */ new Set();
   const hermanas = grafoDeHermandad(entrada.categorias);
   const sonHermanas = (a, b) => hermanas.get(a)?.has(b) ?? false;
   const esperando = /* @__PURE__ */ new Map();
@@ -1123,11 +1129,11 @@ function correrCalendario(entrada) {
   const sinDescanso = [];
   for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
     const listas = pendientes().map((tarea) => {
-      let earliest = inicio;
+      let earliest = Math.max(inicio, entrada.noAntesDe?.[tarea.categoryId] ?? inicio);
       if (tarea.ronda > 1) {
         const fin = finDe(tarea.categoryId, tarea.ronda - 1);
         if (fin === null) return null;
-        earliest = fin;
+        earliest = Math.max(earliest, fin);
       }
       if (earliest > t) return null;
       const critico = (tarea.totalRondas - tarea.ronda) * (dur + desc) + dur;
@@ -1140,7 +1146,15 @@ function correrCalendario(entrada) {
       const libres = canchasLibres(t);
       if (libres.length === 0) break;
       const cabeEntera = tarea.partidos <= entrada.canchas;
-      if (cabeEntera && tarea.restantes > libres.length) continue;
+      if (cabeEntera && tarea.restantes > libres.length) {
+        const clave = `oleada:${tarea.categoryId}#${tarea.ronda}${tarea.tercerLugar ? "#3" : ""}`;
+        const espera = (esperando.get(clave) ?? 0) + 1;
+        if (espera <= MAX_ESPERA_POR_OLEADA) {
+          esperando.set(clave, espera);
+          continue;
+        }
+        oleadasPorCancha.add(tarea.categoryId);
+      }
       const distancia = tarea.totalRondas - tarea.ronda;
       const yaAqui = enInstante.get(t);
       const choca = yaAqui ? [...yaAqui].find((otra) => sonHermanas(tarea.categoryId, otra)) : void 0;
@@ -1206,6 +1220,12 @@ function correrCalendario(entrada) {
   for (const cat of oleadasForzosas) {
     avisos.push(
       `${cat}: la ronda tiene mas partidos que canchas, se juega en oleadas y la mitad del cuadro descansa mas.`
+    );
+  }
+  for (const cat of oleadasPorCancha) {
+    if (oleadasForzosas.has(cat)) continue;
+    avisos.push(
+      `${cat}: su ronda se parte en dos tandas porque las canchas estan ocupadas por otra categoria. Se hace asi para no tenerlos esperando; la segunda tanda juega un turno despues.`
     );
   }
   const ultimoInicioMin = partidos.length > 0 ? Math.max(...partidos.map((p) => p.inicioMin)) : null;
@@ -1332,6 +1352,13 @@ function etapaDeRonda(ronda, totalRondas) {
 var PAREJAS_POR_GRUPO = 3;
 var PARTIDOS_POR_CARRIL = 3;
 var PARTIDOS_POR_GRUPO = PARTIDOS_POR_CARRIL;
+function idDeBloque(sedeId, dia, hora) {
+  return sedeId === null ? `${dia}-${hora}` : `${sedeId}:${dia}-${hora}`;
+}
+function partesDeIdDeBloque(id) {
+  const m = /^(?:([^:]+):)?(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(id);
+  return m ? { sedeId: m[1] ?? null, dia: m[2], desde: m[3] } : null;
+}
 function parseHoraBloque(hhmm) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!m) throw new Error(`Hora invalida: ${hhmm}`);
@@ -1420,7 +1447,7 @@ function generarBloques(entrada) {
         const hora = formatHoraBloque(t);
         const finRealista = t + minutosRealistas;
         for (const sede of sedes) {
-          const id = sede.id === null ? `${dia}-${hora}` : `${sede.id}:${dia}-${hora}`;
+          const id = idDeBloque(sede.id, dia, hora);
           if (vistos.has(id)) {
             avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
             continue;
@@ -3167,4 +3194,4 @@ function scoreConfigDelPartido(formato, base) {
   return scoreConfigDeFormato(formato, base);
 }
 
-export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, FACTOR_RETRASO, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, nombreDeCancha, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { CLASIFICAN_POR_GRUPO, CUPO_MINIMO, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, FACTOR_RETRASO, GAMES_POR_PARTIDO, GRUPO_MINIMO, MARCADORES_SUMA6, MINUTOS_ESTANDAR, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, idDeBloque, nombreDeCancha, partesDeIdDeBloque, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };

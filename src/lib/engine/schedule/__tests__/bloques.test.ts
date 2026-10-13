@@ -1,5 +1,7 @@
 import {
   generarBloques,
+  idDeBloque,
+  partesDeIdDeBloque,
   cupoDeBloque,
   bloquesDisponibles,
   partidosDeGrupo,
@@ -594,5 +596,38 @@ describe('bloques con varias sedes', () => {
       ventanas: VENTANAS, canchas: 5, minutosPorPartido: 60,
       sedes: [{ id: 'n', nombre: 'Narvarte', canchas: 0 }],
     })).toThrow(/Narvarte/);
+  });
+});
+
+/**
+ * EL ID LO ESCRIBE Y LO LEE EL MISMO MÓDULO.
+ *
+ * Costó un bug real: `schedule-groups` partía el id por el primer ':' para
+ * sacar la sede, y la HORA también lo lleva. En un torneo de una sola sede
+ * leía '2026-10-17-12' como id de sede, no encontraba ninguna cancha con esa
+ * sede y todos los partidos salían como 'Cancha N' en vez de 'PadelTown 3'.
+ */
+describe('idDeBloque / partesDeIdDeBloque', () => {
+  it('sin sede, ida y vuelta', () => {
+    const id = idDeBloque(null, '2026-10-17', '12:00');
+    expect(id).toBe('2026-10-17-12:00');
+    expect(partesDeIdDeBloque(id)).toEqual({ sedeId: null, dia: '2026-10-17', desde: '12:00' });
+  });
+
+  it('con sede, ida y vuelta', () => {
+    const id = idDeBloque('narvarte', '2026-11-07', '09:00');
+    expect(id).toBe('narvarte:2026-11-07-09:00');
+    expect(partesDeIdDeBloque(id)).toEqual({ sedeId: 'narvarte', dia: '2026-11-07', desde: '09:00' });
+  });
+
+  it('un uuid de sede lleva guiones y no confunde al día', () => {
+    const uuid = '0571267a-189c-4237-a1ce-ec935bd13b27';
+    const p = partesDeIdDeBloque(idDeBloque(uuid, '2026-10-17', '12:30'));
+    expect(p).toEqual({ sedeId: uuid, dia: '2026-10-17', desde: '12:30' });
+  });
+
+  it('lo que no tiene esa forma devuelve null', () => {
+    expect(partesDeIdDeBloque('2026-10-17')).toBeNull();
+    expect(partesDeIdDeBloque('')).toBeNull();
   });
 });

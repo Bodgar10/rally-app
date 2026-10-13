@@ -31,7 +31,7 @@ export type {
   CalendarioGrupos,
   MotivoSinProgramar,
 } from './schedule/grupos';
-export { generarBloques, carrilesDeGrupo, PARTIDOS_POR_CARRIL } from './schedule/bloques';
+export { generarBloques, carrilesDeGrupo, idDeBloque, partesDeIdDeBloque, PARTIDOS_POR_CARRIL } from './schedule/bloques';
 export type { Bloque, VentanaDia as VentanaBloques, ReticulaBloques } from './schedule/bloques';
 export { bloqueDeGrupo, repartirPorBloque } from './schedule/reparto';
 

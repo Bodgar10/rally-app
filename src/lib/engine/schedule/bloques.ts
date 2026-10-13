@@ -186,6 +186,31 @@ export interface BloqueDisponible extends Bloque {
 // Horas
 // ---------------------------------------------------------------------------
 
+/**
+ * El id de un bloque: `2026-11-07-09:00`, o `narvarte:2026-11-07-09:00` cuando
+ * el torneo tiene mas de una sede.
+ *
+ * Esta aqui —no en quien lo lee— porque el formato lo decide este modulo, y
+ * cualquier `split(':')` escrito a mano en otro sitio se equivoca: la HORA
+ * tambien lleva dos puntos. Paso de verdad: `schedule-groups` leia
+ * `2026-10-17-12` como id de sede y perdia el nombre de todas las canchas.
+ *
+ * ⚠️ Los ids de un torneo de UNA sola sede no llevan prefijo y no pueden
+ * llevarlo: estan guardados en `pair_block_choices` desde que la pareja se
+ * inscribio.
+ */
+export function idDeBloque(sedeId: string | null, dia: string, hora: string): string {
+  return sedeId === null ? `${dia}-${hora}` : `${sedeId}:${dia}-${hora}`;
+}
+
+/** Las tres partes de un id de bloque. Null si no tiene esa forma. */
+export function partesDeIdDeBloque(
+  id: string,
+): { sedeId: string | null; dia: string; desde: string } | null {
+  const m = /^(?:([^:]+):)?(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(id);
+  return m ? { sedeId: m[1] ?? null, dia: m[2], desde: m[3] } : null;
+}
+
 export function parseHoraBloque(hhmm: string): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!m) throw new Error(`Hora invalida: ${hhmm}`);
@@ -332,7 +357,7 @@ export function generarBloques(entrada: EntradaBloques): ReticulaBloques {
         // LA MISMA HORA EN CADA SEDE. El sabado a las 9:00 hay un bloque en
         // Narvarte y otro en Alberca; son dos sitios, no dos turnos.
         for (const sede of sedes) {
-          const id = sede.id === null ? `${dia}-${hora}` : `${sede.id}:${dia}-${hora}`;
+          const id = idDeBloque(sede.id, dia, hora);
           if (vistos.has(id)) {
             avisos.push(`Bloque duplicado ${id} descartado: hay ventanas que se traslapan.`);
             continue;

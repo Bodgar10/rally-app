@@ -1,5 +1,6 @@
 import {
   programarEliminatorias,
+  correrCalendario,
   grafoDeHermandad,
   cotaInferior,
   partidosPorRonda,
@@ -649,5 +650,76 @@ describe('domingo de bb8e137e — el plan es óptimo y lo dice', () => {
   it('con una cancha más el cierre baja una hora entera', () => {
     const nueve = programarEliminatorias({ ...entrada, canchas: 9, hasta: '23:59' });
     expect(nueve.finEstimado).toBe('19:00');
+  });
+});
+
+/**
+ * EL DÍA COMO CASCADA: el cuadro de una categoría no espera a los grupos de
+ * las demás.
+ *
+ * El caso real es Padel Hype: tres categorías, un día, cuatro canchas. Los
+ * grupos de 5ª Mixto acababan a las 15:00 y sus cuartos salían a las 18:08
+ * porque el motor arrancaba cuando se vaciaba el club entero.
+ */
+describe('cuadro encajado entre los grupos', () => {
+  const canchas = 4;
+
+  it('arranca el cuadro de una categoría en cuanto acaban SUS grupos', () => {
+    const r = correrCalendario({
+      canchas,
+      desde: '15:00',
+      hasta: '21:00',
+      minutosPorPartido: 30,
+      categorias: [{ id: 'A', clasificados: 8 }],
+      tercerLugar: false,
+      // Dos canchas siguen con los grupos de otra categoría hasta las 17:00.
+      ocupadas: [
+        { cancha: 3, desdeMin: 15 * 60, hastaMin: 17 * 60 },
+        { cancha: 4, desdeMin: 15 * 60, hastaMin: 17 * 60 },
+      ],
+      noAntesDe: { A: 15 * 60 },
+    });
+
+    expect(r.cabe).toBe(true);
+    const cuartos = r.partidos.filter((p) => p.etapa === 'quarter');
+    expect(cuartos).toHaveLength(4);
+    // Lo que importa: no espera a las 17:00, que es lo que hacía antes.
+    //
+    // Da UN paso de cortesía por si al siguiente turno caben las cuatro juntas
+    // (MAX_ESPERA_POR_OLEADA); como no caben, se parte en dos tandas y la
+    // primera juega a las 15:30 en vez de hora y media después.
+    expect(Math.min(...cuartos.map((p) => p.inicioMin))).toBe(15 * 60 + 30);
+    expect(Math.max(...cuartos.map((p) => p.inicioMin))).toBeLessThan(17 * 60);
+    // Y nunca pisa una cancha ocupada.
+    for (const p of r.partidos) {
+      if (p.inicioMin < 17 * 60) expect([1, 2]).toContain(p.cancha);
+    }
+  });
+
+  it('respeta que cada categoría espere a sus propios grupos', () => {
+    const r = correrCalendario({
+      canchas,
+      desde: '15:00',
+      hasta: '22:00',
+      minutosPorPartido: 30,
+      categorias: [{ id: 'A', clasificados: 4 }, { id: 'B', clasificados: 4 }],
+      tercerLugar: false,
+      noAntesDe: { A: 15 * 60, B: 18 * 60 },
+    });
+
+    const deA = r.partidos.filter((p) => p.categoryId === 'A');
+    const deB = r.partidos.filter((p) => p.categoryId === 'B');
+    expect(Math.min(...deA.map((p) => p.inicioMin))).toBe(15 * 60);
+    expect(Math.min(...deB.map((p) => p.inicioMin))).toBeGreaterThanOrEqual(18 * 60);
+  });
+
+  it('sin `ocupadas` ni `noAntesDe` programa exactamente como antes', () => {
+    const entrada = {
+      canchas, desde: '09:00', hasta: '20:00', minutosPorPartido: 60,
+      categorias: [{ id: 'A', clasificados: 8 }, { id: 'B', clasificados: 8 }],
+    };
+    const a = correrCalendario(entrada);
+    const b = correrCalendario({ ...entrada, ocupadas: [], noAntesDe: {} });
+    expect(b.partidos).toEqual(a.partidos);
   });
 });

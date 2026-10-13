@@ -28,6 +28,27 @@ export interface EntradaScheduler {
   minutosPorPartido?: number;
   descansoMinimo?: number;
   paso?: number;
+  /**
+   * Canchas que YA estan ocupadas por partidos que este motor no coloca: los
+   * de la fase de grupos del mismo dia.
+   *
+   * Sin esto el cuadro solo podia empezar cuando no quedaba ni un partido de
+   * grupos en pista, y eso obligaba a esperar a la ULTIMA categoria: en Padel
+   * Hype los cuartos de 5ª Mixto salian a las 18:08 cuando sus grupos habian
+   * acabado a las 15:00. Tres horas de nada para medio torneo.
+   *
+   * Cancha 1-based, minutos desde medianoche.
+   */
+  ocupadas?: { cancha: number; desdeMin: number; hastaMin: number }[];
+  /**
+   * Por categoria, el minuto antes del cual su cuadro no puede empezar: cuando
+   * acaba SU fase de grupos, no la del torneo entero.
+   *
+   * Es la otra mitad de `ocupadas`. Las dos juntas convierten el dia en una
+   * cascada —cada categoria juega sus grupos y enseguida su cuadro, en las
+   * canchas que las demas van dejando— en vez de dos bloques pegados.
+   */
+  noAntesDe?: Record<string, number>;
 }
 
 export interface PartidoProgramado {
@@ -90,6 +111,24 @@ export const DISTANCIA_MINIMA_SEPARACION = 2;
  * esperando un hueco limpio, que es peor que el empalme que evita.
  */
 export const MAX_ESPERA_POR_EMPALME = 4;
+
+/**
+ * Pasos que una ronda espera a tener canchas para TODA ella antes de partirse.
+ *
+ * Una ronda cabe entera o se juega en oleadas, y entera es mas justa: los
+ * cuatro cuartos a la misma hora dan el mismo descanso a los cuatro
+ * semifinalistas. Por eso el motor prefiere esperar.
+ *
+ * Pero esperar INDEFINIDAMENTE es lo que producia el agujero de tres horas:
+ * con los grupos de otra categoria ocupando dos canchas toda la tarde, los
+ * cuartos no veian nunca las cuatro libres y se iban al final del dia.
+ *
+ * Un paso. Si al paso siguiente caben las cuatro, no se ha perdido nada —la
+ * ronda acaba a la misma hora que si se parte—; si no, se parte, y la mitad
+ * del cuadro juega horas antes. La diferencia de descanso dentro de la ronda
+ * se avisa, que es lo que hace el motor con todo lo que no puede evitar.
+ */
+export const MAX_ESPERA_POR_OLEADA = 1;
 
 /** Un partido planificado a 60 min suele durar 75. Medido en torneos reales. */
 export const FACTOR_RETRASO = 1.25;
@@ -358,7 +397,12 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
   }
 
   const totalPartidos = tareas.reduce((a, t) => a + t.partidos, 0);
-  const ocupadaHasta: { cancha: number; desde: number; hasta: number }[] = [];
+  // Arranca con lo que ya hay en pista —los grupos del mismo dia—, no vacio.
+  // `cancha` es 0-based aqui dentro; la entrada la da 1-based, como se ve.
+  const ocupadaHasta: { cancha: number; desde: number; hasta: number }[] =
+    (entrada.ocupadas ?? []).map((o) => ({
+      cancha: o.cancha - 1, desde: o.desdeMin, hasta: o.hastaMin,
+    }));
   const partidos: PartidoProgramado[] = [];
 
   const canchasLibres = (t: number): number[] => {
@@ -384,6 +428,8 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
 
   const pendientes = () => tareas.filter((t) => t.restantes > 0);
   const oleadasForzosas = new Set<string>();
+  /** Rondas que caben en el club pero se partieron por falta de cancha libre. */
+  const oleadasPorCancha = new Set<string>();
 
   // ── Separacion de hermanas ────────────────────────────────────────────────
   const hermanas = grafoDeHermandad(entrada.categorias);
@@ -405,7 +451,9 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
   for (let t = inicio; t < techo && pendientes().length > 0; t += paso) {
     const listas = pendientes()
       .map((tarea) => {
-        let earliest = inicio;
+        // El cuadro de una categoria no empieza antes de que acaben SUS
+        // grupos. Los de las demas pueden seguir jugandose al lado.
+        let earliest = Math.max(inicio, entrada.noAntesDe?.[tarea.categoryId] ?? inicio);
         if (tarea.ronda > 1) {
           const fin = finDe(tarea.categoryId, tarea.ronda - 1);
           if (fin === null) return null;
@@ -423,7 +471,7 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
           //   El descanso sigue vivo como PREFERENCIA (ver `conDescanso`):
           //   se coge el hueco holgado cuando sale gratis y se sacrifica en
           //   cuanto cuesta un minuto de cierre. Donde se sacrifique, se dice.
-          earliest = fin;
+          earliest = Math.max(earliest, fin);
         }
         if (earliest > t) return null;
         const critico = (tarea.totalRondas - tarea.ronda) * (dur + desc) + dur;
@@ -443,7 +491,16 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
       if (libres.length === 0) break;
 
       const cabeEntera = tarea.partidos <= entrada.canchas;
-      if (cabeEntera && tarea.restantes > libres.length) continue;
+      if (cabeEntera && tarea.restantes > libres.length) {
+        const clave = `oleada:${tarea.categoryId}#${tarea.ronda}${tarea.tercerLugar ? '#3' : ''}`;
+        const espera = (esperando.get(clave) ?? 0) + 1;
+        if (espera <= MAX_ESPERA_POR_OLEADA) {
+          esperando.set(clave, espera);
+          continue;
+        }
+        // Se parte. Ver MAX_ESPERA_POR_OLEADA.
+        oleadasPorCancha.add(tarea.categoryId);
+      }
 
       // ── ¿Choca con una hermana ya puesta a esta hora? ────────────────────
       // Solo en rondas tempranas (distancia a la final >= 2), donde las rondas
@@ -534,6 +591,14 @@ export function correrCalendario(entrada: EntradaScheduler): Calendario {
   for (const cat of oleadasForzosas) {
     avisos.push(
       `${cat}: la ronda tiene mas partidos que canchas, se juega en oleadas y la mitad del cuadro descansa mas.`
+    );
+  }
+
+  for (const cat of oleadasPorCancha) {
+    if (oleadasForzosas.has(cat)) continue;
+    avisos.push(
+      `${cat}: su ronda se parte en dos tandas porque las canchas estan ocupadas por otra categoria. ` +
+      'Se hace asi para no tenerlos esperando; la segunda tanda juega un turno despues.'
     );
   }
 

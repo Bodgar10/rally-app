@@ -47,6 +47,10 @@ const STAGE_NO_PROGRAMABLE = 'third_place';
 /** 'HH:MM:SS' de una columna `time` → 'HH:MM', que es lo que consume el motor. */
 const aHHMM = (t: string): string => t.slice(0, 5);
 
+/** Minutos desde medianoche -> 'HH:MM'. El inverso de `aMinutos`. */
+const deMinutos = (min: number): string =>
+  `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
 /** date 'YYYY-MM-DD' + 'HH:MM' + offset fijo → timestamptz sin ambigüedad. */
 const aTimestamptz = (dia: string, hora: string): string =>
   `${dia}T${hora}:00${OFFSET_MX}`;
@@ -171,45 +175,90 @@ Deno.serve(async (req) => {
      *   partido de 60 minutos ocupa 75. Empezar el cuadro cuando el último
      *   grupo todavía está en pista es el mismo error con menos minutos.
      */
-    let desdeCuadro = aHHMM(ventana.desde);
+    const minutosPartido = (torneo.match_minutes as number) ?? 60;
+    /** Lo que de verdad ocupa una cancha un partido planificado a `minutos`. */
+    const minutosReales = Math.round(minutosPartido * FACTOR_RETRASO);
 
-    if (dias.length === 1) {
-      const { data: ultimoGrupo } = await admin
-        .from('matches')
-        .select('scheduled_at')
-        .eq('tournament_id', tournamentId)
-        .eq('stage', 'group')
-        .not('scheduled_at', 'is', null)
-        .order('scheduled_at', { ascending: false })
-        .limit(1);
+    /** 'HH:MM' del club, no del servidor (que corre en UTC). */
+    const horaEnClub = (iso: string): string =>
+      new Date(iso).toLocaleTimeString('es-MX', {
+        hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City',
+      });
+    /** 'YYYY-MM-DD' del club. */
+    const diaEnClub = (iso: string): string =>
+      new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const aMinutos = (hhmm: string): number =>
+      Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
-      const fin = (ultimoGrupo ?? [])[0]?.scheduled_at as string | undefined;
+    // ── Los grupos que se juegan ESTE MISMO DÍA ────────────────────────────
+    //
+    // El cuadro ya no espera a que se vacíe el club. Dos cosas salen de aquí:
+    //
+    //   · CUÁNDO puede empezar CADA categoría: cuando acaban SUS grupos. Antes
+    //     era cuando acababan los del torneo entero, y eso ataba a la primera
+    //     categoría a la última: en Padel Hype los cuartos de 5ª Mixto salían
+    //     a las 18:08 con sus grupos terminados a las 15:00. Tres horas de
+    //     nada para doce parejas.
+    //
+    //   · QUÉ CANCHAS están ocupadas y hasta cuándo, para que el cuadro se
+    //     meta en los huecos que la fase de grupos va dejando en vez de
+    //     empezar donde ya no queda nadie.
+    //
+    // Junto hacen del día una cascada: cada categoría juega sus grupos y
+    // enseguida su cuadro, mientras las demás siguen en grupos. El torneo
+    // acaba antes y nadie se queda mirando.
+    const { data: gruposDelDia } = await admin
+      .from('matches')
+      .select('category_id, scheduled_at, court_label')
+      .eq('tournament_id', tournamentId)
+      .eq('stage', 'group')
+      .not('scheduled_at', 'is', null);
 
-      if (!fin) {
-        // Grupos sin programar todavía. No se adivina: el cuadro arranca en la
-        // apertura y se avisa, que es lo que había antes de esto.
-        avisos.push(
-          'El torneo es de un solo día y sus partidos de grupos no tienen hora: el cuadro se ' +
-          'programa desde la apertura y puede quedar encima de ellos.',
-        );
-      } else {
-        const minutos = (torneo.match_minutes as number) ?? 60;
-        const acaba = new Date(fin);
-        acaba.setMinutes(acaba.getMinutes() + Math.round(minutos * FACTOR_RETRASO));
+    interface GrupoEnPista { categoryId: string; desdeMin: number; cancha: string | null }
+    const enPista: GrupoEnPista[] = [];
+    /** categoryId -> minuto en que acaba su último partido de grupos. */
+    const finDeSusGrupos = new Map<string, number>();
 
-        // La hora del club, no la de quien corre esto.
-        const hhmm = acaba.toLocaleTimeString('es-MX', {
-          hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City',
-        });
+    for (const m of (gruposDelDia ?? []) as Array<{
+      category_id: string; scheduled_at: string; court_label: string | null;
+    }>) {
+      // Solo los del día del cuadro: en un torneo de varios días los del
+      // viernes no ocupan ninguna cancha del domingo.
+      if (diaEnClub(m.scheduled_at) !== ventana.dia) continue;
+      const desdeMin = aMinutos(horaEnClub(m.scheduled_at));
+      enPista.push({ categoryId: m.category_id, desdeMin, cancha: m.court_label });
+      const fin = desdeMin + minutosReales;
+      finDeSusGrupos.set(m.category_id, Math.max(finDeSusGrupos.get(m.category_id) ?? 0, fin));
+    }
 
-        // Si los grupos acaban después del cierre, el motor lo dirá con su
-        // diagnóstico: aquí no se recorta la ventana a mano.
-        desdeCuadro = hhmm;
-        avisos.push(
-          `El torneo es de un solo día: el cuadro arranca a las ${hhmm}, cuando acaba el último ` +
-          'partido de la fase de grupos.',
-        );
-      }
+    /**
+     * A qué hora ARRANCA el día de cuadro: en cuanto la PRIMERA categoría
+     * tenga sus grupos terminados. Las demás esperan a los suyos con
+     * `noAntesDe`, y las canchas ocupadas las respeta `ocupadas`.
+     *
+     * Sin grupos ese día —el caso de varios días, donde el último es solo
+     * cuadro— es la apertura de la ventana, como siempre.
+     */
+    const aperturaMin = aMinutos(aHHMM(ventana.desde));
+    const primerFin = finDeSusGrupos.size > 0
+      ? Math.min(...finDeSusGrupos.values())
+      : null;
+    const desdeCuadro = primerFin === null
+      ? aHHMM(ventana.desde)
+      : deMinutos(Math.max(aperturaMin, primerFin));
+
+    if (dias.length === 1 && finDeSusGrupos.size === 0) {
+      // Grupos sin programar todavía. No se adivina: el cuadro arranca en la
+      // apertura y se avisa, que es lo que había antes de esto.
+      avisos.push(
+        'El torneo es de un solo día y sus partidos de grupos no tienen hora: el cuadro se ' +
+        'programa desde la apertura y puede quedar encima de ellos.',
+      );
+    } else if (primerFin !== null) {
+      avisos.push(
+        `El cuadro arranca a las ${desdeCuadro}: cada categoría empieza el suyo en cuanto ` +
+        'termina su fase de grupos, sin esperar a las demás.',
+      );
     }
 
     // ─────────────────── 4. Clasificados por categoría ───────────────────
@@ -312,14 +361,46 @@ Deno.serve(async (req) => {
     const etiquetaCuadro = (carril: number): string =>
       delCuadro[carril - 1]?.nombre ?? `Cancha ${carril}`;
 
+    const canchasCuadro = delCuadro.length > 0 ? delCuadro.length : (torneo.courts as number);
+
+    /**
+     * 'Cancha 2' -> 2, el carril del cuadro. Null si esa cancha no es del
+     * cuadro: los grupos de otra sucursal no ocupan nada aquí.
+     *
+     * Se busca por NOMBRE, que es lo que guarda `matches.court_label`. Sin
+     * canchas capturadas se cae al número, que es como se nombraban siempre.
+     */
+    const carrilDelCuadro = (etiqueta: string | null): number | null => {
+      if (!etiqueta) return null;
+      if (delCuadro.length > 0) {
+        const i = delCuadro.findIndex((c) => c.nombre === etiqueta);
+        return i === -1 ? null : i + 1;
+      }
+      const n = Number(/(\d+)/.exec(etiqueta)?.[1]);
+      return Number.isFinite(n) && n >= 1 && n <= canchasCuadro ? n : null;
+    };
+
+    const ocupadas: { cancha: number; desdeMin: number; hastaMin: number }[] = [];
+    for (const g of enPista) {
+      const carril = carrilDelCuadro(g.cancha);
+      if (carril === null) continue;
+      ocupadas.push({ cancha: carril, desdeMin: g.desdeMin, hastaMin: g.desdeMin + minutosReales });
+    }
+
+    const noAntesDe: Record<string, number> = {};
+    for (const [catId, fin] of finDeSusGrupos) noAntesDe[catId] = fin;
+
     let plan: Calendario;
     try {
       plan = programarEliminatorias({
-        canchas: delCuadro.length > 0 ? delCuadro.length : (torneo.courts as number),
+        canchas: canchasCuadro,
         desde: desdeCuadro,
         hasta: aHHMM(ventana.hasta),
         categorias,
         minutosPorPartido: torneo.match_minutes as number,
+        // El día como cascada, no como dos bloques. Ver `gruposDelDia`.
+        ocupadas,
+        noAntesDe,
         // El torneo decide si se juega el 3.er lugar (migración 052). Sin esta
         // línea el motor caía a su default `true` y reservaba una cancha por
         // categoría para un partido que nadie iba a jugar: ocho slots fantasma

@@ -16,7 +16,7 @@
  */
 
 import {
-  carrilesDeGrupo, PARTIDOS_POR_CARRIL, type ReticulaBloques,
+  carrilesDeGrupo, partesDeIdDeBloque, PARTIDOS_POR_CARRIL, type ReticulaBloques,
 } from '@/lib/engine/schedule/bloques';
 import { computeFormat } from '@/lib/engine/format';
 
@@ -63,13 +63,10 @@ export function textoDuracion(minutosPorBloque: number, partidos = 3): string {
 export function partesDeBloqueId(
   id: string,
 ): { dia: string; desde: string; sedeId: string | null } | null {
-  // CON SEDE EL ID LLEVA LA SUYA DELANTE: `narvarte:2026-11-07-09:00`. Este
-  // regex exigia el id pelado y devolvia null para esos bloques, asi que la
-  // pantalla se quedaba sin fecha que pintar justo en los torneos de dos
-  // sucursales. El prefijo es opcional porque los torneos de una sola sede
-  // siguen guardando el id corto en `pair_block_choices`.
-  const m = /^(?:([^:]+):)?(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(id);
-  return m ? { sedeId: m[1] ?? null, dia: m[2], desde: m[3] } : null;
+  // LO PARSEA QUIEN LO ESCRIBE. Tener aqui una copia del regex es tener dos
+  // verdades sobre el mismo formato, y ya costo una: un `split(':')` en
+  // `schedule-groups` partia el id por la hora.
+  return partesDeIdDeBloque(id);
 }
 
 

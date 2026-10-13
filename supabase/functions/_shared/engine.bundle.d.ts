@@ -737,6 +737,26 @@ interface BloqueDisponible extends Bloque {
     cupo: number;
 }
 /**
+ * El id de un bloque: `2026-11-07-09:00`, o `narvarte:2026-11-07-09:00` cuando
+ * el torneo tiene mas de una sede.
+ *
+ * Esta aqui —no en quien lo lee— porque el formato lo decide este modulo, y
+ * cualquier `split(':')` escrito a mano en otro sitio se equivoca: la HORA
+ * tambien lleva dos puntos. Paso de verdad: `schedule-groups` leia
+ * `2026-10-17-12` como id de sede y perdia el nombre de todas las canchas.
+ *
+ * ⚠️ Los ids de un torneo de UNA sola sede no llevan prefijo y no pueden
+ * llevarlo: estan guardados en `pair_block_choices` desde que la pareja se
+ * inscribio.
+ */
+declare function idDeBloque(sedeId: string | null, dia: string, hora: string): string;
+/** Las tres partes de un id de bloque. Null si no tiene esa forma. */
+declare function partesDeIdDeBloque(id: string): {
+    sedeId: string | null;
+    dia: string;
+    desde: string;
+} | null;
+/**
  * Construye la reticula de bloques a partir de las ventanas del torneo.
  *
  * Los bloques salen consecutivos desde `desde`. El ultimo que no quepa entero
@@ -1236,6 +1256,31 @@ interface EntradaScheduler {
     minutosPorPartido?: number;
     descansoMinimo?: number;
     paso?: number;
+    /**
+     * Canchas que YA estan ocupadas por partidos que este motor no coloca: los
+     * de la fase de grupos del mismo dia.
+     *
+     * Sin esto el cuadro solo podia empezar cuando no quedaba ni un partido de
+     * grupos en pista, y eso obligaba a esperar a la ULTIMA categoria: en Padel
+     * Hype los cuartos de 5ª Mixto salian a las 18:08 cuando sus grupos habian
+     * acabado a las 15:00. Tres horas de nada para medio torneo.
+     *
+     * Cancha 1-based, minutos desde medianoche.
+     */
+    ocupadas?: {
+        cancha: number;
+        desdeMin: number;
+        hastaMin: number;
+    }[];
+    /**
+     * Por categoria, el minuto antes del cual su cuadro no puede empezar: cuando
+     * acaba SU fase de grupos, no la del torneo entero.
+     *
+     * Es la otra mitad de `ocupadas`. Las dos juntas convierten el dia en una
+     * cascada —cada categoria juega sus grupos y enseguida su cuadro, en las
+     * canchas que las demas van dejando— en vez de dos bloques pegados.
+     */
+    noAntesDe?: Record<string, number>;
 }
 interface PartidoProgramado {
     categoryId: string;
@@ -2062,4 +2107,4 @@ declare function setsDeEntrada(cfg: ScoreConfig): number;
  */
 declare function scoreConfigDelPartido(formato: string | null | undefined, base: ScoreConfig): ScoreConfig;
 
-export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CanchaDeTorneo, type CapturaExpres, type CategoriaCuadro, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, FACTOR_RETRASO, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoConGanador, type FormatoDeSet, type FormatoPartido, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoExpres, type GrupoId, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type NombresDeSede, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SedeConCanchas, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, nombreDeCancha, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
+export { type AdvanceResult, type Bloque, type BloqueDisponible, type BracketMatch, CLASIFICAN_POR_GRUPO, CUPO_MINIMO, type Calendario, type CalendarioGrupos, type CanchaDeTorneo, type CapturaExpres, type CategoriaCuadro, type ClinchExpresResult, type ClinchGroup, type ClinchInput, type ClinchResult, type ClinchStatus, type CodigoProblema, type Conflicto, type CrearPartido, type CriterioDesempate, type CriterioExpres, DEFAULT_SCORE_CONFIG, DEFAULT_STANDINGS_CONFIG, type DesempateAplicado, type DiagnosticoScheduler, type Division, type EmpateExpres, type EntradaCapturaExpres, type EntradaScheduler, type EntradaSchedulerGrupos, type EntradaValidacion, type EstadoClinchExpres, type EstadoDeSet, type EtapaEliminatoria, FACTOR_RETRASO, type FilaDeGrupo, type FilaStandingExpres, type FilaTablaExpres, type Fixture, type FixtureExpres, type FormatPlan, type FormatType, type FormatoConGanador, type FormatoDeSet, type FormatoPartido, type FranjaExpres, type FranjaOcupacion, type FranjaPlanificada, GAMES_POR_PARTIDO, GRUPO_MINIMO, type GlickoRating, type GrupoAProgramar, type GrupoAValidar, type GrupoExpres, type GrupoId, type KnockoutStart, MARCADORES_SUMA6, MINUTOS_ESTANDAR, type MatchResultInput, type MatchStage, type MinutosPorEtapa, type MotivoConflicto, type MotivoSinProgramar, type Movimiento, type NextMatch, type NombresDeSede, type Ocupacion, type OcupacionBloque, PAREJAS_POR_GRUPO, PARTIDOS_POR_CARRIL, PARTIDOS_POR_PAREJA, type PartidoCuadro, type PartidoDeEntrada, type PartidoDeGrupo, type PartidoEnCalendario, type PartidoExpres, type PartidoProgramado, type PlanAvance, type PlanExpres, type PlanOk, type PlanRechazo, type PlayerTournamentResult, type Problema, type QualifierStanding, type RankingRules, type ReapuntarPartido, type ResultadoMovimiento, type ResultadoSuma6, type ReticulaBloques, type RoundMatch, type RoundReached, type ScoreConfig, type SedeConCanchas, type SeedInput, type SeedingResult, type SetScore, type Stage, type StandingRow, type StandingsConfig, type StandingsDetalle, type TablaExpres, type Tier, type Validacion, type ValidatedScore, type VentanaDia as VentanaBloques, type VentanaExpres, type ZonaExpres, advanceBracket, bloqueDeGrupo, bloquesDisponibles, canchasDeSede, carrilesDeGrupo, clasificarSet, combineOpponentPair, computeClinch, computeClinchExpres, computeFormat, computeRankingPoints, computeSeeding, computeStandings, computeStandingsDetalle, computeTablaExpres, cupoDeBloque, divisionForRating, esFormatoConGanador, esMarcadorSuma6, estadoDeSet, etapaDeRonda, etiquetaDeRonda, generadorDeSemilla, generarBloques, generarFixtureExpres, generateRoundRobin, huellaDeGrupo, idDeBloque, nombreDeCancha, partesDeIdDeBloque, partidosPendientes, planAvance, planificarExpres, prepararCapturaExpres, programarEliminatorias, programarGrupos, repartirGrupos, repartirPorBloque, scoreConfigDeFormato, scoreConfigDelPartido, sedesDelTorneo, selectQualifiers, setsDeEntrada, stageForBracketSize, tamanosDeGrupo, thirdPlaceFromSemis, tierEfectivo, updateRating, validarMarcadorSuma6, validarMovimiento, validarSiembra, validateParcial, validateScore };
