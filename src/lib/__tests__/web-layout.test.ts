@@ -17,6 +17,7 @@ import {
   resolveWebLayout,
   webContentColumn,
   webContentColumnAncha,
+  webContentFluido,
   bottomInset,
   inputFontSize,
 } from '../web-layout';
@@ -51,6 +52,27 @@ describe('web-layout · nativo — debe ser inerte', () => {
 
   it('la constante exportada también es inerte bajo la plataforma real (ios)', () => {
     expect(webContentColumnAncha).toEqual({});
+  });
+
+  // El fluido tiene que ser inerte por lo mismo, y además es el más peligroso:
+  // un `width: '100%'` colado en nativo pelearía con el layout del padre.
+  it.each(['ios', 'android'])('en %s, webContentFluido es un objeto vacío', (os) => {
+    const { webContentFluido: col } = resolveWebLayout(os);
+    expect(col).toEqual({});
+    expect(Object.keys(col)).toHaveLength(0);
+  });
+
+  it('el fluido exportado también es inerte en la plataforma real (ios)', () => {
+    expect(webContentFluido).toEqual({});
+  });
+
+  // No es "una columna más ancha": es NINGUNA columna. Un maxWidth aquí
+  // volvería a encerrar la parrilla, que es justo lo que esto evita.
+  it('en web, el fluido no tiene ancho máximo ni se centra', () => {
+    const { webContentFluido: fluido } = resolveWebLayout('web');
+    expect(fluido.maxWidth).toBeUndefined();
+    expect(fluido.alignSelf).toBeUndefined();
+    expect(fluido.width).toBe('100%');
   });
 
   it('en web, la ancha es MÁS ancha que la de lectura', () => {

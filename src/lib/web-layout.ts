@@ -72,6 +72,25 @@ export interface WebLayoutValues {
    */
   webContentColumnAncha: ViewStyle;
   /**
+   * Sin columna: el contenido ocupa la ventana entera.
+   *
+   * ► PARA LA PIZARRA DEL SÁBADO
+   *   El calendario es una parrilla de canchas × horas, y el organizador la
+   *   mira en una laptop con cuatro personas esperando. Encerrarla en una
+   *   columna de lectura la deja en un cuarto de la pantalla con scroll
+   *   horizontal, mientras sobran mil píxeles a los lados.
+   *
+   *   Las columnas existen porque un párrafo de 2000 px de ancho no se lee.
+   *   Una tabla sí: cuanto más ancha, más horas caben sin desplazar.
+   *
+   * ► NO ES PARA PANTALLAS DE TEXTO
+   *   Solo para las que SON una tabla o un tablero. El resto sigue con
+   *   `webContentColumn`, y el aviso de arriba sigue en pie.
+   *
+   * En nativo vale `{}`, igual que sus hermanas.
+   */
+  webContentFluido: ViewStyle;
+  /**
    * Relleno inferior al final de un scroll.
    *
    * Nativo: 48 (space[6] * 2) — el hueco que reserva el tab bar de 86px.
@@ -130,6 +149,7 @@ export function resolveWebLayout(os: string): WebLayoutValues {
     webContentColumnAncha: isWeb
       ? { maxWidth: layout.gridMaxWidth, alignSelf: 'center', width: '100%' }
       : {},
+    webContentFluido: isWeb ? { width: '100%' } : {},
     bottomInset: isWeb ? space[6] : space[6] * 2,
     inputFontSize: isWeb
       ? (nativeSize: number): number => Math.max(nativeSize, NO_ZOOM_MIN_FONT_SIZE)
@@ -145,6 +165,9 @@ export const webContentColumn: ViewStyle = resolved.webContentColumn;
 
 /** Ver WebLayoutValues.webContentColumnAncha */
 export const webContentColumnAncha: ViewStyle = resolved.webContentColumnAncha;
+
+/** Ver WebLayoutValues.webContentFluido */
+export const webContentFluido: ViewStyle = resolved.webContentFluido;
 
 /** Ver WebLayoutValues.bottomInset */
 export const bottomInset: number = resolved.bottomInset;

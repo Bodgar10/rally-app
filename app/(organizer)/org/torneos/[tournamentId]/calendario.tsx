@@ -39,7 +39,7 @@ import { useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { subscribeToTable, tournamentChannel } from '@/lib/realtime/channels';
 import { color, font, fontSize, space, radius, touchTarget } from '@/lib/design-tokens';
-import { webContentColumn, bottomInset } from '@/lib/web-layout';
+import { webContentFluido, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
 import HorasUltimoDia from '@/components/tournament/HorasUltimoDia';
 import { fetchParejasPublicas, type ParejaPublica } from '@/lib/parejas-publicas';
@@ -1323,7 +1323,15 @@ const s = StyleSheet.create({
 
   pantalla: { flex: 1, backgroundColor: color.bg },
   centro:   { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentColumn },
+  // ► SIN COLUMNA DE LECTURA, A PROPÓSITO.
+  //   Esta pantalla es una pizarra de canchas × horas, no un texto. Encerrada
+  //   en la columna de 720 px quedaba en un cuarto del monitor con scroll
+  //   horizontal mientras sobraban mil píxeles a los lados — y el organizador
+  //   la mira con cuatro personas esperando en la cancha.
+  //
+  //   Las columnas existen porque un párrafo de 2000 px no se lee. Una tabla
+  //   sí: cuanto más ancha, más horas caben sin desplazar. Ver `webContentFluido`.
+  content:  { paddingHorizontal: space[4.5], paddingTop: space[3], paddingBottom: bottomInset, gap: space[3], ...webContentFluido },
 
   eyebrow: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, letterSpacing: 1 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[2] },

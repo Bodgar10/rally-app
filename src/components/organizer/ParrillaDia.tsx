@@ -60,9 +60,16 @@ const ALTO_FILA = 54;
  * con dos enteros.
  */
 const ANCHO_PARA_NOMBRES = 1100;
-/** Lo que mide una celda cuando sí caben los nombres y el botón de anotar. */
-const ANCHO_CELDA_ANCHA = 190;
-const ALTO_FILA_ANCHA = 118;
+/**
+ * Lo que mide una celda cuando sí caben los nombres y el botón de anotar.
+ *
+ * MEDIDO CONTRA LA PIZARRA DE UN TORNEO REAL: los nombres completos van en dos
+ * líneas con el "vs" en medio, y a 190 px se cortaban a la mitad —"Santiago
+ * Vargas / Regina Var…"—, que es peor que no ponerlos. Un nombre y apellido
+ * mexicano necesita unos 230 px al tamaño al que se lee de pie.
+ */
+const ANCHO_CELDA_ANCHA = 248;
+const ALTO_FILA_ANCHA = 132;
 
 interface Props {
   /**
@@ -206,7 +213,7 @@ export default function ParrillaDia({
                           >
                             {f.estado === 'finished' ? '✓ ' : ''}{f.categoria}
                           </Text>
-                          <Text style={s.partidoEtapa} numberOfLines={1}>{f.etapa}</Text>
+                          {!ancha && <Text style={s.partidoEtapa} numberOfLines={1}>{f.etapa}</Text>}
 
                           {/* QUIÉN JUEGA, cuando hay sitio. Sin esto el
                               organizador abre la celda solo para saber si ese
@@ -214,6 +221,10 @@ export default function ParrillaDia({
                           {ancha && (f.parejaA || f.parejaB) && (
                             <View style={s.parejas}>
                               <Text style={s.pareja} numberOfLines={1}>{f.parejaA ?? '—'}</Text>
+                              {/* El "vs" en medio: sin él las dos líneas se
+                                  leen como una lista de cuatro personas y hay
+                                  que contar para saber quién va con quién. */}
+                              <Text style={s.versus}>vs</Text>
                               <Text style={s.pareja} numberOfLines={1}>{f.parejaB ?? '—'}</Text>
                             </View>
                           )}
@@ -289,8 +300,10 @@ const s = StyleSheet.create({
   celdaVacia: { backgroundColor: 'transparent' },
 
   // Las dos parejas, cuando la pantalla da para decirlas.
-  parejas: { marginTop: 2, gap: 1 },
-  pareja:  { fontFamily: font.body, fontSize: fontSize.minAbsolute, color: color.text },
+  parejas: { marginTop: 3, gap: 1 },
+  // Legible de pie y a medio metro, que es como se mira esto en el club.
+  pareja:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
+  versus:  { fontFamily: font.body, fontSize: 9, color: color.muted, marginVertical: 1 },
   marcador: {
     fontFamily: font.display, fontSize: fontSize.minAbsolute, color: color.champagne,
     marginTop: 1,
