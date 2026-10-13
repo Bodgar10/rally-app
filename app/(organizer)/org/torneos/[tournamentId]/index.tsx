@@ -623,14 +623,28 @@ export default function OrgTournamentScreen() {
             por otra razón: lo de arriba se prepara una vez, con semanas de
             margen; esto se abre el sábado, con gente delante. Mezclarlas
             obligaba a leer las doce para encontrar una. */}
-        <Text style={s.seccion}>DURANTE EL TORNEO</Text>
+        {/* ── LAS DOS QUE SE BUSCAN CON GENTE ESPERANDO ────────────────
+            Con el torneo en marcha el organizador entra a hacer dos cosas:
+            mirar el calendario y apuntar un resultado. Las demás tarjetas son
+            de la semana anterior y ya no se tocan, pero ocupan el mismo sitio
+            y se ven igual — y buscarlas entre doce iguales cuesta segundos que
+            se pagan en la fila de la cancha.
+
+            Se destacan solo con el torneo EN CURSO: antes no hay resultados
+            que apuntar, y si todo está resaltado no hay nada resaltado. */}
+        <Text style={s.seccion}>
+          {enCurso ? 'DURANTE EL TORNEO · LO QUE NECESITAS AHORA' : 'DURANTE EL TORNEO'}
+        </Text>
         <View style={s.rejilla}>
           {/* El calendario cuelga de la capacidad: sin canchas ni horarios no
               hay nada que programar, y la propia pantalla lo dice. */}
           <TarjetaAjuste
             icon="calendar"
             title="Calendario"
-            value="Horas y canchas del último día"
+            value={enCurso
+              ? 'Qué se juega ahora, en qué cancha y qué falta por capturar'
+              : 'Horas y canchas del último día'}
+            destacada={enCurso}
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/calendario`)}
           />
           {/* PRIORIDAD DE INSCRIPCIÓN — APAGADA A PROPÓSITO.
@@ -662,13 +676,17 @@ export default function OrgTournamentScreen() {
               value={sorteadoAt
                 ? 'Las tablas de los dos grupos, los partidos y los empates'
                 : 'Sortear los grupos y armar la tarde'}
+              destacada={enCurso && !!sorteadoAt}
               onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/expres`)}
             />
           ) : (
             <TarjetaAjuste
               icon="users"
-              title="Grupos"
-              value="Tablas y partidos de la fase de grupos"
+              title={enCurso ? 'Apuntar resultados' : 'Grupos'}
+              value={enCurso
+                ? 'Las tablas y el marcador de cada partido'
+                : 'Tablas y partidos de la fase de grupos'}
+              destacada={enCurso}
               onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/grupos`)}
             />
           )}

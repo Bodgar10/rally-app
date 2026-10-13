@@ -59,17 +59,38 @@ interface Props {
   badge?:     string;
   onPress?:   () => void;
   disabled?:  boolean;
+  /**
+   * La tarjeta que hay que encontrar AHORA MISMO.
+   *
+   * ► EL CASO: EL SÁBADO POR LA TARDE
+   *   Con el torneo en marcha, el organizador entra al panel a hacer dos
+   *   cosas: mirar el calendario y apuntar un resultado. Las demás tarjetas
+   *   —canchas, cuota, formato, sede— son de la semana anterior y ya no se
+   *   tocan, pero ocupan el mismo sitio y se ven igual.
+   *
+   *   Buscar entre doce tarjetas iguales con cuatro personas esperando en la
+   *   cancha cuesta segundos que se pagan en la fila. Las dos que importan se
+   *   ven distintas en cuanto empieza el torneo.
+   *
+   * Se apaga sola: antes de cerrar inscripciones no hay resultados que
+   * apuntar, y si todo está resaltado no hay nada resaltado.
+   */
+  destacada?: boolean;
 }
 
 export default function TarjetaAjuste({
-  icon, title, value, iconColor, badge, onPress, disabled = false,
+  icon, title, value, iconColor, badge, onPress, disabled = false, destacada = false,
 }: Props) {
   const inerte = disabled || !onPress;
 
   const contenido = (
     <>
       <View style={s.cabecera}>
-        <Icon name={icon} size={22} color={iconColor ?? (inerte ? color.muted : color.champagne)} />
+        <Icon
+          name={icon}
+          size={destacada ? 26 : 22}
+          color={iconColor ?? (inerte ? color.muted : destacada ? color.goldBright : color.champagne)}
+        />
         {badge ? (
           <View style={s.badge}>
             <Text style={s.badgeTexto}>{badge}</Text>
@@ -78,7 +99,12 @@ export default function TarjetaAjuste({
       </View>
 
       <View style={s.titulos}>
-        <Text style={[s.titulo, inerte && s.tituloInerte]} numberOfLines={2}>{title}</Text>
+        <Text
+          style={[s.titulo, inerte && s.tituloInerte, destacada && s.tituloDestacado]}
+          numberOfLines={2}
+        >
+          {title}
+        </Text>
         {!inerte && <Icon name="chevron" size={16} color={color.muted} />}
       </View>
 
@@ -100,7 +126,11 @@ export default function TarjetaAjuste({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [s.tarjeta, pressed && s.tarjetaPulsada]}
+      style={({ pressed }) => [
+        s.tarjeta,
+        destacada && s.tarjetaDestacada,
+        pressed && s.tarjetaPulsada,
+      ]}
       accessibilityRole="button"
       accessibilityLabel={value ? `${title}. ${value}` : title}
     >
@@ -110,6 +140,15 @@ export default function TarjetaAjuste({
 }
 
 const s = StyleSheet.create({
+  // Borde de oro y fondo tintado: se encuentra de un vistazo entre doce
+  // tarjetas iguales, sin gritar como un error.
+  tarjetaDestacada: {
+    borderColor:     color.goldBright,
+    borderWidth:     1.5,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+  },
+  tituloDestacado: { color: color.goldBright, fontWeight: '600' },
+
   tarjeta: {
     flexGrow:        1,
     flexBasis:       ANCHO_MINIMO_TARJETA,
