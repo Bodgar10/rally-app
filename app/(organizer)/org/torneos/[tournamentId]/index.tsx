@@ -55,6 +55,15 @@ import type { CierreDeTorneo } from '@/lib/cierre-de-torneo';
 interface Venue { name: string; city: string | null }
 
 interface Tournament {
+  /**
+   * Cómo se juega cada etapa (migración 092). Null = mejor de 3, lo de
+   * siempre. Lo lee la tarjeta de Formato: un torneo a un set no tiene tercer
+   * set y anunciarlo sería mentirle al organizador, que repite esa línea por
+   * el micrófono.
+   */
+  formato_grupos?: 'set_oro' | 'set_star_point' | 'dos_sets_oro' | null;
+  formato_cuadro?: 'set_oro' | 'set_star_point' | 'dos_sets_oro' | null;
+  formato_final?: 'set_oro' | 'set_star_point' | 'dos_sets_oro' | null;
   id:               string;
   name:             string;
   start_date:       string;
@@ -171,7 +180,7 @@ export default function OrgTournamentScreen() {
     const [{ data: t }, { data: cats }, { count: jueces }, { count: parejas }, { data: ws }] = await Promise.all([
       supabase
         .from('tournaments')
-        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,modo,tercer_lugar,tercer_set_formato,tercer_set_puntos,tier,organizer_id,venues:venue_id(name,city)')
+        .select('id,name,start_date,end_date,status,registration_fee,courts,match_minutes,modo,tercer_lugar,tercer_set_formato,tercer_set_puntos,formato_grupos,formato_cuadro,formato_final,tier,organizer_id,venues:venue_id(name,city)')
         .eq('id', tournamentId)
         .single(),
       supabase
@@ -558,6 +567,11 @@ export default function OrgTournamentScreen() {
                 ? resumenDeFormatoExpres()
                 : resumenDeFormato(
                     tournament.tercer_set_formato, tournament.tercer_set_puntos, tercerLugar,
+                    {
+                      grupos: tournament.formato_grupos ?? null,
+                      cuadro: tournament.formato_cuadro ?? null,
+                      final:  tournament.formato_final  ?? null,
+                    },
                   )
             }
             onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/formato`)}

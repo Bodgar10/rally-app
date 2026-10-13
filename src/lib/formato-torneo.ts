@@ -1,3 +1,4 @@
+import { resumenDeEtapas } from '@/lib/formato-de-etapa';
 /**
  * RALLY · El formato del torneo, en una línea
  *
@@ -23,6 +24,9 @@
 /** `tournaments.tercer_set_formato`. */
 export type FormatoTercerSet = 'super_muerte' | 'set_completo';
 
+/** Lo que puede valer una etapa. Null = mejor de 3, como siempre. */
+type EtapaOpcional = 'set_oro' | 'set_star_point' | 'dos_sets_oro' | null;
+
 /**
  * El subtítulo de la tarjeta Formato.
  *
@@ -33,6 +37,17 @@ export function resumenDeFormato(
   formato: FormatoTercerSet | null | undefined,
   puntos: number | null | undefined,
   tercerLugar: boolean,
+  /**
+   * Cómo se juega cada etapa, si el torneo lo dijo (migración 092).
+   *
+   * ► SIN ESTO LA TARJETA MENTÍA. Un torneo a un set no tiene tercer set, y
+   *   esta línea anunciaba "súper muerte a 10" igualmente. El organizador lee
+   *   el panel para repetirlo por el micrófono.
+   *
+   *   Lo que manda es cómo se juegan los partidos; el tercer set solo se
+   *   menciona cuando alguna etapa puede llegar a tenerlo.
+   */
+  etapas?: { grupos: EtapaOpcional; cuadro: EtapaOpcional; final: EtapaOpcional },
 ): string {
   const tercerSet = formato === 'set_completo'
     ? 'Tercer set: set completo'
@@ -41,5 +56,20 @@ export function resumenDeFormato(
     // asume mientras nadie toque la pantalla.
     : `Tercer set: súper muerte a ${puntos ?? 10}`;
 
-  return tercerLugar ? `${tercerSet} · con 3.er lugar` : tercerSet;
+  const cola = tercerLugar ? ' · con 3.er lugar' : '';
+
+  if (!etapas) return `${tercerSet}${cola}`;
+
+  const aUnSet = (f: EtapaOpcional) => f === 'set_oro' || f === 'set_star_point';
+  const todoAUnSet = aUnSet(etapas.grupos) && aUnSet(etapas.cuadro) && aUnSet(etapas.final);
+
+  // Ninguna etapa llega a un tercer set: mencionarlo sobra.
+  if (todoAUnSet) return `${resumenDeEtapas(etapas.grupos, etapas.cuadro, etapas.final)}${cola}`;
+
+  const sinDecir = etapas.grupos === null && etapas.cuadro === null && etapas.final === null;
+  if (sinDecir) return `${tercerSet}${cola}`;
+
+  // Mezcla: manda cómo se juega, y el tercer set va detrás porque sigue
+  // aplicando a las etapas que lo pueden tener.
+  return `${resumenDeEtapas(etapas.grupos, etapas.cuadro, etapas.final)}${cola}`;
 }

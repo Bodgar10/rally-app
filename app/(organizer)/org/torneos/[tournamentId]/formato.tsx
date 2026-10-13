@@ -42,6 +42,7 @@ import { useVolver } from '@/hooks/useVolver';
 
 import { supabase } from '@/lib/supabase/client';
 import { cumplirPaso } from '@/lib/guia-store';
+import { OPCIONES_DE_ETAPA, resumenDeEtapas, type FormatoDeEtapa } from '@/lib/formato-de-etapa';
 import { color, radius, space, font, fontSize, touchTarget } from '@/lib/design-tokens';
 import { webContentColumn, bottomInset } from '@/lib/web-layout';
 import BotonVolver from '@/components/ui/BotonVolver';
@@ -63,6 +64,15 @@ export default function FormatoScreen() {
   // que el torneo no va a jugar.
   const [tercero, setTercero]     = useState(false);
   const [formato, setFormato]     = useState<'super_muerte' | 'set_completo'>('super_muerte');
+  /**
+   * Cómo se juega cada etapa. Null = mejor de 3, lo de siempre.
+   *
+   * Las tres juntas en un estado porque se guardan juntas y se resumen juntas
+   * — ver `resumenDeEtapas`.
+   */
+  const [etapas, setEtapas] = useState<{
+    grupos: FormatoDeEtapa; cuadro: FormatoDeEtapa; final: FormatoDeEtapa;
+  }>({ grupos: null, cuadro: null, final: null });
   const [puntos, setPuntos]       = useState('10');
   const [tercerosCapturados, setTercerosCapturados] = useState(0);
   /** Lo que hay en la base, para saber si de verdad se está cambiando algo. */
@@ -89,7 +99,7 @@ export default function FormatoScreen() {
     try {
       const { data: t, error: te } = await supabase
         .from('tournaments')
-        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos, modo')
+        .select('name, courts, match_minutes, tercer_lugar, tercer_set_formato, tercer_set_puntos, modo, formato_grupos, formato_cuadro, formato_final')
         .eq('id', tournamentId)
         .maybeSingle();
       if (te) throw te;
@@ -98,6 +108,7 @@ export default function FormatoScreen() {
       const fila = t as unknown as {
         name: string; courts: number | null;
         match_minutes: number | null; tercer_lugar: boolean | null;
+        formato_grupos: FormatoDeEtapa; formato_cuadro: FormatoDeEtapa; formato_final: FormatoDeEtapa;
         tercer_set_formato: 'super_muerte' | 'set_completo' | null;
         tercer_set_puntos: number | null;
         modo: string | null;
@@ -123,6 +134,11 @@ export default function FormatoScreen() {
       setTerceroGuardado(fila.tercer_lugar === true);
       // Un torneo creado antes de la 063 no tiene el dato: súper muerte a 10,
       // que es como se venía jugando.
+      setEtapas({
+        grupos: fila.formato_grupos ?? null,
+        cuadro: fila.formato_cuadro ?? null,
+        final:  fila.formato_final  ?? null,
+      });
       setFormato(fila.tercer_set_formato ?? 'super_muerte');
       setPuntos(String(fila.tercer_set_puntos ?? 10));
       setFormatoGuardado(fila.tercer_set_formato ?? 'super_muerte');
@@ -212,6 +228,11 @@ export default function FormatoScreen() {
           tercer_lugar: tercero,
           tercer_set_formato: formato,
           tercer_set_puntos: formato === 'super_muerte' ? n : 10,
+          // Null es una opción, no un hueco: significa "mejor de 3, como
+          // siempre", y así se guarda.
+          formato_grupos: etapas.grupos,
+          formato_cuadro: etapas.cuadro,
+          formato_final:  etapas.final,
         } as never)
         .eq('id', tournamentId);
       if (e) throw e;
@@ -305,6 +326,52 @@ export default function FormatoScreen() {
             </Text>
           )}
         </View>
+
+        {/* ── CÓMO SE JUEGA CADA ETAPA ─────────────────────────────────
+            Padel Hype juega sus grupos a un set con punto de oro, el cuadro
+            igual y la final a dos de tres. Hasta esto, un torneo largo solo
+            sabía jugarse al mejor de 3 en todo — y el juez tecleaba el 6-4 que
+            cerraba el partido con el botón de guardar apagado, pidiendo un
+            segundo set que nadie iba a jugar. */}
+        <Text style={s.seccion}>Cómo se juega cada etapa</Text>
+
+        <View style={s.nota}>
+          <Text style={s.notaTexto}>{resumenDeEtapas(etapas.grupos, etapas.cuadro, etapas.final)}</Text>
+        </View>
+
+        {([
+          ['grupos', 'Fase de grupos', 'Cada partido del round robin'],
+          ['cuadro', 'Cuadro', 'De octavos a semifinales, y el 3.er lugar'],
+          ['final',  'La final', 'Va aparte: casi siempre se juega distinto'],
+        ] as const).map(([clave, titulo, sub]) => (
+          <View key={clave} style={{ gap: space[2] }}>
+            <View>
+              <Text style={s.filaTitulo}>{titulo}</Text>
+              <Text style={s.filaSub}>{sub}</Text>
+            </View>
+            <View style={s.opcionesEtapa}>
+              {OPCIONES_DE_ETAPA.map((o) => {
+                const elegida = etapas[clave] === o.valor;
+                return (
+                  <Pressable
+                    key={o.valor ?? 'mejor-de-3'}
+                    onPress={() => {
+                      setEtapas((prev) => ({ ...prev, [clave]: o.valor }));
+                      setConfirmando(false);
+                    }}
+                    style={[s.opcionEtapa, elegida && s.opcionElegida]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: elegida }}
+                    accessibilityLabel={`${titulo}: ${o.titulo}. ${o.sub}`}
+                  >
+                    <Text style={[s.opcionTitulo, elegida && s.opcionTituloElegida]}>{o.titulo}</Text>
+                    <Text style={s.opcionSub}>{o.sub}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
 
         {/* ── EL SET DECISIVO ──────────────────────────────────────────
             No se deduce de los números: en el tercer set un 5-4 es legal
@@ -407,6 +474,14 @@ const s = StyleSheet.create({
 
   seccion:     { fontFamily: font.display, fontSize: fontSize.section, color: color.champagne, marginTop: space[2] },
   opciones:    { flexDirection: 'row', gap: space[2] },
+  // Las etapas llevan cuatro opciones, no dos: se envuelven en vez de
+  // apretarse hasta que no se lean.
+  opcionesEtapa: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  opcionEtapa: {
+    flexGrow: 1, flexBasis: 150,
+    borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md,
+    padding: space[3], gap: space[1],
+  },
   opcion:      { flex: 1, borderWidth: 1, borderColor: color.lineSoft, borderRadius: radius.md, padding: space[3], gap: space[1] },
   opcionElegida: { borderColor: color.gold, backgroundColor: 'rgba(212,175,55,0.10)' },
   opcionTitulo:  { fontFamily: font.body, fontSize: fontSize.body, fontWeight: '600', color: color.text },
