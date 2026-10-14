@@ -53,6 +53,7 @@ import Hoja, { HOJA_FORMULARIO } from '@/components/ui/Hoja';
 import ScoreCapture, { type SetGuardado } from '@/components/judge/ScoreCapture';
 import { scoreConfigDelTorneo } from '@/lib/tercer-set';
 import { scoreConfigDelPartido } from '@/lib/engine/score/formato-partido';
+import { categoriasListasParaCuadro } from '@/lib/cuadro-listo';
 import type { ScoreConfig } from '@/lib/engine/score';
 import { type PartidoEnCalendario } from '@/lib/engine/schedule/mover';
 import {
@@ -196,6 +197,14 @@ interface Estado {
   setsPorPartido: Record<string, SetGuardado[]>;
   /** Categorías con partidos, en el orden en que empiezan a jugar. */
   categorias: { id: string; nombre: string; partidos: number }[];
+  /**
+   * Categorías que ya jugaron TODOS sus grupos y aún no tienen cuadro.
+   *
+   * Es el botón que faltaba: el organizador anota el último marcador de una
+   * categoría y lo siguiente que hay que hacer —definir los cruces— estaba en
+   * otra pantalla. Mitad del torneo esperando a que alguien se acuerde.
+   */
+  listasParaCuadro: { id: string; nombre: string; partidos: number }[];
   /** ¿Cada partido tiene la hora que le reserva el plan? Ver calendario-al-dia. */
   plan: EstadoDelPlan;
   reales: EmpalmeReal[];
@@ -305,6 +314,10 @@ export default function CalendarioScreen() {
    * se apaga en vez de reventar el resto de la pantalla (ver `cargar`).
    */
   const [scoreConfig, setScoreConfig] = useState<ScoreConfig | null>(null);
+  /** Categoría cuyo cuadro se está definiendo. Null = ninguna. */
+  const [sembrando, setSembrando] = useState<string | null>(null);
+  /** Lo que respondió el servidor al definir un cuadro. */
+  const [avisoCuadro, setAvisoCuadro] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -369,6 +382,15 @@ export default function CalendarioScreen() {
         .eq('tournament_id', tournamentId)
         .not('scheduled_at', 'is', null),
     ]);
+
+    // TODOS los partidos, con hora o sin ella. La consulta de arriba filtra por
+    // `scheduled_at` porque pinta la parrilla; para saber si una categoría ya
+    // terminó sus grupos hace falta mirarlos todos — un partido sin hora que
+    // nadie jugó también cuenta, y es justo el que haría salir el botón antes
+    // de tiempo.
+    const { data: todos } = await supabase.from('matches')
+      .select('category_id, stage, status')
+      .eq('tournament_id', tournamentId);
 
     const parejas = await fetchParejasPublicas(
       (partidos ?? []).flatMap((m) => [m.pair_a_id, m.pair_b_id]),
@@ -619,6 +641,14 @@ export default function CalendarioScreen() {
       nombres: Object.fromEntries(nombrePorJugador),
       setsPorPartido,
       categorias: categoriasConPartidos(filas),
+      listasParaCuadro: categoriasListasParaCuadro(
+        ((todos ?? []) as Array<{ category_id: string; stage: string; status: string }>)
+          .map((m) => ({ categoryId: m.category_id, stage: m.stage, status: m.status })),
+      ).map((c) => ({
+        id: c.id,
+        nombre: nombreCat.get(c.id) ?? '—',
+        partidos: c.partidosDeGrupo,
+      })),
       plan: estadoDelPlan(
         (partidos ?? []).map((m: any) => ({
           id: m.id, categoryId: m.category_id,
@@ -800,6 +830,56 @@ export default function CalendarioScreen() {
    */
   const sePuedeCapturar = (f: Fila) => sePuedeMover(f) && !!f.parejaAId && !!f.parejaBId;
 
+  /**
+   * Define los cruces de una categoría SIN SALIR DEL CALENDARIO.
+   *
+   * ► LA VALIDACIÓN LARGA SIGUE EN GRUPOS, Y DEBE SEGUIR AHÍ
+   *   Sembrar puede toparse con un empate que alguien tiene que sortear, y eso
+   *   es una DECISIÓN: necesita la tabla delante. `generate-bracket` la rechaza
+   *   con su motivo, y aquí se enseña con un enlace a Grupos, que es donde se
+   *   arregla.
+   *
+   *   Lo que no tiene sentido es obligar a ir a Grupos en el caso normal —todo
+   *   limpio, los cruces salen solos—, que es el 90 % de las veces y pasa en
+   *   plena tarde de torneo con gente esperando en la cancha.
+   */
+  const definirCuadro = useCallback(async (cat: { id: string; nombre: string }) => {
+    setAvisoCuadro(null);
+    setSembrando(cat.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sin sesión activa.');
+
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/generate-bracket`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action: 'seed', category_id: cat.id }),
+        },
+      );
+      const cuerpo = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setAvisoCuadro(
+          cuerpo?.detail ?? cuerpo?.error
+          ?? `No se pudo definir el cuadro de ${cat.nombre}.`,
+        );
+        return;
+      }
+
+      setAvisoCuadro(`${cat.nombre}: cuadro definido. Ya está en el calendario con sus horas.`);
+      await cargar();
+    } catch (e) {
+      setAvisoCuadro(fallo('calendario/definir-cuadro', e, `No se pudo definir el cuadro de ${cat.nombre}.`, { categoria: cat.id }));
+    } finally {
+      setSembrando(null);
+    }
+  }, [cargar]);
+
   if (fase.t === 'cargando') {
     return (
       <SafeAreaView style={s.pantalla}>
@@ -886,6 +966,63 @@ export default function CalendarioScreen() {
                   )}
                 </HorasUltimoDia>
               </View>
+            )}
+
+            {/* 2 · LO SIGUIENTE QUE HAY QUE HACER.
+                Va aquí, entre las horas y la parrilla, porque es donde cae la
+                vista cuando el organizador acaba de anotar el último marcador
+                de una categoría. Antes esto no estaba en ninguna parte del
+                calendario y el torneo se paraba hasta que alguien se acordaba
+                de ir a Grupos. */}
+            {estado.listasParaCuadro.length > 0 && (
+              <View style={s.listas}>
+                <Text style={s.listasTitulo}>
+                  {estado.listasParaCuadro.length === 1
+                    ? 'Una categoría terminó sus grupos'
+                    : `${estado.listasParaCuadro.length} categorías terminaron sus grupos`}
+                </Text>
+                <Text style={s.listasCuerpo}>
+                  Define los cruces y sus partidos aparecen en el calendario con
+                  la hora y la cancha que ya tienen reservadas.
+                </Text>
+                {estado.listasParaCuadro.map((c) => (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => definirCuadro(c)}
+                    disabled={sembrando !== null}
+                    style={({ pressed }) => [
+                      s.definir,
+                      sembrando !== null && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Definir el cuadro de ${c.nombre}`}
+                  >
+                    {sembrando === c.id
+                      ? <ActivityIndicator color={color.onGold} />
+                      : (
+                        <Text style={s.definirTexto}>
+                          Definir el cuadro de {c.nombre}
+                        </Text>
+                      )}
+                  </Pressable>
+                ))}
+                {avisoCuadro && <Text style={s.listasAviso}>{avisoCuadro}</Text>}
+                <Pressable
+                  onPress={() => router.push(`/(organizer)/org/torneos/${tournamentId}/grupos`)}
+                  style={({ pressed }) => [s.enlace, pressed && { opacity: 0.7 }]}
+                  accessibilityRole="button"
+                >
+                  <Text style={s.enlaceTexto}>Ver las tablas antes de decidir →</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* El acuse de un cuadro ya definido: la banda de arriba
+                desaparece en cuanto se siembra, y sin esto el organizador se
+                queda sin saber si funcionó. */}
+            {estado.listasParaCuadro.length === 0 && avisoCuadro && (
+              <Text style={s.listasAvisoSuelto}>{avisoCuadro}</Text>
             )}
 
             {/* 3 · El calendario, por pestañas.
@@ -1358,6 +1495,25 @@ const s = StyleSheet.create({
 
   eyebrow: { fontFamily: font.body, fontSize: fontSize.caption, color: color.muted, letterSpacing: 1 },
   title:   { fontFamily: font.display, fontSize: fontSize.screenH1, color: color.text, marginBottom: space[2] },
+
+  // LO SIGUIENTE QUE HAY QUE HACER, en oro: es la única cosa de esta pantalla
+  // que detiene el torneo si no se hace. El resto es consulta.
+  listas: {
+    backgroundColor: 'rgba(212,175,55,0.10)',
+    borderWidth: 1, borderColor: color.goldMuted, borderRadius: radius.lg,
+    padding: space[4], gap: space[2], marginTop: space[3],
+  },
+  listasTitulo: { fontFamily: font.display, fontSize: fontSize.cardName, color: color.goldBright },
+  listasCuerpo: { fontFamily: font.body, fontSize: fontSize.caption, color: color.champagne },
+  listasAviso:  { fontFamily: font.body, fontSize: fontSize.caption, color: color.text },
+  listasAvisoSuelto: {
+    fontFamily: font.body, fontSize: fontSize.caption, color: color.live, marginTop: space[3],
+  },
+  definir: {
+    minHeight: touchTarget, backgroundColor: color.gold, borderRadius: radius.lg,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: space[4],
+  },
+  definirTexto: { fontFamily: font.display, fontSize: fontSize.body, color: color.onGold },
 
   tarjeta: { backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, borderRadius: radius.lg, padding: space[4] },
 
