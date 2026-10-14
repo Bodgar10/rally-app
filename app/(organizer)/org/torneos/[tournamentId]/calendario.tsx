@@ -121,10 +121,15 @@ const deMinutos = (m: number): string =>
  */
 interface Fila extends FilaCalendario {
   /**
-   * `matches.formato`: si ESTE partido va a un set o a dos de tres. Vacío en un
+   * `matches.formato`: si ESTE partido va a un set o a dos de tres. Null en un
    * torneo de los de siempre, y entonces manda la regla del torneo.
+   *
+   * OBLIGATORIO, no opcional: siendo opcional se podía olvidar al armar la
+   * fila —y se olvidó— sin que TypeScript dijera nada. La pantalla pedía dos
+   * sets para partidos de un set. Ahora el compilador obliga a decir qué
+   * formato tiene cada fila, aunque la respuesta sea null.
    */
-  formato?: string | null;
+  formato: string | null;
   /** 'YYYY-MM-DD' en la zona del club. Ver diaDeTorneo. */
   dia: string;
 }
@@ -403,6 +408,12 @@ export default function CalendarioScreen() {
         parejaBId: m.pair_b_id,
         parejaA: nombreDe(pa),
         parejaB: nombreDe(pb),
+        // EL FORMATO DEL PARTIDO, que decide si la captura pide uno o dos
+        // sets. Se leía de la base y se tiraba aquí: la pantalla pedía dos
+        // sets para un partido de grupos que es UNO con punto de oro, y el
+        // botón de guardar no se encendía nunca. Las de Grupos y Juez sí lo
+        // pasaban; esta no.
+        formato: m.formato ?? null,
         estado: (m.status as Fila['estado']) ?? 'scheduled',
         ganadorId: m.winner_pair_id ?? null,
         marcador: marcadorDeSets((m as any).match_sets ?? []),
@@ -430,6 +441,9 @@ export default function CalendarioScreen() {
         parejaBId: null,
         parejaA: null,
         parejaB: null,
+        // El plan no es una fila de `matches`: su formato se sabrá cuando el
+        // partido exista. No hay nada que capturar todavía.
+        formato: null,
         estado: 'scheduled',
         jugadores: [],
       });

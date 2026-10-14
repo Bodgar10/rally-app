@@ -73,7 +73,7 @@ interface PartidoGrupo {
    * `matches.formato`: si ESTE partido va a un set o a dos de tres. Vacío en un
    * torneo de los de siempre, y entonces manda la regla del torneo.
    */
-  formato?: string | null;
+  formato: string | null;
   parejaA: string;
   parejaB: string;
   parejaAId: string | null;
@@ -352,6 +352,10 @@ export default function GruposScreen() {
       const hhmm = m.scheduled_at ? horaDeTorneo(m.scheduled_at) : null;
       const p: PartidoGrupo = {
         id: m.id,
+        // Lo que decide si la captura pide uno o dos sets. La captura del
+        // CUADRO sí lo pasaba; la de grupos no, y en un torneo de un set por
+        // partido pedía dos y no dejaba guardar.
+        formato: m.formato ?? null,
         parejaA: nombreDePareja(m.pair_a_id ? mapaParejas.get(m.pair_a_id) : undefined),
         parejaB: nombreDePareja(m.pair_b_id ? mapaParejas.get(m.pair_b_id) : undefined),
         parejaAId: m.pair_a_id,
